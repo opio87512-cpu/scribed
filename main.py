@@ -4,8 +4,8 @@ from flask import Flask
 import threading
 
 # Pulls the token securely from Render's environment variables
-BOT_TOKEN = os.environ.get("8969647277:AAG4RC0IxDRLMwr_VIzU-z_3VxQZlUd9ubo")
-bot = telebot.TeleBot(BOT_TOKEN)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+bot = telebot.TeleBot(8969647277:AAG4RC0IxDRLMwr_VIzU-z_3VxQZlUd9ubo)
 app = Flask(__name__)
 
 # This dummy web server keeps Render happy
