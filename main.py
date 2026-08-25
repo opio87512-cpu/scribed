@@ -5,7 +5,7 @@ import threading
 import time
 from flask import Flask
 
-# 1. Your Telegram Bot Token is now directly in the file
+# 1. Your Telegram Bot Token
 BOT_TOKEN = "8969647277:AAG4RC0IxDRLMwr_VIzU-z_3VxQZlUd9ubo"
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -31,7 +31,7 @@ def handle_tiktok_link(message):
         api_url = "https://example-tiktok-downloader.p.rapidapi.com/download"
         querystring = {"url": url}
         
-        # 2. You can also hardcode your RapidAPI key here if you want
+        # 2. Your RapidAPI key
         headers = {
             "X-RapidAPI-Key": "5759757fc4f740878f7ae4f373b97f6baf3c7068955",
             "X-RapidAPI-Host": "example-tiktok-downloader.p.rapidapi.com"
@@ -41,7 +41,12 @@ def handle_tiktok_link(message):
         response = requests.get(api_url, headers=headers, params=querystring)
         data = response.json()
         
-        # Check for the video URL (the exact word 'video_url' depends on your RapidAPI provider)
+        # --- DEBUG LINE ADDED HERE ---
+        # This will print the raw API response directly into your Telegram chat
+        bot.reply_to(message, f"Raw API Data: {data}")
+        # -----------------------------
+        
+        # Check for the video URL
         if 'video_url' in data:
             direct_video_url = data['video_url']
             
