@@ -5,57 +5,62 @@ import threading
 import time
 from flask import Flask
 
-# ⚠️ Replace this string with os.environ.get("BOT_TOKEN") for deployment
+# 1. Your Telegram Bot Token is now directly in the file
 BOT_TOKEN = "8969647277:AAG4RC0IxDRLMwr_VIzU-z_3VxQZlUd9ubo"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Dummy web server to keep Render from sleeping
+# Dummy web server to keep Render awake
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Scribd Downloader Bot is running!"
+    return "TikTok Downloader Bot is running!"
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "Welcome! Send me a Scribd link and I will try to fetch the PDF.")
+    bot.reply_to(message, "Welcome! Send me a TikTok link and I will fetch the video for you.")
 
-@bot.message_handler(func=lambda message: "scribd.com" in message.text)
-def handle_scribd_link(message):
+# Listen for TikTok links
+@bot.message_handler(func=lambda message: "tiktok.com" in message.text)
+def handle_tiktok_link(message):
     url = message.text
-    bot.reply_to(message, "Link detected. Processing your document... please wait.")
-    
-    # ==========================================
-    # THE SCRAPING ENGINE (YOUR NEXT CHALLENGE)
-    # ==========================================
-    # To actually bypass Scribd's paywall, you must connect to a 3rd-party scraping API
-    # or build a Selenium script with Premium cookies. 
-    # Here is the structural logic for how the bot handles the final download:
+    bot.reply_to(message, "TikTok link detected. Downloading video... please wait.")
     
     try:
-        # 1. Ask a scraping API to generate a direct download link
-        # api_url = f"https://api.example-scraper.com/get_pdf?url={url}"
-        # response = requests.get(api_url).json()
-        # direct_pdf_url = response['download_link']
+        # ⚠️ Replace these with your specific TikTok API endpoint from RapidAPI
+        api_url = "https://example-tiktok-downloader.p.rapidapi.com/download"
+        querystring = {"url": url}
         
-        # 2. Download the raw PDF data into the server's memory
-        # pdf_data = requests.get(direct_pdf_url).content
+        # 2. You can also hardcode your RapidAPI key here if you want
+        headers = {
+            "X-RapidAPI-Key": "5759757fc4f740878f7ae4f373b97f6baf3c7068955",
+            "X-RapidAPI-Host": "example-tiktok-downloader.p.rapidapi.com"
+        }
         
-        # 3. Send the file back to the Telegram chat
-        # bot.send_document(
-        #     chat_id=message.chat.id,
-        #     document=pdf_data,
-        #     visible_file_name="Downloaded_Book.pdf"
-        # )
+        # Request the video link
+        response = requests.get(api_url, headers=headers, params=querystring)
+        data = response.json()
         
-        # Placeholder response until you connect an API
-        bot.reply_to(message, "Architecture is ready! Now you need to connect a scraping API to fetch the actual file.")
+        # Check for the video URL (the exact word 'video_url' depends on your RapidAPI provider)
+        if 'video_url' in data:
+            direct_video_url = data['video_url']
+            
+            # Download the video into memory
+            video_bytes = requests.get(direct_video_url).content
+            
+            # Send the video to Telegram
+            bot.send_video(
+                chat_id=message.chat.id,
+                video=video_bytes,
+                supports_streaming=True
+            )
+        else:
+            bot.reply_to(message, "Could not extract the video from this link.")
 
     except Exception as e:
-        bot.reply_to(message, f"Failed to process document. Error: {str(e)}")
+        bot.reply_to(message, f"System error: {str(e)}")
 
 def run_bot():
-    # A try-except loop ensures the bot restarts itself if it temporarily loses connection
     while True:
         try:
             bot.infinity_polling()
@@ -63,9 +68,6 @@ def run_bot():
             time.sleep(15)
 
 if __name__ == "__main__":
-    # Start the bot in the background
     threading.Thread(target=run_bot).start()
-    
-    # Start the web server for Render
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
