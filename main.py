@@ -29,54 +29,111 @@ def home():
 def send_welcome(message):
     bot.reply_to(message, "Send me a TikTok link and I will download the video or photo slideshow for you!")
 
-@bot.message_handler(func=lambda message: "tiktok.com" in message.text)
+
+def extract_image_urls(data):
+    """
+    TikWM's API returns slideshow images in a couple of different shapes
+    depending on the post/version. This normalizes all of them into a
+    flat list of direct image URLs.
+    """
+    urls = []
+
+    # Shape 1: data['images'] = ["https://...", "https://...", ...]
+    images = data.get('images')
+    if isinstance(images, list) and images:
+        for img in images:
+            if isinstance(img, str):
+                urls.append(img)
+            elif isinstance(img, dict):
+                # occasionally each item is a dict with a url field
+                u = img.get('url') or img.get('src')
+                if u:
+                    urls.append(u)
+        if urls:
+            return urls
+
+    # Shape 2: data['image_post_info']['images'] = [{ "display_image": { "url_list": [...] } }, ...]
+    image_post = data.get('image_post_info') or data.get('images_post_info') or {}
+    if isinstance(image_post, dict):
+        for img in image_post.get('images', []):
+            if not isinstance(img, dict):
+                continue
+            display = img.get('display_image') or img.get('image') or {}
+            url_list = display.get('url_list') or []
+            if url_list:
+                urls.append(url_list[0])
+
+    return urls
+
+
+@bot.message_handler(func=lambda message: message.text and "tiktok.com" in message.text)
 def handle_tiktok_link(message):
     raw_url = message.text
-    url = raw_url.split('?')[0] # Clean tracking data
-    
+    url = raw_url.split('?')[0]  # Clean tracking data
+
     status_msg = bot.reply_to(message, "⏳ Analyzing TikTok link...")
+    file_name = None
 
     try:
         # Step 1: Check if it's a photo post using the free TikWM API
         tikwm_api = "https://www.tikwm.com/api/"
         response = requests.get(tikwm_api, params={"url": url, "hd": 1}, timeout=15)
-        
+
+        images = []
         if response.status_code == 200:
-            data = response.json()
-            
-            # If the 'images' array exists in the data, it's a photo slideshow!
-            if data.get('code') == 0 and 'images' in data.get('data', {}):
-                bot.edit_message_text("📸 Photo slideshow detected! Sending images...", chat_id=message.chat.id, message_id=status_msg.message_id)
-                
-                images = data['data']['images']
-                media_group = []
-                
-                for i, img_url in enumerate(images):
-                    if i == 10: 
-                        break
-                    media_group.append(InputMediaPhoto(img_url))
-                
+            resp_json = response.json()
+            if resp_json.get('code') == 0:
+                images = extract_image_urls(resp_json.get('data', {}) or {})
+
+        if images:
+            bot.edit_message_text(
+                "📸 Photo slideshow detected! Sending images...",
+                chat_id=message.chat.id, message_id=status_msg.message_id
+            )
+
+            media_group = [InputMediaPhoto(img_url) for img_url in images[:10]]
+
+            try:
                 bot.send_media_group(message.chat.id, media_group)
-                bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
-                return  
+            except Exception:
+                # Fallback: some CDNs reject Telegram's fetch when batched.
+                # Try sending them one at a time instead.
+                sent_any = False
+                for img_url in images[:10]:
+                    try:
+                        bot.send_photo(message.chat.id, img_url)
+                        sent_any = True
+                    except Exception:
+                        continue
+                if not sent_any:
+                    raise
+
+            bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
+            return
 
         # Step 2: Fallback to yt-dlp for video extraction
-        bot.edit_message_text("🎥 Video detected! Processing with yt-dlp...", chat_id=message.chat.id, message_id=status_msg.message_id)
-        
+        bot.edit_message_text(
+            "🎥 Video detected! Processing with yt-dlp...",
+            chat_id=message.chat.id, message_id=status_msg.message_id
+        )
+
         file_name = f"{message.chat.id}_{message.message_id}.mp4"
         ydl_opts = {
             'format': 'best',
             'outtmpl': file_name,
             'quiet': True,
             'no_warnings': True,
-            'max_filesize': 45000000, 
+            'max_filesize': 45000000,
         }
-        
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-            
+
         if os.path.exists(file_name):
-            bot.edit_message_text("⏳ Uploading video to Telegram...", chat_id=message.chat.id, message_id=status_msg.message_id)
+            bot.edit_message_text(
+                "⏳ Uploading video to Telegram...",
+                chat_id=message.chat.id, message_id=status_msg.message_id
+            )
             with open(file_name, 'rb') as video_file:
                 bot.send_video(
                     chat_id=message.chat.id,
@@ -86,12 +143,20 @@ def handle_tiktok_link(message):
             bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
             os.remove(file_name)
         else:
-            bot.edit_message_text("❌ Error: Could not download the video.", chat_id=message.chat.id, message_id=status_msg.message_id)
-            
+            bot.edit_message_text(
+                "❌ Error: Could not download the video or photo. The link may be a slideshow "
+                "post that TikWM couldn't parse, or the video is unavailable.",
+                chat_id=message.chat.id, message_id=status_msg.message_id
+            )
+
     except Exception as e:
-        bot.edit_message_text(f"❌ System Error: {str(e)}", chat_id=message.chat.id, message_id=status_msg.message_id)
-        if 'file_name' in locals() and os.path.exists(file_name):
+        try:
+            bot.edit_message_text(f"❌ System Error: {str(e)}", chat_id=message.chat.id, message_id=status_msg.message_id)
+        except Exception:
+            pass
+        if file_name and os.path.exists(file_name):
             os.remove(file_name)
+
 
 def run_bot():
     while True:
@@ -104,6 +169,7 @@ def run_bot():
                 time.sleep(5)
         except Exception:
             time.sleep(5)
+
 
 if __name__ == "__main__":
     threading.Thread(target=run_bot, daemon=True).start()
