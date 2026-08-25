@@ -5,74 +5,75 @@ import threading
 import time
 from flask import Flask
 
-# 1. Your Telegram Bot Token
+# 1. Your Telegram Token
 BOT_TOKEN = "8969647277:AAG4RC0IxDRLMwr_VIzU-z_3VxQZlUd9ubo"
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Dummy web server to keep Render awake
+# Web Server for Render
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "TikTok Downloader Bot is running!"
+    return "TikTok Bot is online and monitoring."
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "Welcome! Send me a TikTok link and I will fetch the video for you.")
+    bot.reply_to(message, "Send me a TikTok link and I will download the video without a watermark!")
 
-# Listen for TikTok links
 @bot.message_handler(func=lambda message: "tiktok.com" in message.text)
 def handle_tiktok_link(message):
     url = message.text
-    bot.reply_to(message, "TikTok link detected. Downloading video... please wait.")
+    status_msg = bot.reply_to(message, "⏳ Connecting to free extraction server...")
     
     try:
-        # ⚠️ Replace these with your specific TikTok API endpoint from RapidAPI
-        api_url = "https://example-tiktok-downloader.p.rapidapi.com/download"
-        querystring = {"url": url}
+        # 2. Use the free TikWM API (No API key needed!)
+        api_url = "https://www.tikwm.com/api/"
+        querystring = {"url": url, "hd": 1} 
         
-        # 2. Your RapidAPI key
-        headers = {
-            "X-RapidAPI-Key": "5759757fc4f740878f7ae4f373b97f6baf3c7068955",
-            "X-RapidAPI-Host": "example-tiktok-downloader.p.rapidapi.com"
-        }
+        bot.edit_message_text("⏳ Fetching video metadata...", chat_id=message.chat.id, message_id=status_msg.message_id)
         
-        # Request the video link
-        response = requests.get(api_url, headers=headers, params=querystring)
+        # 3. Call the API
+        response = requests.get(api_url, params=querystring, timeout=15)
+        response.raise_for_status() 
         data = response.json()
         
-        # --- DEBUG LINE ADDED HERE ---
-        # This will print the raw API response directly into your Telegram chat
-        bot.reply_to(message, f"Raw API Data: {data}")
-        # -----------------------------
-        
-        # Check for the video URL
-        if 'video_url' in data:
-            direct_video_url = data['video_url']
-            
-            # Download the video into memory
-            video_bytes = requests.get(direct_video_url).content
-            
-            # Send the video to Telegram
-            bot.send_video(
-                chat_id=message.chat.id,
-                video=video_bytes,
-                supports_streaming=True
-            )
-        else:
-            bot.reply_to(message, "Could not extract the video from this link.")
+        # 4. Check for API errors (TikWM returns code 0 for success)
+        if data.get('code') != 0:
+            error_message = data.get('msg', 'Unknown error')
+            bot.edit_message_text(f"❌ Error from API: {error_message}", chat_id=message.chat.id, message_id=status_msg.message_id)
+            return
 
+        # 5. Extract the watermark-free video URL
+        video_url = data['data']['play']
+        
+        # 6. Download the video to the server
+        bot.edit_message_text("⏳ Downloading video to server...", chat_id=message.chat.id, message_id=status_msg.message_id)
+        video_response = requests.get(video_url, timeout=30)
+        video_response.raise_for_status()
+        
+        # 7. Upload to Telegram
+        bot.edit_message_text("⏳ Uploading to Telegram...", chat_id=message.chat.id, message_id=status_msg.message_id)
+        bot.send_video(
+            chat_id=message.chat.id,
+            video=video_response.content,
+            supports_streaming=True
+        )
+        # Delete the "loading" message once finished
+        bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
+
+    except requests.exceptions.Timeout:
+        bot.edit_message_text("❌ Error: Connection timed out. The video might be too large.", chat_id=message.chat.id, message_id=status_msg.message_id)
     except Exception as e:
-        bot.reply_to(message, f"System error: {str(e)}")
+        bot.edit_message_text(f"❌ System Error: {str(e)}", chat_id=message.chat.id, message_id=status_msg.message_id)
 
 def run_bot():
     while True:
         try:
-            bot.infinity_polling()
+            bot.infinity_polling(timeout=10, long_polling_timeout=5)
         except Exception:
-            time.sleep(15)
+            time.sleep(5)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_bot).start()
+    threading.Thread(target=run_bot, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
