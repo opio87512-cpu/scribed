@@ -6,7 +6,7 @@ import yt_dlp
 from flask import Flask
 
 # Your Telegram Token
-BOT_TOKEN = "8969647277:AAG4RC0IxDRLMwr_VIzU-z_3VxQZlUd9ubo"
+BOT_TOKEN = "8969647277:AAF3jTCal-ZdqYqghm7ln0mrcTZUcTg3o6U"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Web Server for Render
