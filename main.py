@@ -7,7 +7,7 @@ import time
 import yt_dlp
 from flask import Flask
 
-# Updated Telegram Bot Token
+# Your Telegram Bot Token
 BOT_TOKEN = "8969647277:AAF3jTCal-ZdqYqghm7ln0mrcTZUcTg3o6U"
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -24,7 +24,12 @@ def send_welcome(message):
 
 @bot.message_handler(func=lambda message: "tiktok.com" in message.text)
 def handle_tiktok_link(message):
-    url = message.text
+    raw_url = message.text
+    
+    # --- THE FIX: Clean the URL to remove tracking data before processing ---
+    url = raw_url.split('?')[0] 
+    # -----------------------------------------------------------------------
+    
     status_msg = bot.reply_to(message, "⏳ Analyzing TikTok link...")
 
     try:
