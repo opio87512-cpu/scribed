@@ -2,6 +2,7 @@ import telebot
 from telebot.types import InputMediaPhoto
 import requests
 import os
+import subprocess
 import threading
 import time
 import yt_dlp
@@ -95,6 +96,7 @@ def handle_tiktok_link(message):
 
     status_msg = bot.reply_to(message, "⏳ Analyzing TikTok link...")
     file_name = None
+    audio_file_name = None
 
     try:
         # Step 1: Check if it's a photo post using the free TikWM API
@@ -167,6 +169,41 @@ def handle_tiktok_link(message):
                     video=video_file,
                     supports_streaming=True
                 )
+
+            # Extract the audio track with ffmpeg and send it separately
+            audio_file_name = f"{message.chat.id}_{message.message_id}.mp3"
+            try:
+                bot.edit_message_text(
+                    "🎵 Extracting audio...",
+                    chat_id=message.chat.id, message_id=status_msg.message_id
+                )
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y", "-i", file_name,
+                        "-vn", "-acodec", "libmp3lame", "-q:a", "2",
+                        audio_file_name,
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=120,
+                )
+                if os.path.exists(audio_file_name):
+                    with open(audio_file_name, 'rb') as audio_file:
+                        bot.send_audio(chat_id=message.chat.id, audio=audio_file)
+            except FileNotFoundError:
+                # ffmpeg isn't installed on this host
+                bot.send_message(
+                    message.chat.id,
+                    "⚠️ Couldn't extract audio: ffmpeg isn't installed on the server."
+                )
+            except subprocess.CalledProcessError:
+                bot.send_message(message.chat.id, "⚠️ Couldn't extract audio from this video.")
+            except Exception:
+                bot.send_message(message.chat.id, "⚠️ Audio extraction failed.")
+            finally:
+                if os.path.exists(audio_file_name):
+                    os.remove(audio_file_name)
+
             bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
             os.remove(file_name)
         else:
@@ -183,6 +220,8 @@ def handle_tiktok_link(message):
             pass
         if file_name and os.path.exists(file_name):
             os.remove(file_name)
+        if audio_file_name and os.path.exists(audio_file_name):
+            os.remove(audio_file_name)
 
 
 def run_bot():
