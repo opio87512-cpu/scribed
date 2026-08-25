@@ -66,24 +66,39 @@ def extract_image_urls(data):
     return urls
 
 
+def fetch_tikwm_data(url):
+    """
+    Query TikWM, trying a couple of param combinations since the 'hd' flag
+    (meant for video) can sometimes interfere with slideshow parsing.
+    """
+    tikwm_api = "https://www.tikwm.com/api/"
+    for params in ({"url": url, "hd": 1}, {"url": url}):
+        try:
+            response = requests.get(tikwm_api, params=params, timeout=15)
+            if response.status_code == 200:
+                resp_json = response.json()
+                if resp_json.get('code') == 0:
+                    data = resp_json.get('data', {}) or {}
+                    if data:
+                        return data
+        except Exception:
+            continue
+    return {}
+
+
 @bot.message_handler(func=lambda message: message.text and "tiktok.com" in message.text)
 def handle_tiktok_link(message):
     raw_url = message.text
     url = raw_url.split('?')[0]  # Clean tracking data
+    is_photo_url = "/photo/" in url
 
     status_msg = bot.reply_to(message, "⏳ Analyzing TikTok link...")
     file_name = None
 
     try:
         # Step 1: Check if it's a photo post using the free TikWM API
-        tikwm_api = "https://www.tikwm.com/api/"
-        response = requests.get(tikwm_api, params={"url": url, "hd": 1}, timeout=15)
-
-        images = []
-        if response.status_code == 200:
-            resp_json = response.json()
-            if resp_json.get('code') == 0:
-                images = extract_image_urls(resp_json.get('data', {}) or {})
+        data = fetch_tikwm_data(url)
+        images = extract_image_urls(data)
 
         if images:
             bot.edit_message_text(
@@ -109,6 +124,17 @@ def handle_tiktok_link(message):
                     raise
 
             bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
+            return
+
+        if is_photo_url:
+            # yt-dlp does not support TikTok's /photo/ URL format at all
+            # (it throws "Unsupported URL"), so don't even try it here.
+            bot.edit_message_text(
+                "❌ This looks like a photo slideshow, but I couldn't extract the images "
+                "from it right now. TikWM may be having trouble with this post — try again "
+                "in a bit, or send the link again.",
+                chat_id=message.chat.id, message_id=status_msg.message_id
+            )
             return
 
         # Step 2: Fallback to yt-dlp for video extraction
