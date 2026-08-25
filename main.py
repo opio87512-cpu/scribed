@@ -23,28 +23,40 @@ def send_welcome(message):
 @bot.message_handler(func=lambda message: "tiktok.com" in message.text)
 def handle_tiktok_link(message):
     url = message.text
-    status_msg = bot.reply_to(message, "⏳ Connecting to free extraction server...")
+    status_msg = bot.reply_to(message, "⏳ Connecting to Cobalt extraction server...")
     
     try:
-        # 2. Use the free TikWM API (No API key needed!)
-        api_url = "https://www.tikwm.com/api/"
-        querystring = {"url": url, "hd": 1} 
+        # 2. Use the free Cobalt API (Requires a POST request)
+        api_url = "https://api.cobalt.tools/api/json"
+        
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "url": url
+        }
         
         bot.edit_message_text("⏳ Fetching video metadata...", chat_id=message.chat.id, message_id=status_msg.message_id)
         
         # 3. Call the API
-        response = requests.get(api_url, params=querystring, timeout=15)
+        response = requests.post(api_url, headers=headers, json=payload, timeout=15)
         response.raise_for_status() 
         data = response.json()
         
-        # 4. Check for API errors (TikWM returns code 0 for success)
-        if data.get('code') != 0:
-            error_message = data.get('msg', 'Unknown error')
+        # 4. Check for API errors (Cobalt returns 'status': 'error' if it fails)
+        if data.get('status') == 'error':
+            error_message = data.get('text', 'Unknown error')
             bot.edit_message_text(f"❌ Error from API: {error_message}", chat_id=message.chat.id, message_id=status_msg.message_id)
             return
 
         # 5. Extract the watermark-free video URL
-        video_url = data['data']['play']
+        video_url = data.get('url')
+        
+        if not video_url:
+            bot.edit_message_text(f"❌ Could not find the video URL. Raw data:\n{data}", chat_id=message.chat.id, message_id=status_msg.message_id)
+            return
         
         # 6. Download the video to the server
         bot.edit_message_text("⏳ Downloading video to server...", chat_id=message.chat.id, message_id=status_msg.message_id)
@@ -58,6 +70,7 @@ def handle_tiktok_link(message):
             video=video_response.content,
             supports_streaming=True
         )
+        
         # Delete the "loading" message once finished
         bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
 
