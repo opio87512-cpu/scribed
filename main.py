@@ -11,6 +11,13 @@ from flask import Flask
 BOT_TOKEN = "8969647277:AAF3jTCal-ZdqYqghm7ln0mrcTZUcTg3o6U"
 bot = telebot.TeleBot(BOT_TOKEN)
 
+# --- THE FIX: Forcefully clear any stuck webhooks or old sessions ---
+try:
+    bot.remove_webhook()
+except Exception:
+    pass
+# -------------------------------------------------------------------
+
 # Web Server for Render
 app = Flask(__name__)
 
@@ -25,10 +32,7 @@ def send_welcome(message):
 @bot.message_handler(func=lambda message: "tiktok.com" in message.text)
 def handle_tiktok_link(message):
     raw_url = message.text
-    
-    # --- THE FIX: Clean the URL to remove tracking data before processing ---
-    url = raw_url.split('?')[0] 
-    # -----------------------------------------------------------------------
+    url = raw_url.split('?')[0] # Clean tracking data
     
     status_msg = bot.reply_to(message, "⏳ Analyzing TikTok link...")
 
@@ -47,18 +51,16 @@ def handle_tiktok_link(message):
                 images = data['data']['images']
                 media_group = []
                 
-                # Telegram limits albums to a maximum of 10 photos per message
                 for i, img_url in enumerate(images):
                     if i == 10: 
                         break
                     media_group.append(InputMediaPhoto(img_url))
                 
-                # Send the album directly to the user
                 bot.send_media_group(message.chat.id, media_group)
                 bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
-                return  # Stop the function here so it doesn't try to download a video
+                return  
 
-        # Step 2: If it's NOT a photo post, fallback to yt-dlp for video extraction
+        # Step 2: Fallback to yt-dlp for video extraction
         bot.edit_message_text("🎥 Video detected! Processing with yt-dlp...", chat_id=message.chat.id, message_id=status_msg.message_id)
         
         file_name = f"{message.chat.id}_{message.message_id}.mp4"
@@ -67,7 +69,7 @@ def handle_tiktok_link(message):
             'outtmpl': file_name,
             'quiet': True,
             'no_warnings': True,
-            'max_filesize': 45000000, # Prevents Render from crashing on massive files
+            'max_filesize': 45000000, 
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -88,7 +90,6 @@ def handle_tiktok_link(message):
             
     except Exception as e:
         bot.edit_message_text(f"❌ System Error: {str(e)}", chat_id=message.chat.id, message_id=status_msg.message_id)
-        # Ensure the broken file gets deleted if an error occurs
         if 'file_name' in locals() and os.path.exists(file_name):
             os.remove(file_name)
 
