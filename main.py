@@ -14,6 +14,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # --- THE FIX: Forcefully clear any stuck webhooks or old sessions ---
 try:
     bot.remove_webhook()
+    time.sleep(1)
 except Exception:
     pass
 # -------------------------------------------------------------------
@@ -185,16 +186,21 @@ def handle_tiktok_link(message):
 
 
 def run_bot():
+    backoff = 15
     while True:
         try:
             bot.infinity_polling(timeout=10, long_polling_timeout=5)
         except telebot.apihelper.ApiTelegramException as e:
             if e.error_code == 409:
-                time.sleep(15)
-            else:
-                time.sleep(5)
+                # Another instance is polling. Back off longer each time so
+                # we don't hammer the API if a duplicate deploy is stuck.
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 120)
+                continue
+            time.sleep(5)
         except Exception:
             time.sleep(5)
+        backoff = 15
 
 
 if __name__ == "__main__":
