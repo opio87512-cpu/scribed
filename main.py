@@ -1,14 +1,16 @@
 import os
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from flask import Flask, request
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 # --- CONFIGURATION ---
 TOKEN = "8969647277:AAF3jTCal-ZdqYqghm7ln0mrcTZUcTg3o6U" 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
+CORS(app) # Allows the GitHub Web App to talk to your Render server
 
-# IMPORTANT: Send /myid to your bot on Telegram, then replace 123456789 with that number
+# Your exact Telegram ID for receiving files
 ADMIN_ID = 8429521561 
 
 # --- CURRICULUM DATABASE ---
@@ -102,8 +104,16 @@ CURRICULUM = {
 # --- INLINE KEYBOARDS ---
 def main_menu_keyboard():
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("📚 Find Materials", callback_data="main_find"))
-    markup.row(InlineKeyboardButton("📤 Upload Material", callback_data="main_upload"))
+    
+    # --- WEB APP BUTTON ---
+    # IMPORTANT: Replace with your actual GitHub Pages HTML link later
+    webapp_url = "https://yourusername.github.io/astu-ece-portal/"
+    markup.row(InlineKeyboardButton("🚀 Open ASTU ECE Portal", web_app=WebAppInfo(url=webapp_url)))
+    
+    # --- CHAT FALLBACK BUTTONS ---
+    markup.row(InlineKeyboardButton("📚 Find Materials (Chat)", callback_data="main_find"))
+    markup.row(InlineKeyboardButton("📤 Upload Material (Chat)", callback_data="main_upload"))
+    
     return markup
 
 def year_keyboard(action):
@@ -149,15 +159,11 @@ def send_welcome(message):
     welcome_text = (
         "Welcome to the ASTU ECE Community Bot! 🚀\n\n"
         "Admin: @pede_7\n\n"
-        "What would you like to do?"
+        "Tap 'Open Portal' for the best experience, or use the chat menus below."
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu_keyboard())
 
-@bot.message_handler(commands=['myid'])
-def send_id(message):
-    bot.reply_to(message, f"Your numeric Telegram ID is:\n\n{message.from_user.id}\n\nPaste this into the ADMIN_ID variable.")
-
-# --- CALLBACK HANDLERS ---
+# --- CALLBACK HANDLERS (CHAT FALLBACKS) ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     if call.data == "main_find":
@@ -165,7 +171,7 @@ def handle_query(call):
     elif call.data == "main_upload":
         bot.edit_message_text("Select your academic year to UPLOAD materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('u'))
     elif call.data == "back_main":
-        bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nWhat would you like to do?", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
+        bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
     elif call.data.startswith("fy_") or call.data.startswith("uy_"):
         action = call.data[0]
         year = call.data.split('_')[1]
@@ -200,12 +206,11 @@ def handle_query(call):
         bot.send_message(ADMIN_ID, "❌ Upload rejected.")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
-# --- UPLOAD WORKFLOW ---
+# --- INLINE UPLOAD WORKFLOW ---
 def process_upload(message, course_code, material_type):
-    # Now checks for both documents AND photos
     if message.document or message.photo:
         admin_text = (
-            f"📥 **New Upload from @{message.from_user.username}**\n\n"
+            f"📥 **New Chat Upload from @{message.from_user.username}**\n\n"
             f"**Course:** {course_code}\n"
             f"**Type:** {material_type.upper()}"
         )
@@ -222,13 +227,33 @@ def process_upload(message, course_code, material_type):
     else:
         bot.reply_to(message, "Error: Please upload a valid document or photo. You will need to start the upload process over from the menu.")
 
-# --- WEBHOOK & FLASK SERVER FOR RENDER ---
+# --- FLASK SERVER ROUTING ---
 @app.route('/' + TOKEN, methods=['POST'])
 def getMessage():
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
     return "!", 200
+
+# NEW: Receives files sent from your HTML Web App
+@app.route('/api/upload', methods=['POST'])
+def handle_webapp_upload():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+        
+    file = request.files['file']
+    course = request.form.get('course', 'Unknown Course')
+    mat_type = request.form.get('type', 'Unknown Type')
+    username = request.form.get('username', 'Student')
+    
+    admin_text = f"🌐 **WEB APP Upload from {username}**\n\n**Course:** {course}\n**Type:** {mat_type.upper()}"
+    
+    try:
+        # Forwards the HTML upload to your personal ID
+        bot.send_document(ADMIN_ID, file.read(), caption=admin_text, visible_file_name=file.filename, parse_mode="Markdown")
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/")
 def webhook():
