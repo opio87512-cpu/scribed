@@ -236,6 +236,30 @@ def admin_delete_file_start(message):
         return
     bot.send_message(message.chat.id, "Select the Year to DELETE material from:", reply_markup=year_keyboard('d'))
 
+# NEW: Admin Command to Delete Approved YouTube Videos
+@bot.message_handler(commands=['deletevideo'])
+def admin_delete_video_start(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    data = load_json(VIDEOS_FILE)
+    if not data:
+        bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
+        return
+        
+    markup = InlineKeyboardMarkup()
+    has_videos = False
+    for course_code, vids in data.items():
+        for idx, v in enumerate(vids):
+            has_videos = True
+            markup.row(InlineKeyboardButton(f"❌ [{course_code}] {v.get('title', 'Video')}", callback_data=f"delvid_{course_code}_{idx}"))
+            
+    if not has_videos:
+        bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
+        return
+
+    bot.send_message(message.chat.id, "Select the video you want to delete:", reply_markup=markup)
+
 # --- CALLBACK HANDLERS ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -303,6 +327,20 @@ def handle_query(call):
             bot.edit_message_text(f"✅ Successfully deleted **{deleted_name}** from `{course_code}` ({material_type.upper()})!", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
         else:
             bot.edit_message_text("⚠️ Error: File could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+
+    # Video Deletion Callback
+    elif call.data.startswith("delvid_"):
+        parts = call.data.split('_')
+        course_code, idx = parts[1], int(parts[2])
+        data = load_json(VIDEOS_FILE)
+        if course_code in data and 0 <= idx < len(data[course_code]):
+            removed = data[course_code].pop(idx)
+            if not data[course_code]:
+                del data[course_code]
+            save_json(VIDEOS_FILE, data)
+            bot.edit_message_text(f"✅ Successfully deleted video: **{removed.get('title', 'Video')}** from `{course_code}`!", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
+        else:
+            bot.edit_message_text("⚠️ Error: Video could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
     elif call.data.startswith("approve_vid_"):
         req_id = call.data.split('_')[2]
