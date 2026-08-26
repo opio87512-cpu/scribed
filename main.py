@@ -18,26 +18,30 @@ STORAGE_CHANNEL_ID = -1004400175347  # Your permanent backup channel ID
 DATA_FILE = "materials.json"
 VIDEOS_FILE = "videos.json"
 
+# Automatically restore backups from the private channel the exact second the app boots up
+def restore_from_channel():
+    for filename in [DATA_FILE, VIDEOS_FILE]:
+        if not os.path.exists(filename):
+            try:
+                messages = bot.get_chat_history(STORAGE_CHANNEL_ID, limit=30)
+                for msg in messages:
+                    if msg.document and msg.document.file_name == filename:
+                        file_info = bot.get_file(msg.document.file_id)
+                        downloaded_file = bot.download_file(file_info.file_path)
+                        with open(filename, "wb") as f:
+                            f.write(downloaded_file)
+                        print(f"Successfully restored {filename} from channel on startup!")
+                        break
+            except Exception as e:
+                print(f"Startup restore failed for {filename}: {e}")
+
+# Trigger startup restore immediately
+restore_from_channel()
+
 def load_json(filename):
-    # Try loading from local disk first
     if os.path.exists(filename):
         with open(filename, "r") as f:
             return json.load(f)
-    
-    # If not on local disk (e.g. after Render restart), try recovering from Telegram Channel
-    try:
-        messages = bot.get_chat_history(STORAGE_CHANNEL_ID, limit=20)
-        for msg in messages:
-            if msg.document and msg.document.file_name == filename:
-                file_info = bot.get_file(msg.document.file_id)
-                downloaded_file = bot.download_file(file_info.file_path)
-                with open(filename, "wb") as f:
-                    f.write(downloaded_file)
-                with open(filename, "r") as f:
-                    return json.load(f)
-    except Exception as e:
-        print(f"Could not restore {filename} from channel: {e}")
-        
     return {}
 
 def save_json(filename, data):
@@ -236,7 +240,6 @@ def admin_delete_file_start(message):
         return
     bot.send_message(message.chat.id, "Select the Year to DELETE material from:", reply_markup=year_keyboard('d'))
 
-# NEW: Admin Command to Delete Approved YouTube Videos
 @bot.message_handler(commands=['deletevideo'])
 def admin_delete_video_start(message):
     if message.from_user.id != ADMIN_ID:
@@ -328,7 +331,6 @@ def handle_query(call):
         else:
             bot.edit_message_text("⚠️ Error: File could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
-    # Video Deletion Callback
     elif call.data.startswith("delvid_"):
         parts = call.data.split('_')
         course_code, idx = parts[1], int(parts[2])
