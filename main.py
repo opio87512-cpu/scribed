@@ -1,60 +1,91 @@
 import os
 import json
+import base64
+import requests
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 # --- CONFIGURATION ---
-TOKEN = "8630946224:AAHjvpI_7uzQAhFjJnX5YWBUIVMA7oKrcEg" 
+TOKEN = os.environ["BOT_TOKEN"]
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 CORS(app)
 
-ADMIN_ID = 8429521561 
-STORAGE_CHANNEL_ID = -1004400175347  # Your permanent backup channel ID
+ADMIN_ID = 8429521561
 
-# --- LOCAL STORAGE & TELEGRAM CHANNEL SYNC HELPERS ---
+# --- GITHUB-BACKED STORAGE ---
+GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "opio87512-cpu/scribed")
+GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
+GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
+
 DATA_FILE = "materials.json"
 VIDEOS_FILE = "videos.json"
 
-# Automatically restore backups from the private channel the exact second the app boots up
-def restore_from_channel():
-    for filename in [DATA_FILE, VIDEOS_FILE]:
-        if not os.path.exists(filename):
-            try:
-                messages = bot.get_chat_history(STORAGE_CHANNEL_ID, limit=30)
-                for msg in messages:
-                    if msg.document and msg.document.file_name == filename:
-                        file_info = bot.get_file(msg.document.file_id)
-                        downloaded_file = bot.download_file(file_info.file_path)
-                        with open(filename, "wb") as f:
-                            f.write(downloaded_file)
-                        print(f"Successfully restored {filename} from channel on startup!")
-                        break
-            except Exception as e:
-                print(f"Startup restore failed for {filename}: {e}")
-
-# Trigger startup restore immediately
-restore_from_channel()
+def _github_headers():
+    return {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
 
 def load_json(filename):
-    if os.path.exists(filename):
-        with open(filename, "r") as f:
-            return json.load(f)
-    return {}
+    """Fetch the current JSON contents of `filename` from the GitHub repo.
+    Returns {} if the file doesn't exist yet or on any error (fail-safe)."""
+    try:
+        resp = requests.get(
+            f"{GITHUB_API_BASE}/{filename}",
+            headers=_github_headers(),
+            params={"ref": GITHUB_BRANCH},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            content_b64 = resp.json()["content"]
+            decoded = base64.b64decode(content_b64).decode("utf-8")
+            return json.loads(decoded) if decoded.strip() else {}
+        elif resp.status_code == 404:
+            return {}
+        else:
+            print(f"GitHub load failed for {filename}: {resp.status_code} {resp.text}")
+            return {}
+    except Exception as e:
+        print(f"GitHub load error for {filename}: {e}")
+        return {}
 
 def save_json(filename, data):
-    # Save locally
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=4)
-    
-    # Automatically backup to Telegram Channel so it's permanently safe
+    """Write `data` as JSON to `filename` in the GitHub repo, creating or
+    updating it as needed."""
     try:
-        with open(filename, "rb") as f:
-            bot.send_document(STORAGE_CHANNEL_ID, f, caption=f"🔄 Auto-backup for {filename}")
+        content_str = json.dumps(data, indent=4)
+        encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+
+        get_resp = requests.get(
+            f"{GITHUB_API_BASE}/{filename}",
+            headers=_github_headers(),
+            params={"ref": GITHUB_BRANCH},
+            timeout=10,
+        )
+        sha = get_resp.json().get("sha") if get_resp.status_code == 200 else None
+
+        payload = {
+            "message": f"Update {filename}",
+            "content": encoded,
+            "branch": GITHUB_BRANCH,
+        }
+        if sha:
+            payload["sha"] = sha
+
+        put_resp = requests.put(
+            f"{GITHUB_API_BASE}/{filename}",
+            headers=_github_headers(),
+            json=payload,
+            timeout=10,
+        )
+        if put_resp.status_code not in (200, 201):
+            print(f"GitHub save failed for {filename}: {put_resp.status_code} {put_resp.text}")
     except Exception as e:
-        print(f"Could not backup {filename} to channel: {e}")
+        print(f"GitHub save error for {filename}: {e}")
 
 def save_material(course_code, mat_type, file_id, file_name):
     data = load_json(DATA_FILE)
@@ -92,7 +123,7 @@ CURRICULUM = {
             ("ECEg2201", "Electronics Circuit I"),
             ("EPCE2101", "Fundamentals of Electrical Eng."),
             ("CSEg2101", "Data Structures & Algorithms"),
-            ("LART1004", "Geography of Ethiopia & the Horn")
+            ("LART1004", "Geography of Ethiopia & the Horn"),
         ],
         "2": [
             ("ECEg2202", "Electronic Circuit II"),
@@ -100,8 +131,8 @@ CURRICULUM = {
             ("EPCE2202", "Electromagnetic Field"),
             ("ECEg2208", "Eng. Application Software"),
             ("Math2103", "Computational methods"),
-            ("Math2201", "Linear Algebra")
-        ]
+            ("Math2201", "Linear Algebra"),
+        ],
     },
     "3": {
         "1": [
@@ -110,7 +141,7 @@ CURRICULUM = {
             ("ECEg3103", "Probability & Random Proc."),
             ("ECEg3205", "Digital Signal Processing"),
             ("LART2002", "Gen. Psychology & Life Skills"),
-            ("Phys2208", "Applied Modern Physics")
+            ("Phys2208", "Applied Modern Physics"),
         ],
         "2": [
             ("ECEg3202", "Intro to Comm. Systems"),
@@ -121,8 +152,8 @@ CURRICULUM = {
             ("CSEg2202", "Object Oriented Programming"),
             ("SEng4208", "Intro to Artificial Intelligence"),
             ("EPCE3304", "Intro to Control Systems"),
-            ("EPCE3302", "Intro to Electrical Machines")
-        ]
+            ("EPCE3302", "Intro to Electrical Machines"),
+        ],
     },
     "4": {
         "1": [
@@ -132,7 +163,7 @@ CURRICULUM = {
             ("SOSC5003", "Entrepreneurship & Bus. Dev."),
             ("ECEg4206", "Eng. Research & Dev Methodology"),
             ("EPCE3206", "Intro to Power Systems"),
-            ("EPCE3207", "Electrical Measurement & Inst.")
+            ("EPCE3207", "Electrical Measurement & Inst."),
         ],
         "2": [
             ("ECEg4202", "Microprocessor & Interfacing"),
@@ -141,8 +172,8 @@ CURRICULUM = {
             ("SOSC2002", "Introduction to Economics"),
             ("IETP4203", "Integrated Engineering Project"),
             ("ECEg4310", "Microwave Devices & Systems"),
-            ("ECEg4312", "Integrated Circuit Technology")
-        ]
+            ("ECEg4312", "Integrated Circuit Technology"),
+        ],
     },
     "5": {
         "1": [
@@ -155,7 +186,7 @@ CURRICULUM = {
             ("EPCE4302", "Prog. Logic Controllers & Robotics"),
             ("EPCE4306", "Introduction to Mechatronics"),
             ("ECEg5321", "Biomedical Inst. & Analysis"),
-            ("EPCE3202", "Power Electronics")
+            ("EPCE3202", "Power Electronics"),
         ],
         "2": [
             ("SOSC5011", "Project Mgt. for Engineers"),
@@ -167,9 +198,9 @@ CURRICULUM = {
             ("ECEg5310", "Satellite Communication"),
             ("ECEg5312", "Digital Hardware Design"),
             ("ECEg5314", "Digital Image Processing"),
-            ("ECEg5316", "Semiconductor Devices")
-        ]
-    }
+            ("ECEg5316", "Semiconductor Devices"),
+        ],
+    },
 }
 
 # --- INLINE KEYBOARDS ---
@@ -183,17 +214,23 @@ def main_menu_keyboard():
 
 def year_keyboard(action):
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("Year II", callback_data=f"{action}y_2"),
-               InlineKeyboardButton("Year III", callback_data=f"{action}y_3"))
-    markup.row(InlineKeyboardButton("Year IV", callback_data=f"{action}y_4"),
-               InlineKeyboardButton("Year V", callback_data=f"{action}y_5"))
+    markup.row(
+        InlineKeyboardButton("Year II", callback_data=f"{action}y_2"),
+        InlineKeyboardButton("Year III", callback_data=f"{action}y_3"),
+    )
+    markup.row(
+        InlineKeyboardButton("Year IV", callback_data=f"{action}y_4"),
+        InlineKeyboardButton("Year V", callback_data=f"{action}y_5"),
+    )
     markup.row(InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="back_main"))
     return markup
 
 def semester_keyboard(year, action):
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("Semester I", callback_data=f"{action}s_{year}_1"),
-               InlineKeyboardButton("Semester II", callback_data=f"{action}s_{year}_2"))
+    markup.row(
+        InlineKeyboardButton("Semester I", callback_data=f"{action}s_{year}_1"),
+        InlineKeyboardButton("Semester II", callback_data=f"{action}s_{year}_2"),
+    )
     back_target = "main_find" if action == 'f' else ("main_upload" if action == 'u' else "back_main")
     markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data=back_target))
     return markup
@@ -210,10 +247,14 @@ def subject_keyboard(year, semester, action):
 
 def material_type_keyboard(course_code, action):
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("📝 Note", callback_data=f"{action}m_{course_code}_note"),
-               InlineKeyboardButton("📄 Assignment", callback_data=f"{action}m_{course_code}_assignment"))
-    markup.row(InlineKeyboardButton("📝 Mid Exam", callback_data=f"{action}m_{course_code}_mid"),
-               InlineKeyboardButton("📝 Final Exam", callback_data=f"{action}m_{course_code}_final"))
+    markup.row(
+        InlineKeyboardButton("📝 Note", callback_data=f"{action}m_{course_code}_note"),
+        InlineKeyboardButton("📄 Assignment", callback_data=f"{action}m_{course_code}_assignment"),
+    )
+    markup.row(
+        InlineKeyboardButton("📝 Mid Exam", callback_data=f"{action}m_{course_code}_mid"),
+        InlineKeyboardButton("📝 Final Exam", callback_data=f"{action}m_{course_code}_final"),
+    )
     markup.row(InlineKeyboardButton("⏳ Test", callback_data=f"{action}m_{course_code}_test"))
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     return markup
@@ -244,19 +285,19 @@ def admin_delete_file_start(message):
 def admin_delete_video_start(message):
     if message.from_user.id != ADMIN_ID:
         return
-    
+
     data = load_json(VIDEOS_FILE)
     if not data:
         bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
         return
-        
+
     markup = InlineKeyboardMarkup()
     has_videos = False
     for course_code, vids in data.items():
         for idx, v in enumerate(vids):
             has_videos = True
             markup.row(InlineKeyboardButton(f"❌ [{course_code}] {v.get('title', 'Video')}", callback_data=f"delvid_{course_code}_{idx}"))
-            
+
     if not has_videos:
         bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
         return
@@ -272,31 +313,31 @@ def handle_query(call):
         bot.edit_message_text("Select your academic year to UPLOAD materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('u'))
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
-    
+
     elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_") or call.data.startswith("dy_"):
         action = call.data[0]
         year = call.data.split('_')[1]
-        roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"} 
+        roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"}
         bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
-    
+
     elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_") or call.data.startswith("ds_"):
         parts = call.data.split('_')
         action = parts[0][0]
         year, semester = parts[1], parts[2]
-        bot.edit_message_text(f"Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
-    
+        bot.edit_message_text("Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
+
     elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_") or call.data.startswith("dc_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
         bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
-    
+
     elif call.data.startswith("fm_") or call.data.startswith("um_") or call.data.startswith("am_") or call.data.startswith("dm_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
         material_type = parts[2]
-        
+
         if action == 'f':
             materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
             if not materials:
@@ -306,10 +347,10 @@ def handle_query(call):
                 for item in materials:
                     bot.send_document(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
         elif action == 'u':
-            msg = bot.send_message(call.message.chat.id, f"Please send the **{material_type.upper()}** document or photo for **{course_code}** now.", parse_mode="Markdown")
+            msg = bot.send_message(call.message.chat.id, f"Please send the {material_type.upper()} document or photo for {course_code} now.")
             bot.register_next_step_handler(msg, process_upload, course_code, material_type)
         elif action == 'a':
-            msg = bot.send_message(call.message.chat.id, f"📥 Send official document for **{course_code}** ({material_type.upper()}):", parse_mode="Markdown")
+            msg = bot.send_message(call.message.chat.id, f"📥 Send official document for {course_code} ({material_type.upper()}):")
             bot.register_next_step_handler(msg, process_admin_save, course_code, material_type)
         elif action == 'd':
             materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
@@ -327,7 +368,7 @@ def handle_query(call):
         course_code, material_type, idx = parts[1], parts[2], int(parts[3])
         deleted_name = delete_material_by_index(course_code, material_type, idx)
         if deleted_name:
-            bot.edit_message_text(f"✅ Successfully deleted **{deleted_name}** from `{course_code}` ({material_type.upper()})!", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
+            bot.edit_message_text(f"✅ Successfully deleted {deleted_name} from {course_code} ({material_type.upper()})!", chat_id=call.message.chat.id, message_id=call.message.message_id)
         else:
             bot.edit_message_text("⚠️ Error: File could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
@@ -340,7 +381,7 @@ def handle_query(call):
             if not data[course_code]:
                 del data[course_code]
             save_json(VIDEOS_FILE, data)
-            bot.edit_message_text(f"✅ Successfully deleted video: **{removed.get('title', 'Video')}** from `{course_code}`!", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
+            bot.edit_message_text(f"✅ Successfully deleted video: {removed.get('title', 'Video')} from {course_code}!", chat_id=call.message.chat.id, message_id=call.message.message_id)
         else:
             bot.edit_message_text("⚠️ Error: Video could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
@@ -349,7 +390,7 @@ def handle_query(call):
         if req_id in PENDING_VIDEOS:
             v_data = PENDING_VIDEOS[req_id]
             add_approved_video(v_data['course'], v_data['title'], v_data['url'])
-            bot.send_message(ADMIN_ID, f"✅ Video approved and added to `{v_data['course']}`!", parse_mode="Markdown")
+            bot.send_message(ADMIN_ID, f"✅ Video approved and added to {v_data['course']}!")
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
             del PENDING_VIDEOS[req_id]
         else:
@@ -369,17 +410,17 @@ def handle_query(call):
 def process_upload(message, course_code, material_type):
     if message.document or message.photo:
         admin_text = (
-            f"📥 **New Chat Upload from @{message.from_user.username}**\n\n"
-            f"**Course:** {course_code}\n"
-            f"**Type:** {material_type.upper()}"
+            f"📥 New Chat Upload from @{message.from_user.username}\n\n"
+            f"Course: {course_code}\n"
+            f"Type: {material_type.upper()}"
         )
-        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
+        bot.send_message(ADMIN_ID, admin_text)
         bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
-        
+
         markup = InlineKeyboardMarkup()
         markup.row(
-            InlineKeyboardButton("✅ Approve", callback_data=f"approve_review"),
-            InlineKeyboardButton("❌ Reject", callback_data="reject")
+            InlineKeyboardButton("✅ Approve", callback_data="approve_review"),
+            InlineKeyboardButton("❌ Reject", callback_data="reject"),
         )
         bot.send_message(ADMIN_ID, "Review this upload:", reply_markup=markup)
         bot.reply_to(message, "Thank you! Your correctly categorized material has been sent to @pede_7 for review.")
@@ -391,7 +432,7 @@ def process_admin_save(message, course_code, material_type):
         file_id = message.document.file_id
         file_name = message.document.file_name or "document.pdf"
         save_material(course_code, material_type, file_id, file_name)
-        bot.reply_to(message, f"✅ Successfully saved **{file_name}** under `{course_code}` ({material_type.upper()})!", parse_mode="Markdown")
+        bot.reply_to(message, f"✅ Successfully saved {file_name} under {course_code} ({material_type.upper()})!")
     else:
         bot.reply_to(message, "⚠️ Please send a valid document file.")
 
@@ -411,10 +452,10 @@ def handle_webapp_upload():
     course = request.form.get('course', 'Unknown')
     mat_type = request.form.get('type', 'Unknown')
     username = request.form.get('username', 'Student')
-    
-    admin_text = f"🌐 **WEB APP File Upload from {username}**\n\n**Course:** {course}\n**Type:** {mat_type.upper()}"
+
+    admin_text = f"🌐 WEB APP File Upload from {username}\n\nCourse: {course}\nType: {mat_type.upper()}"
     try:
-        bot.send_document(ADMIN_ID, file.read(), caption=admin_text, visible_file_name=file.filename, parse_mode="Markdown")
+        bot.send_document(ADMIN_ID, file.read(), caption=admin_text, visible_file_name=file.filename)
         return jsonify({"status": "success"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -425,15 +466,15 @@ def handle_video_upload():
         data = request.json
         if not data or 'course' not in data or 'url' not in data or 'title' not in data:
             return jsonify({"error": "Invalid data"}), 400
-        
+
         req_id = str(os.urandom(4).hex())
         PENDING_VIDEOS[req_id] = {
             "course": data['course'],
             "title": data['title'],
             "url": data['url'],
-            "username": data.get('username', 'Student')
+            "username": data.get('username', 'Student'),
         }
-        
+
         admin_text = (
             f"📺 New Video Submission from {data.get('username', 'Student')}\n\n"
             f"Course: {data['course']}\n"
@@ -443,9 +484,9 @@ def handle_video_upload():
         markup = InlineKeyboardMarkup()
         markup.row(
             InlineKeyboardButton("✅ Approve Video", callback_data=f"approve_vid_{req_id}"),
-            InlineKeyboardButton("❌ Reject", callback_data="reject_vid")
+            InlineKeyboardButton("❌ Reject", callback_data="reject_vid"),
         )
-        
+
         bot.send_message(int(ADMIN_ID), admin_text, reply_markup=markup)
         return jsonify({"status": "pending_approval"}), 200
     except Exception as e:
