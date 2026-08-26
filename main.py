@@ -4,16 +4,11 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from flask import Flask, request
 
 # --- CONFIGURATION ---
-# Token hardcoded as requested. 
-# Warning: If your GitHub repository is public, anyone can see and use this token!
 TOKEN = "8969647277:AAF3jTCal-ZdqYqghm7ln0mrcTZUcTg3o6U" 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# IMPORTANT: Bots require a numeric ID to forward files, not a username.
-# Step 1: Deploy this code.
-# Step 2: Send /myid to your bot on Telegram.
-# Step 3: Replace 123456789 with the number the bot gives you.
+# IMPORTANT: Send /myid to your bot on Telegram, then replace this number
 ADMIN_ID = 123456789 
 
 # --- INLINE KEYBOARDS ---
@@ -24,13 +19,22 @@ def main_menu_keyboard():
     markup.row(InlineKeyboardButton("🧮 Grade Calculator", web_app=WebAppInfo(url="https://your-hosted-calculator.com")))
     return markup
 
-def materials_keyboard():
+# New Keyboard: Select Year
+def year_keyboard():
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("C++ & Data Structures", callback_data="mat_cpp"))
-    markup.row(InlineKeyboardButton("MATLAB & Signals", callback_data="mat_matlab"))
-    markup.row(InlineKeyboardButton("Microcontrollers", callback_data="mat_micro"))
-    markup.row(InlineKeyboardButton("Embedded Systems", callback_data="mat_embed"))
-    markup.row(InlineKeyboardButton("⬅️ Back", callback_data="back_main"))
+    markup.row(InlineKeyboardButton("Year II", callback_data="year_2"),
+               InlineKeyboardButton("Year III", callback_data="year_3"))
+    markup.row(InlineKeyboardButton("Year IV", callback_data="year_4"),
+               InlineKeyboardButton("Year V", callback_data="year_5"))
+    markup.row(InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="back_main"))
+    return markup
+
+# New Keyboard: Select Semester based on the chosen Year
+def semester_keyboard(year):
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("Semester I", callback_data=f"sem_{year}_1"),
+               InlineKeyboardButton("Semester II", callback_data=f"sem_{year}_2"))
+    markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data="find_materials"))
     return markup
 
 # --- COMMAND HANDLERS ---
@@ -45,32 +49,52 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['myid'])
 def send_id(message):
-    # A helper command to easily find your numeric ID for the ADMIN_ID variable
     bot.reply_to(message, f"Your numeric Telegram ID is:\n\n{message.from_user.id}\n\nPaste this into the ADMIN_ID variable in your code.")
 
 # --- CALLBACK HANDLERS ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
+    # 1. Main Menu -> Find Materials (Shows Years)
     if call.data == "find_materials":
-        bot.edit_message_text("Select a subject category:", 
+        bot.edit_message_text("Select your academic year:", 
                               chat_id=call.message.chat.id, 
                               message_id=call.message.message_id, 
-                              reply_markup=materials_keyboard())
+                              reply_markup=year_keyboard())
                               
+    # 2. Year Selection -> Shows Semesters
+    elif call.data.startswith("year_"):
+        selected_year = call.data.split('_')[1]
+        # Roman numeral mapping for display purposes
+        roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"} 
+        
+        bot.edit_message_text(f"Year {roman_years[selected_year]} Selected.\nChoose your semester:", 
+                              chat_id=call.message.chat.id, 
+                              message_id=call.message.message_id, 
+                              reply_markup=semester_keyboard(selected_year))
+
+    # 3. Semester Selection -> Fetch Materials
+    elif call.data.startswith("sem_"):
+        parts = call.data.split('_')
+        year = parts[1]
+        semester = parts[2]
+        roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"}
+        roman_sems = {"1": "I", "2": "II"}
+        
+        bot.send_message(call.message.chat.id, f"Fetching resources for Year {roman_years[year]} Semester {roman_sems[semester]}...\n(Admins can link specific course files here!)")
+
+    # Upload Workflow
     elif call.data == "upload_material":
         bot.send_message(call.message.chat.id, "Please send the file (PDF, DOCX, ZIP) you want to share with the community.")
         bot.register_next_step_handler(call.message, process_upload)
         
+    # Back to Main Menu
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nWhat would you like to do?", 
                               chat_id=call.message.chat.id, 
                               message_id=call.message.message_id, 
                               reply_markup=main_menu_keyboard())
-                              
-    elif call.data.startswith("mat_"):
-        subject = call.data.split('_')[1]
-        bot.send_message(call.message.chat.id, f"Fetching resources for {subject}...\n(Admins can link drive files here!)")
 
+    # Admin Approvals
     elif call.data.startswith("approve_"):
         msg_id = call.data.split('_')[1]
         bot.send_message(ADMIN_ID, f"✅ File approved and added to database!")
