@@ -9,40 +9,52 @@ from flask_cors import CORS
 TOKEN = "8630946224:AAHjvpI_7uzQAhFjJnX5YWBUIVMA7oKrcEg" 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
-CORS(app) # Allows the GitHub Web App to talk to your Render server
+CORS(app)
 
-# Your exact Telegram ID for receiving files and admin access
 ADMIN_ID = 8429521561 
 
-# --- LOCAL DATABASE STORAGE & HELPERS ---
+# --- LOCAL STORAGE & HELPERS ---
 DATA_FILE = "materials.json"
+VIDEOS_FILE = "videos.json"
 
-def load_materials():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
+def load_json(filename):
+    if os.path.exists(filename):
+        with open(filename, "r") as f:
             return json.load(f)
     return {}
 
+def save_json(filename, data):
+    with open(filename, "w") as f:
+        json.dump(data, f, indent=4)
+
 def save_material(course_code, mat_type, file_id, file_name):
-    data = load_materials()
+    data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
     if key not in data:
         data[key] = []
     data[key].append({"file_id": file_id, "name": file_name})
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    save_json(DATA_FILE, data)
 
 def delete_material_by_index(course_code, mat_type, index):
-    data = load_materials()
+    data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
     if key in data and 0 <= index < len(data[key]):
         removed = data[key].pop(index)
         if not data[key]:
             del data[key]
-        with open(DATA_FILE, "w") as f:
-            json.dump(data, f, indent=4)
+        save_json(DATA_FILE, data)
         return removed.get("name", "File")
     return None
+
+# Temporary storage for video submissions awaiting admin review
+PENDING_VIDEOS = {}
+
+def add_approved_video(course_code, title, url):
+    data = load_json(VIDEOS_FILE)
+    if course_code not in data:
+        data[course_code] = []
+    data[course_code].append({"title": title, "url": url})
+    save_json(VIDEOS_FILE, data)
 
 # --- CURRICULUM DATABASE ---
 CURRICULUM = {
@@ -235,7 +247,7 @@ def handle_query(call):
         material_type = parts[2]
         
         if action == 'f':
-            materials = load_materials().get(f"{course_code}_{material_type}", [])
+            materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
             if not materials:
                 bot.send_message(call.message.chat.id, f"ℹ️ No {material_type.upper()} files available yet for {course_code}.")
             else:
@@ -249,7 +261,7 @@ def handle_query(call):
             msg = bot.send_message(call.message.chat.id, f"📥 Send official document for **{course_code}** ({material_type.upper()}):", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_admin_save, course_code, material_type)
         elif action == 'd':
-            materials = load_materials().get(f"{course_code}_{material_type}", [])
+            materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
             if not materials:
                 bot.send_message(call.message.chat.id, f"ℹ️ No files found under {course_code} ({material_type.upper()}) to delete.")
             else:
@@ -267,6 +279,20 @@ def handle_query(call):
             bot.edit_message_text(f"✅ Successfully deleted **{deleted_name}** from `{course_code}` ({material_type.upper()})!", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
         else:
             bot.edit_message_text("⚠️ Error: File could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+
+    elif call.data.startswith("approve_vid_"):
+        req_id = call.data.split('_')[2]
+        if req_id in PENDING_VIDEOS:
+            v_data = PENDING_VIDEOS[req_id]
+            add_approved_video(v_data['course'], v_data['title'], v_data['url'])
+            bot.send_message(ADMIN_ID, f"✅ Video approved and added to `{v_data['course']}`!", parse_mode="Markdown")
+            bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
+            del PENDING_VIDEOS[req_id]
+        else:
+            bot.answer_callback_query(call.id, "Request expired or already handled.")
+    elif call.data == "reject_vid":
+        bot.send_message(ADMIN_ID, "❌ Video submission rejected.")
+        bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
     elif call.data.startswith("approve_"):
         bot.send_message(ADMIN_ID, "✅ File approved and saved!")
@@ -305,7 +331,7 @@ def process_admin_save(message, course_code, material_type):
     else:
         bot.reply_to(message, "⚠️ Please send a valid document file.")
 
-# --- FLASK SERVER ROUTING ---
+# --- FLASK SERVER & API ENDPOINTS ---
 @app.route('/' + TOKEN, methods=['POST'])
 def getMessage():
     json_string = request.get_data().decode('utf-8')
@@ -313,30 +339,61 @@ def getMessage():
     bot.process_new_updates([update])
     return "!", 200
 
-# Endpoint for Web App Uploads
 @app.route('/api/upload', methods=['POST'])
 def handle_webapp_upload():
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
-        
     file = request.files['file']
-    course = request.form.get('course', 'Unknown Course')
-    mat_type = request.form.get('type', 'Unknown Type')
+    course = request.form.get('course', 'Unknown')
+    mat_type = request.form.get('type', 'Unknown')
     username = request.form.get('username', 'Student')
     
-    admin_text = f"🌐 **WEB APP Upload from {username}**\n\n**Course:** {course}\n**Type:** {mat_type.upper()}"
-    
+    admin_text = f"🌐 **WEB APP File Upload from {username}**\n\n**Course:** {course}\n**Type:** {mat_type.upper()}"
     try:
         bot.send_document(ADMIN_ID, file.read(), caption=admin_text, visible_file_name=file.filename, parse_mode="Markdown")
         return jsonify({"status": "success"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# NEW: Endpoint for Web App to Fetch Materials Database
+@app.route('/api/upload_video', methods=['POST'])
+def handle_video_upload():
+    data = request.json
+    if not data or 'course' not in data or 'url' not in data or 'title' not in data:
+        return jsonify({"error": "Invalid data"}), 400
+    
+    req_id = str(os.urandom(4).hex())
+    PENDING_VIDEOS[req_id] = {
+        "course": data['course'],
+        "title": data['title'],
+        "url": data['url'],
+        "username": data.get('username', 'Student')
+    }
+    
+    admin_text = (
+        f"📺 **New Video Submission from {data.get('username', 'Student')}**\n\n"
+        f"**Course:** {data['course']}\n"
+        f"**Title:** {data['title']}\n"
+        f"**URL:** {data['url']}"
+    )
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("✅ Approve Video", callback_data=f"approve_vid_{req_id}"),
+        InlineKeyboardButton("❌ Reject", callback_data="reject_vid")
+    )
+    
+    try:
+        bot.send_message(ADMIN_ID, admin_text, reply_markup=markup, parse_mode="Markdown")
+        return jsonify({"status": "pending_approval"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/materials', methods=['GET'])
 def get_materials():
-    data = load_materials()
-    return jsonify(data), 200
+    return jsonify(load_json(DATA_FILE)), 200
+
+@app.route('/api/videos', methods=['GET'])
+def get_videos():
+    return jsonify(load_json(VIDEOS_FILE)), 200
 
 @app.route("/")
 def webhook():
@@ -345,9 +402,7 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     render_url = os.environ.get("RENDER_EXTERNAL_URL")
-    
     if render_url:
         bot.remove_webhook()
         bot.set_webhook(url=render_url + '/' + TOKEN)
-        
     app.run(host="0.0.0.0", port=port)
