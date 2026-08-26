@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 # --- CONFIGURATION ---
-TOKEN = "8630946224:AAHjvpI_7uzQAhFjJnX5YWBUIVMA7oKrcEg"
+TOKEN = "8630946224:AAHjvpI_7uzQAhFjJnX5YWBUIVMA7oKrcEg" 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 CORS(app)
@@ -421,34 +421,37 @@ def handle_webapp_upload():
 
 @app.route('/api/upload_video', methods=['POST'])
 def handle_video_upload():
-    data = request.json
-    if not data or 'course' not in data or 'url' not in data or 'title' not in data:
-        return jsonify({"error": "Invalid data"}), 400
-    
-    req_id = str(os.urandom(4).hex())
-    PENDING_VIDEOS[req_id] = {
-        "course": data['course'],
-        "title": data['title'],
-        "url": data['url'],
-        "username": data.get('username', 'Student')
-    }
-    
-    admin_text = (
-        f"📺 **New Video Submission from {data.get('username', 'Student')}**\n\n"
-        f"**Course:** {data['course']}\n"
-        f"**Title:** {data['title']}\n"
-        f"**URL:** {data['url']}"
-    )
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("✅ Approve Video", callback_data=f"approve_vid_{req_id}"),
-        InlineKeyboardButton("❌ Reject", callback_data="reject_vid")
-    )
-    
     try:
-        bot.send_message(ADMIN_ID, admin_text, reply_markup=markup, parse_mode="Markdown")
+        data = request.json
+        if not data or 'course' not in data or 'url' not in data or 'title' not in data:
+            return jsonify({"error": "Invalid data"}), 400
+        
+        req_id = str(os.urandom(4).hex())
+        PENDING_VIDEOS[req_id] = {
+            "course": data['course'],
+            "title": data['title'],
+            "url": data['url'],
+            "username": data.get('username', 'Student')
+        }
+        
+        admin_text = (
+            f"📺 **New Video Submission from {data.get('username', 'Student')}**\n\n"
+            f"**Course:** {data['course']}\n"
+            f"**Title:** {data['title']}\n"
+            f"**URL:** {data['url']}"
+        )
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("✅ Approve Video", callback_data=f"approve_vid_{req_id}"),
+            InlineKeyboardButton("❌ Reject", callback_data="reject_vid")
+        )
+        
+        bot.send_message(int(ADMIN_ID), admin_text, reply_markup=markup, parse_mode="Markdown")
         return jsonify({"status": "pending_approval"}), 200
     except Exception as e:
+        print(f"CRITICAL ERROR in handle_video_upload: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/materials', methods=['GET'])
