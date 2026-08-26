@@ -1,6 +1,6 @@
 import os
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, request
 
 # --- CONFIGURATION ---
@@ -104,7 +104,6 @@ def main_menu_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("📚 Find Materials", callback_data="main_find"))
     markup.row(InlineKeyboardButton("📤 Upload Material", callback_data="main_upload"))
-    markup.row(InlineKeyboardButton("🧮 Grade Calculator", web_app=WebAppInfo(url="https://your-hosted-calculator.com")))
     return markup
 
 def year_keyboard(action):
