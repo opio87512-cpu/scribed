@@ -42,6 +42,11 @@ STATUS_EDIT_INTERVAL = 3  # seconds between progress message edits (Telegram thr
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
 job_queue = queue.Queue()
 jobs = {}           # job_id -> dict with everything needed to process it
 cancel_events = {}  # job_id -> threading.Event
@@ -78,20 +83,40 @@ def safe_filename(title, fallback="tiktok", max_len=60):
 # TikWM metadata + direct media helpers
 # ---------------------------------------------------------------------------
 
-def fetch_tikwm_data(url):
-    """Query TikWM for metadata + direct media URLs (video, audio, or images)."""
-    tikwm_api = "https://www.tikwm.com/api/"
-    for params in ({"url": url, "hd": 1}, {"url": url}):
-        try:
-            r = requests.get(tikwm_api, params=params, timeout=15)
-            if r.status_code == 200:
-                j = r.json()
-                if j.get('code') == 0:
-                    data = j.get('data', {}) or {}
-                    if data:
-                        return data
-        except Exception:
-            continue
+def fetch_tikwm_data(url, retries=2):
+    """Query TikWM for metadata + direct media URLs (video, audio, or images).
+    Tries both known hosts and both hd param variants, retries briefly on
+    rate-limiting, and logs failures server-side for debugging."""
+    headers = {"User-Agent": BROWSER_UA}
+    hosts = ("https://www.tikwm.com/api/", "https://tikwm.com/api/")
+    param_variants = ({"url": url, "hd": 1}, {"url": url})
+
+    last_error = None
+    for attempt in range(retries + 1):
+        for host in hosts:
+            for params in param_variants:
+                try:
+                    r = requests.get(host, params=params, headers=headers, timeout=15)
+                    if r.status_code == 429:
+                        last_error = "rate limited (429)"
+                        continue
+                    if r.status_code != 200:
+                        last_error = f"HTTP {r.status_code} from {host}"
+                        continue
+                    j = r.json()
+                    if j.get('code') == 0:
+                        data = j.get('data', {}) or {}
+                        if data:
+                            return data
+                        last_error = "empty data in response"
+                    else:
+                        last_error = f"API code {j.get('code')}: {j.get('msg')}"
+                except Exception as e:
+                    last_error = str(e)
+        if attempt < retries:
+            time.sleep(2)
+
+    print(f"[TikWM] Failed to fetch data for {url}: {last_error}")
     return {}
 
 
@@ -125,7 +150,7 @@ def extract_image_urls(data):
 def probe_remote_size(url, timeout=15):
     """Range-probe a direct media URL to get its real byte size when TikWM
     doesn't report one."""
-    headers = {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0"}
+    headers = {"User-Agent": BROWSER_UA, "Range": "bytes=0-0"}
     try:
         r = requests.get(url, headers=headers, stream=True, timeout=timeout)
         cr = r.headers.get('Content-Range')  # "bytes 0-0/1234567"
@@ -179,7 +204,7 @@ def pick_mp3_bitrate(duration_seconds, safety_ratio=0.9):
 def download_with_progress(url, dest_path, cancel_event, chat_id, status_id, markup, label, timeout=60):
     """Stream a direct media URL to disk, editing the status message with
     progress (throttled) and bailing out if cancelled."""
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": BROWSER_UA}
     last_edit = 0
     try:
         with requests.get(url, stream=True, headers=headers, timeout=timeout) as r:
