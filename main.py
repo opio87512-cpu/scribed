@@ -435,10 +435,10 @@ def handle_video_upload():
         }
         
         admin_text = (
-            f"📺 **New Video Submission from {data.get('username', 'Student')}**\n\n"
-            f"**Course:** {data['course']}\n"
-            f"**Title:** {data['title']}\n"
-            f"**URL:** {data['url']}"
+            f"📺 New Video Submission from {data.get('username', 'Student')}\n\n"
+            f"Course: {data['course']}\n"
+            f"Title: {data['title']}\n"
+            f"URL: {data['url']}"
         )
         markup = InlineKeyboardMarkup()
         markup.row(
@@ -446,7 +446,7 @@ def handle_video_upload():
             InlineKeyboardButton("❌ Reject", callback_data="reject_vid")
         )
         
-        bot.send_message(int(ADMIN_ID), admin_text, reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(int(ADMIN_ID), admin_text, reply_markup=markup)
         return jsonify({"status": "pending_approval"}), 200
     except Exception as e:
         print(f"CRITICAL ERROR in handle_video_upload: {str(e)}")
