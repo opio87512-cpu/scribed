@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASTU ECE Portal</title>
+    <!-- Connects to Telegram -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* Matches the user's Telegram Dark/Light mode theme automatically */
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            padding: 20px; 
+            background: var(--tg-theme-bg-color, #ffffff); 
+            color: var(--tg-theme-text-color, #000000); 
+        }
+        h2 { text-align: center; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; color: var(--tg-theme-hint-color, #999999); }
+        select, input, button { 
+            width: 100%; 
+            padding: 12px; 
+            border-radius: 8px; 
+            border: 1px solid var(--tg-theme-hint-color, #cccccc); 
+            font-size: 16px; 
+            box-sizing: border-box; 
+            background: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #000000);
+        }
+        select:disabled, input:disabled, button:disabled { opacity: 0.5; }
+        button { 
+            background: var(--tg-theme-button-color, #3390ec); 
+            color: var(--tg-theme-button-text-color, #ffffff); 
+            border: none; 
+            font-weight: bold; 
+            font-size: 18px; 
+            margin-top: 10px;
+            cursor: pointer;
+        }
+        .file-upload-wrapper { margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <h2>📤 Upload Material</h2>
+    <form id="uploadForm">
+        
+        <div class="form-group">
+            <label>Academic Year</label>
+            <select id="year" required>
+                <option value="">Select Year...</option>
+                <option value="2">Year II</option>
+                <option value="3">Year III</option>
+                <option value="4">Year IV</option>
+                <option value="5">Year V</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Semester</label>
+            <select id="semester" required disabled>
+                <option value="">Select Semester...</option>
+                <option value="1">Semester I</option>
+                <option value="2">Semester II</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Course</label>
+            <select id="course" required disabled>
+                <option value="">Select Course...</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Material Type</label>
+            <select id="matType" required disabled>
+                <option value="">Select Type...</option>
+                <option value="note">📝 Note</option>
+                <option value="assignment">📄 Assignment</option>
+                <option value="mid">📝 Mid Exam</option>
+                <option value="final">📝 Final Exam</option>
+                <option value="test">⏳ Test</option>
+            </select>
+        </div>
+
+        <div class="form-group file-upload-wrapper">
+            <label>Select File or Photo</label>
+            <input type="file" id="fileInput" required disabled>
+        </div>
+
+        <button type="submit" id="submitBtn" disabled>Send to Admin</button>
+    </form>
+
+    <script>
+        // --- 1. INITIALIZE TELEGRAM WEB APP ---
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // Opens the app in full screen mode
+
+        // --- 2. CURRICULUM DATABASE (Mirrors Python) ---
+        const curriculum = {
+            "2": {
+                "1": [
+                    {code: "Math2101", title: "Applied Mathematics III"},
+                    {code: "ECEg2201", title: "Electronics Circuit I"},
+                    {code: "EPCE2101", title: "Fundamentals of Electrical Eng."},
+                    {code: "CSEg2101", title: "Data Structures & Algorithms"},
+                    {code: "LART1004", title: "Geography of Ethiopia & the Horn"}
+                ],
+                "2": [
+                    {code: "ECEg2202", title: "Electronic Circuit II"},
+                    {code: "ECEg2204", title: "Signals and System Analysis"},
+                    {code: "EPCE2202", title: "Electromagnetic Field"},
+                    {code: "ECEg2208", title: "Eng. Application Software"},
+                    {code: "Math2103", title: "Computational methods"},
+                    {code: "Math2201", title: "Linear Algebra"}
+                ]
+            },
+            "3": {
+                "1": [
+                    {code: "ECEg3201", title: "Digital Logic Design"},
+                    {code: "EPCE3201", title: "Network Analysis & Synthesis"},
+                    {code: "ECEg3103", title: "Probability & Random Proc."},
+                    {code: "ECEg3205", title: "Digital Signal Processing"},
+                    {code: "LART2002", title: "Gen. Psychology & Life Skills"},
+                    {code: "Phys2208", title: "Applied Modern Physics"}
+                ],
+                "2": [
+                    {code: "ECEg3202", title: "Intro to Comm. Systems"},
+                    {code: "Phys3202", title: "Solid State Physics"},
+                    {code: "LART1003", title: "History of Ethiopia & the Horn"},
+                    {code: "ECEg3306", title: "Microelectronic Devices & Circuits"},
+                    {code: "ECEg3318", title: "Optoelectronics"},
+                    {code: "CSEg2202", title: "Object Oriented Programming"},
+                    {code: "SEng4208", title: "Intro to Artificial Intelligence"},
+                    {code: "EPCE3304", title: "Intro to Control Systems"},
+                    {code: "EPCE3302", title: "Intro to Electrical Machines"}
+                ]
+            },
+            "4": {
+                "1": [
+                    {code: "ECEg4201", title: "Comp. Architecture & Org."},
+                    {code: "ECEg4203", title: "Digital Communication"},
+                    {code: "ECEg4205", title: "EM Waves & Guide Structure"},
+                    {code: "SOSC5003", title: "Entrepreneurship & Bus. Dev."},
+                    {code: "ECEg4206", title: "Eng. Research & Dev Methodology"},
+                    {code: "EPCE3206", title: "Intro to Power Systems"},
+                    {code: "EPCE3207", title: "Electrical Measurement & Inst."}
+                ],
+                "2": [
+                    {code: "ECEg4202", title: "Microprocessor & Interfacing"},
+                    {code: "ECEg4204", title: "Antenna & Radio Wave Prop."},
+                    {code: "ECEg4208", title: "Data Comm. & Computer Networks"},
+                    {code: "SOSC2002", title: "Introduction to Economics"},
+                    {code: "IETP4203", title: "Integrated Engineering Project"},
+                    {code: "ECEg4310", title: "Microwave Devices & Systems"},
+                    {code: "ECEg4312", title: "Integrated Circuit Technology"}
+                ]
+            },
+            "5": {
+                "1": [
+                    {code: "ECEg5201", title: "Wireless & Mobile Comm."},
+                    {code: "ECEg5203", title: "Capstone Project"},
+                    {code: "ECEg5207", title: "Final Year Project Phase I"},
+                    {code: "ECEg5307", title: "VLSI Design"},
+                    {code: "CSEg5307", title: "Advanced Network"},
+                    {code: "ECEg5315", title: "Embedded & Real Time Systems"},
+                    {code: "EPCE4302", title: "Prog. Logic Controllers & Robotics"},
+                    {code: "EPCE4306", title: "Introduction to Mechatronics"},
+                    {code: "ECEg5321", title: "Biomedical Inst. & Analysis"},
+                    {code: "EPCE3202", title: "Power Electronics"}
+                ],
+                "2": [
+                    {code: "SOSC5011", title: "Project Mgt. for Engineers"},
+                    {code: "ECEg5202", title: "Final Year Project Phase II"},
+                    {code: "ECEg5302", title: "Optics & Optical Comm."},
+                    {code: "ECEg5304", title: "Analysis & Design of Digital IC"},
+                    {code: "ECEg5306", title: "Telecom Networks & Switching"},
+                    {code: "ECEg5308", title: "Intro to Computer Vision"},
+                    {code: "ECEg5310", title: "Satellite Communication"},
+                    {code: "ECEg5312", title: "Digital Hardware Design"},
+                    {code: "ECEg5314", title: "Digital Image Processing"},
+                    {code: "ECEg5316", title: "Semiconductor Devices"}
+                ]
+            }
+        };
+
+        // --- 3. UI CASCADING LOGIC ---
+        const yearSelect = document.getElementById('year');
+        const semSelect = document.getElementById('semester');
+        const courseSelect = document.getElementById('course');
+        const matTypeSelect = document.getElementById('matType');
+        const fileInput = document.getElementById('fileInput');
+        const submitBtn = document.getElementById('submitBtn');
+
+        yearSelect.addEventListener('change', function() {
+            semSelect.disabled = !this.value;
+            semSelect.value = "";
+            courseSelect.innerHTML = '<option value="">Select Course...</option>';
+            courseSelect.disabled = true;
+            matTypeSelect.disabled = true;
+            fileInput.disabled = true;
+            submitBtn.disabled = true;
+        });
+
+        semSelect.addEventListener('change', function() {
+            const y = yearSelect.value;
+            const s = this.value;
+            courseSelect.innerHTML = '<option value="">Select Course...</option>';
+            
+            if (y && s && curriculum[y] && curriculum[y][s]) {
+                curriculum[y][s].forEach(course => {
+                    const opt = document.createElement('option');
+                    opt.value = course.code;
+                    opt.textContent = course.title;
+                    courseSelect.appendChild(opt);
+                });
+                courseSelect.disabled = false;
+            } else {
+                courseSelect.disabled = true;
+            }
+            matTypeSelect.value = "";
+            matTypeSelect.disabled = true;
+            fileInput.disabled = true;
+            submitBtn.disabled = true;
+        });
+
+        courseSelect.addEventListener('change', function() {
+            matTypeSelect.disabled = !this.value;
+            matTypeSelect.value = "";
+            fileInput.disabled = true;
+            submitBtn.disabled = true;
+        });
+
+        matTypeSelect.addEventListener('change', function() {
+            fileInput.disabled = !this.value;
+            fileInput.value = "";
+            submitBtn.disabled = true;
+        });
+
+        fileInput.addEventListener('change', function() {
+            submitBtn.disabled = !this.value;
+        });
+
+        // --- 4. FORM SUBMISSION ---
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            submitBtn.innerText = "Uploading... Please wait.";
+            submitBtn.disabled = true;
+
+            const file = fileInput.files[0];
+            const course = courseSelect.value;
+            const matType = matTypeSelect.value;
+            
+            // Gets the student's name directly from Telegram
+            const username = tg.initDataUnsafe?.user?.username ? `@${tg.initDataUnsafe.user.username}` : (tg.initDataUnsafe?.user?.first_name || "ASTU Student");
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('course', course);
+            formData.append('type', matType);
+            formData.append('username', username);
+
+            try {
+                // IMPORTANT: REPLACE THIS URL WITH YOUR ACTUAL RENDER APP URL!
+                const RENDER_URL = "https://your-render-app-name.onrender.com/api/upload";
+                
+                const response = await fetch(RENDER_URL, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    tg.showAlert("Success! Material sent to @pede_7 for review.");
+                    tg.close(); // Automatically closes the window
+                } else {
+                    tg.showAlert("Upload failed. Please try again or use the chat menu.");
+                    submitBtn.innerText = "Send to Admin";
+                    submitBtn.disabled = false;
+                }
+            } catch (error) {
+                tg.showAlert("Network error connecting to the server.");
+                submitBtn.innerText = "Send to Admin";
+                submitBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
