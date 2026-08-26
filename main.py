@@ -12,20 +12,45 @@ app = Flask(__name__)
 CORS(app)
 
 ADMIN_ID = 8429521561 
+STORAGE_CHANNEL_ID = -1004400175347  # Your permanent backup channel ID
 
-# --- LOCAL STORAGE & HELPERS ---
+# --- LOCAL STORAGE & TELEGRAM CHANNEL SYNC HELPERS ---
 DATA_FILE = "materials.json"
 VIDEOS_FILE = "videos.json"
 
 def load_json(filename):
+    # Try loading from local disk first
     if os.path.exists(filename):
         with open(filename, "r") as f:
             return json.load(f)
+    
+    # If not on local disk (e.g. after Render restart), try recovering from Telegram Channel
+    try:
+        messages = bot.get_chat_history(STORAGE_CHANNEL_ID, limit=20)
+        for msg in messages:
+            if msg.document and msg.document.file_name == filename:
+                file_info = bot.get_file(msg.document.file_id)
+                downloaded_file = bot.download_file(file_info.file_path)
+                with open(filename, "wb") as f:
+                    f.write(downloaded_file)
+                with open(filename, "r") as f:
+                    return json.load(f)
+    except Exception as e:
+        print(f"Could not restore {filename} from channel: {e}")
+        
     return {}
 
 def save_json(filename, data):
+    # Save locally
     with open(filename, "w") as f:
         json.dump(data, f, indent=4)
+    
+    # Automatically backup to Telegram Channel so it's permanently safe
+    try:
+        with open(filename, "rb") as f:
+            bot.send_document(STORAGE_CHANNEL_ID, f, caption=f"🔄 Auto-backup for {filename}")
+    except Exception as e:
+        print(f"Could not backup {filename} to channel: {e}")
 
 def save_material(course_code, mat_type, file_id, file_name):
     data = load_json(DATA_FILE)
@@ -46,7 +71,6 @@ def delete_material_by_index(course_code, mat_type, index):
         return removed.get("name", "File")
     return None
 
-# Temporary storage for video submissions awaiting admin review
 PENDING_VIDEOS = {}
 
 def add_approved_video(course_code, title, url):
