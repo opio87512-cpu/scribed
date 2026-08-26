@@ -11,7 +11,7 @@ app = Flask(__name__)
 # Replace with your numeric ID after sending /myid to the bot
 ADMIN_ID = 123456789 
 
-# --- CURRICULUM DATABASE ---
+# --- CURRICULUM DATABASE (Fully Updated) ---
 CURRICULUM = {
     "2": {
         "2": [
@@ -29,16 +29,70 @@ CURRICULUM = {
             ("EPCE3201", "Network Analysis & Synthesis"),
             ("ECEg3103", "Probability & Random Proc."),
             ("ECEg3205", "Digital Signal Processing"),
-            ("LART2002", "Gen. Psychology and Life Skills"),
+            ("LART2002", "Gen. Psychology & Life Skills"),
             ("Phys2208", "Applied Modern Physics")
         ],
         "2": [
-            ("ECEg3202", "Intro to Communication Systems"),
+            ("ECEg3202", "Intro to Comm. Systems"),
             ("Phys3202", "Solid State Physics"),
-            ("LART1003", "History of Ethiopia and the Horn"),
-            ("ElectiveI", "Major Elective I"),
-            ("ElectiveII", "Major Elective II"),
-            ("ElectiveIII", "Major Elective III")
+            ("LART1003", "History of Ethiopia & the Horn"),
+            # Major Electives I, II, & III Options
+            ("ECEg3306", "Microelectronic Devices & Circuits"),
+            ("ECEg3318", "Optoelectronics"),
+            ("CSEg2202", "Object Oriented Programming"),
+            ("SEng4208", "Intro to Artificial Intelligence"),
+            ("EPCE3304", "Intro to Control Systems"),
+            ("EPCE3302", "Intro to Electrical Machines")
+        ]
+    },
+    "4": {
+        "1": [
+            ("ECEg4201", "Comp. Architecture & Org."),
+            ("ECEg4203", "Digital Communication"),
+            ("ECEg4205", "EM Waves & Guide Structure"),
+            ("SOSC5003", "Entrepreneurship & Bus. Dev."),
+            ("ECEg4206", "Eng. Research & Dev Methodology"),
+            # Major Elective IV Options
+            ("EPCE3206", "Intro to Power Systems"),
+            ("EPCE3207", "Electrical Measurement & Inst.")
+        ],
+        "2": [
+            ("ECEg4202", "Microprocessor & Interfacing"),
+            ("ECEg4204", "Antenna & Radio Wave Prop."),
+            ("ECEg4208", "Data Comm. & Computer Networks"),
+            ("SOSC2002", "Introduction to Economics"),
+            ("IETP4203", "Integrated Engineering Project"),
+            # Major Elective V Options
+            ("ECEg4310", "Microwave Devices & Systems"),
+            ("ECEg4312", "Integrated Circuit Technology")
+        ]
+    },
+    "5": {
+        "1": [
+            ("ECEg5201", "Wireless & Mobile Comm."),
+            ("ECEg5203", "Capstone Project"),
+            ("ECEg5207", "Final Year Project Phase I"),
+            # Major Electives VI, VII, VIII Options
+            ("ECEg5307", "VLSI Design"),
+            ("CSEg5307", "Advanced Network"),
+            ("ECEg5315", "Embedded & Real Time Systems"),
+            ("EPCE4302", "Prog. Logic Controllers & Robotics"),
+            ("EPCE4306", "Introduction to Mechatronics"),
+            ("ECEg5321", "Biomedical Inst. & Analysis"),
+            ("EPCE3202", "Power Electronics")
+        ],
+        "2": [
+            ("SOSC5011", "Project Mgt. for Engineers"),
+            ("ECEg5202", "Final Year Project Phase II"),
+            # Major Electives IX, X, XI, XII Options
+            ("ECEg5302", "Optics & Optical Comm."),
+            ("ECEg5304", "Analysis & Design of Digital IC"),
+            ("ECEg5306", "Telecom Networks & Switching"),
+            ("ECEg5308", "Intro to Computer Vision"),
+            ("ECEg5310", "Satellite Communication"),
+            ("ECEg5312", "Digital Hardware Design"),
+            ("ECEg5314", "Digital Image Processing"),
+            ("ECEg5316", "Semiconductor Devices")
         ]
     }
 }
@@ -51,7 +105,6 @@ def main_menu_keyboard():
     markup.row(InlineKeyboardButton("🧮 Grade Calculator", web_app=WebAppInfo(url="https://your-hosted-calculator.com")))
     return markup
 
-# We pass an 'action' ('f' for find, 'u' for upload) to track what the user is trying to do
 def year_keyboard(action):
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("Year II", callback_data=f"{action}y_2"),
@@ -65,20 +118,17 @@ def semester_keyboard(year, action):
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("Semester I", callback_data=f"{action}s_{year}_1"),
                InlineKeyboardButton("Semester II", callback_data=f"{action}s_{year}_2"))
-    
     back_target = "main_find" if action == 'f' else "main_upload"
     markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data=back_target))
     return markup
 
 def subject_keyboard(year, semester, action):
     markup = InlineKeyboardMarkup()
-    
     if year in CURRICULUM and semester in CURRICULUM[year]:
         for course_code, course_title in CURRICULUM[year][semester]:
             markup.row(InlineKeyboardButton(course_title, callback_data=f"{action}c_{course_code}"))
     else:
         markup.row(InlineKeyboardButton("⚠️ Subjects coming soon!", callback_data="ignore"))
-        
     markup.row(InlineKeyboardButton("⬅️ Back to Semesters", callback_data=f"{action}y_{year}"))
     return markup
 
@@ -109,37 +159,28 @@ def send_id(message):
 # --- CALLBACK HANDLERS ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    # --- 1. MAIN MENU ACTIONS ---
     if call.data == "main_find":
         bot.edit_message_text("Select your academic year to FIND materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('f'))
     elif call.data == "main_upload":
         bot.edit_message_text("Select your academic year to UPLOAD materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('u'))
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nWhat would you like to do?", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
-
-    # --- 2. YEAR SELECTED ---
     elif call.data.startswith("fy_") or call.data.startswith("uy_"):
-        action = call.data[0] # 'f' or 'u'
+        action = call.data[0]
         year = call.data.split('_')[1]
         roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"} 
         bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
-
-    # --- 3. SEMESTER SELECTED ---
     elif call.data.startswith("fs_") or call.data.startswith("us_"):
         parts = call.data.split('_')
         action = parts[0][0]
         year = parts[1]
         semester = parts[2]
         bot.edit_message_text(f"Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
-
-    # --- 4. SUBJECT SELECTED ---
     elif call.data.startswith("fc_") or call.data.startswith("uc_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
         bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
-
-    # --- 5. MATERIAL TYPE SELECTED ---
     elif call.data.startswith("fm_") or call.data.startswith("um_"):
         parts = call.data.split('_')
         action = parts[0][0]
@@ -147,19 +188,13 @@ def handle_query(call):
         material_type = parts[2]
         
         if action == 'f':
-            # User wants to download
             bot.send_message(call.message.chat.id, f"Fetching {material_type.upper()} materials for {course_code}...\n(Admin @pede_7 will link database files here)")
         elif action == 'u':
-            # User wants to upload
             msg = bot.send_message(call.message.chat.id, f"Please send the **{material_type.upper()}** document for **{course_code}** now.", parse_mode="Markdown")
-            # Passes the specific course and type into the upload function!
             bot.register_next_step_handler(msg, process_upload, course_code, material_type)
-
-    # --- ADMIN APPROVALS ---
     elif call.data.startswith("approve_"):
         bot.send_message(ADMIN_ID, f"✅ File approved and saved!")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
-        
     elif call.data == "reject":
         bot.send_message(ADMIN_ID, "❌ Upload rejected.")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
@@ -167,7 +202,6 @@ def handle_query(call):
 # --- UPLOAD WORKFLOW ---
 def process_upload(message, course_code, material_type):
     if message.document:
-        # Now the admin gets exact details about the file!
         admin_text = (
             f"📥 **New Upload from @{message.from_user.username}**\n\n"
             f"**Course:** {course_code}\n"
