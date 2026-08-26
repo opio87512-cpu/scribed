@@ -210,28 +210,24 @@ def handle_query(call):
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
     
-    # Year Selection (f: find, u: upload, a: admin add, d: delete)
     elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_") or call.data.startswith("dy_"):
         action = call.data[0]
         year = call.data.split('_')[1]
         roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"} 
         bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
     
-    # Semester Selection
     elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_") or call.data.startswith("ds_"):
         parts = call.data.split('_')
         action = parts[0][0]
         year, semester = parts[1], parts[2]
         bot.edit_message_text(f"Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
     
-    # Course Selection
     elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_") or call.data.startswith("dc_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
         bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
     
-    # Material Type Selection & Execution
     elif call.data.startswith("fm_") or call.data.startswith("um_") or call.data.startswith("am_") or call.data.startswith("dm_"):
         parts = call.data.split('_')
         action = parts[0][0]
@@ -317,6 +313,7 @@ def getMessage():
     bot.process_new_updates([update])
     return "!", 200
 
+# Endpoint for Web App Uploads
 @app.route('/api/upload', methods=['POST'])
 def handle_webapp_upload():
     if 'file' not in request.files:
@@ -334,6 +331,12 @@ def handle_webapp_upload():
         return jsonify({"status": "success"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# NEW: Endpoint for Web App to Fetch Materials Database
+@app.route('/api/materials', methods=['GET'])
+def get_materials():
+    data = load_materials()
+    return jsonify(data), 200
 
 @app.route("/")
 def webhook():
