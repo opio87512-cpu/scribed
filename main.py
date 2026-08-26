@@ -204,6 +204,49 @@ def fetch_tikwm_data(url, retries=2):
     return {}
 
 
+# --- Optional paid fallback: TikLiveAPI --------------------------------------
+# Only used if TIKLIVEAPI_KEY is set in the environment. TikWM being blocked
+# at the network/WAF level can't be fixed by retrying harder, so this gives a
+# second, independent source a chance when that happens. Not activated unless
+# you sign up at tikliveapi.com and set the key — otherwise behavior is
+# unchanged from TikWM-only.
+TIKLIVEAPI_KEY = os.environ.get("TIKLIVEAPI_KEY")
+
+
+def fetch_tikliveapi_data(url, timeout=15):
+    if not TIKLIVEAPI_KEY:
+        return {}
+    try:
+        r = http_session.get(
+            "https://api.tikliveapi.com/post-detail/",
+            params={"url": url},
+            headers={"X-Api-Key": TIKLIVEAPI_KEY},
+            timeout=timeout,
+        )
+        if r.status_code != 200:
+            log.warning("TikLiveAPI fallback failed: HTTP %s: %s", r.status_code, r.text[:200])
+            return {}
+        data = r.json() or {}
+        return data if data else {}
+    except Exception as e:
+        log.warning("TikLiveAPI fallback errored: %s", e)
+        return {}
+
+
+def fetch_media_data(url):
+    """Try TikWM first; if it comes back empty (blocked, rate-limited, or
+    otherwise failing) and a TikLiveAPI key is configured, try that next."""
+    data = fetch_tikwm_data(url)
+    if data:
+        return data
+    if TIKLIVEAPI_KEY:
+        log.info("Falling back to TikLiveAPI for %s", url)
+        data = fetch_tikliveapi_data(url)
+        if data:
+            return data
+    return {}
+
+
 def extract_image_urls(data):
     """Normalize TikWM's various slideshow response shapes into a flat URL list."""
     urls = []
@@ -353,12 +396,13 @@ def _handle_link_impl(message):
     if "/t/" in url or "vm.tiktok.com" in url or "vt.tiktok.com" in url:
         url = resolve_tiktok_url(url)
 
-    data = fetch_tikwm_data(url)
+    data = fetch_media_data(url)
     if not data:
         safe_bot_call(
             bot.edit_message_text,
-            "❌ Couldn't fetch this link. It may be private, deleted, or TikWM is having issues. "
-            "Check the bot's logs for the specific reason if this keeps happening.",
+            "❌ Couldn't fetch this link. It may be private, deleted, or the download "
+            "service is having issues. Check the bot's logs for the specific reason if "
+            "this keeps happening.",
             message.chat.id, status.message_id
         )
         return
