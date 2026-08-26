@@ -11,7 +11,7 @@ app = Flask(__name__)
 # IMPORTANT: Send /myid to your bot on Telegram, then replace 123456789 with that number
 ADMIN_ID = 123456789 
 
-# --- CURRICULUM DATABASE (Fully Updated) ---
+# --- CURRICULUM DATABASE ---
 CURRICULUM = {
     "2": {
         "1": [
@@ -191,7 +191,7 @@ def handle_query(call):
         if action == 'f':
             bot.send_message(call.message.chat.id, f"Fetching {material_type.upper()} materials for {course_code}...\n(Admin @pede_7 will link database files here)")
         elif action == 'u':
-            msg = bot.send_message(call.message.chat.id, f"Please send the **{material_type.upper()}** document for **{course_code}** now.", parse_mode="Markdown")
+            msg = bot.send_message(call.message.chat.id, f"Please send the **{material_type.upper()}** document or photo for **{course_code}** now.", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_upload, course_code, material_type)
     elif call.data.startswith("approve_"):
         bot.send_message(ADMIN_ID, f"✅ File approved and saved!")
@@ -202,7 +202,8 @@ def handle_query(call):
 
 # --- UPLOAD WORKFLOW ---
 def process_upload(message, course_code, material_type):
-    if message.document:
+    # Now checks for both documents AND photos
+    if message.document or message.photo:
         admin_text = (
             f"📥 **New Upload from @{message.from_user.username}**\n\n"
             f"**Course:** {course_code}\n"
@@ -219,7 +220,7 @@ def process_upload(message, course_code, material_type):
         bot.send_message(ADMIN_ID, "Review this upload:", reply_markup=markup)
         bot.reply_to(message, "Thank you! Your correctly categorized material has been sent to @pede_7 for review.")
     else:
-        bot.reply_to(message, "Error: Please upload a valid document file. You will need to start the upload process over from the menu.")
+        bot.reply_to(message, "Error: Please upload a valid document or photo. You will need to start the upload process over from the menu.")
 
 # --- WEBHOOK & FLASK SERVER FOR RENDER ---
 @app.route('/' + TOKEN, methods=['POST'])
