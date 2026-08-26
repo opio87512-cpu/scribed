@@ -1,4 +1,5 @@
 import os
+import json
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from flask import Flask, request, jsonify
@@ -10,8 +11,26 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 CORS(app) # Allows the GitHub Web App to talk to your Render server
 
-# Your exact Telegram ID for receiving files
+# Your exact Telegram ID for receiving files and admin access
 ADMIN_ID = 8429521561 
+
+# --- LOCAL DATABASE STORAGE ---
+DATA_FILE = "materials.json"
+
+def load_materials():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_material(course_code, mat_type, file_id, file_name):
+    data = load_materials()
+    key = f"{course_code}_{mat_type}"
+    if key not in data:
+        data[key] = []
+    data[key].append({"file_id": file_id, "name": file_name})
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
 # --- CURRICULUM DATABASE ---
 CURRICULUM = {
@@ -104,15 +123,10 @@ CURRICULUM = {
 # --- INLINE KEYBOARDS ---
 def main_menu_keyboard():
     markup = InlineKeyboardMarkup()
-    
-    # --- WEB APP BUTTON ---
     webapp_url = "https://opio87512-cpu.github.io/scribed/"
     markup.row(InlineKeyboardButton("🚀 Open ASTU ECE Portal", web_app=WebAppInfo(url=webapp_url)))
-    
-    # --- CHAT FALLBACK BUTTONS ---
     markup.row(InlineKeyboardButton("📚 Find Materials (Chat)", callback_data="main_find"))
     markup.row(InlineKeyboardButton("📤 Upload Material (Chat)", callback_data="main_upload"))
-    
     return markup
 
 def year_keyboard(action):
@@ -128,7 +142,7 @@ def semester_keyboard(year, action):
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("Semester I", callback_data=f"{action}s_{year}_1"),
                InlineKeyboardButton("Semester II", callback_data=f"{action}s_{year}_2"))
-    back_target = "main_find" if action == 'f' else "main_upload"
+    back_target = "main_find" if action == 'f' else ("main_upload" if action == 'u' else "back_main")
     markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data=back_target))
     return markup
 
@@ -162,7 +176,13 @@ def send_welcome(message):
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu_keyboard())
 
-# --- CALLBACK HANDLERS (CHAT FALLBACKS) ---
+@bot.message_handler(commands=['addfile'])
+def admin_add_file_start(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    bot.send_message(message.chat.id, "Select the Year to ADD official material:", reply_markup=year_keyboard('a'))
+
+# --- CALLBACK HANDLERS ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     if call.data == "main_find":
@@ -171,41 +191,61 @@ def handle_query(call):
         bot.edit_message_text("Select your academic year to UPLOAD materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('u'))
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
-    elif call.data.startswith("fy_") or call.data.startswith("uy_"):
+    
+    # Year Selection (f: find, u: upload, a: admin add)
+    elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_"):
         action = call.data[0]
         year = call.data.split('_')[1]
         roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"} 
         bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
-    elif call.data.startswith("fs_") or call.data.startswith("us_"):
+    
+    # Semester Selection
+    elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_"):
         parts = call.data.split('_')
         action = parts[0][0]
         year = parts[1]
         semester = parts[2]
         bot.edit_message_text(f"Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
-    elif call.data.startswith("fc_") or call.data.startswith("uc_"):
+    
+    # Course Selection
+    elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
         bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
-    elif call.data.startswith("fm_") or call.data.startswith("um_"):
+    
+    # Material Type Selection & Execution
+    elif call.data.startswith("fm_") or call.data.startswith("um_") or call.data.startswith("am_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
         material_type = parts[2]
         
         if action == 'f':
-            bot.send_message(call.message.chat.id, f"Fetching {material_type.upper()} materials for {course_code}...\n(Admin @pede_7 will link database files here)")
+            materials = load_materials().get(f"{course_code}_{material_type}", [])
+            if not materials:
+                bot.send_message(call.message.chat.id, f"ℹ️ No {material_type.upper()} files available yet for {course_code}.")
+            else:
+                bot.send_message(call.message.chat.id, f"📚 Found {len(materials)} file(s) for {course_code}:")
+                for item in materials:
+                    bot.send_document(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
         elif action == 'u':
             msg = bot.send_message(call.message.chat.id, f"Please send the **{material_type.upper()}** document or photo for **{course_code}** now.", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_upload, course_code, material_type)
+        elif action == 'a':
+            msg = bot.send_message(call.message.chat.id, f"📥 Send official document for **{course_code}** ({material_type.upper()}):", parse_mode="Markdown")
+            bot.register_next_step_handler(msg, process_admin_save, course_code, material_type)
+
     elif call.data.startswith("approve_"):
-        bot.send_message(ADMIN_ID, f"✅ File approved and saved!")
+        file_info = call.data.split('_')
+        # Format: approve_course_type_msgid
+        bot.send_message(ADMIN_ID, "✅ File approved and saved!")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
     elif call.data == "reject":
         bot.send_message(ADMIN_ID, "❌ Upload rejected.")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
-# --- INLINE UPLOAD WORKFLOW ---
+# --- UPLOAD WORKFLOWS ---
 def process_upload(message, course_code, material_type):
     if message.document or message.photo:
         admin_text = (
@@ -218,13 +258,22 @@ def process_upload(message, course_code, material_type):
         
         markup = InlineKeyboardMarkup()
         markup.row(
-            InlineKeyboardButton("✅ Approve", callback_data=f"approve_{message.message_id}"),
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve_review"),
             InlineKeyboardButton("❌ Reject", callback_data="reject")
         )
         bot.send_message(ADMIN_ID, "Review this upload:", reply_markup=markup)
         bot.reply_to(message, "Thank you! Your correctly categorized material has been sent to @pede_7 for review.")
     else:
         bot.reply_to(message, "Error: Please upload a valid document or photo. You will need to start the upload process over from the menu.")
+
+def process_admin_save(message, course_code, material_type):
+    if message.document:
+        file_id = message.document.file_id
+        file_name = message.document.file_name or "document.pdf"
+        save_material(course_code, material_type, file_id, file_name)
+        bot.reply_to(message, f"✅ Successfully saved **{file_name}** under `{course_code}` ({material_type.upper()})!", parse_mode="Markdown")
+    else:
+        bot.reply_to(message, "⚠️ Please send a valid document file.")
 
 # --- FLASK SERVER ROUTING ---
 @app.route('/' + TOKEN, methods=['POST'])
@@ -234,7 +283,6 @@ def getMessage():
     bot.process_new_updates([update])
     return "!", 200
 
-# NEW: Receives files sent from your HTML Web App
 @app.route('/api/upload', methods=['POST'])
 def handle_webapp_upload():
     if 'file' not in request.files:
@@ -248,7 +296,6 @@ def handle_webapp_upload():
     admin_text = f"🌐 **WEB APP Upload from {username}**\n\n**Course:** {course}\n**Type:** {mat_type.upper()}"
     
     try:
-        # Forwards the HTML upload to your personal ID
         bot.send_document(ADMIN_ID, file.read(), caption=admin_text, visible_file_name=file.filename, parse_mode="Markdown")
         return jsonify({"status": "success"}), 200
     except Exception as e:
