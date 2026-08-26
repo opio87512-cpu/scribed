@@ -12,7 +12,7 @@
             background: var(--tg-theme-bg-color, #ffffff); 
             color: var(--tg-theme-text-color, #000000); 
         }
-        h2 { text-align: center; margin-bottom: 15px; }
+        h2, h3 { text-align: center; margin-bottom: 15px; }
         .tabs { display: flex; gap: 6px; margin-bottom: 20px; }
         .tab-btn { flex: 1; padding: 8px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; background: var(--tg-theme-secondary-bg-color, #f0f0f0); color: var(--tg-theme-text-color, #000000); font-size: 14px; }
         .tab-btn.active { background: var(--tg-theme-button-color, #3390ec); color: var(--tg-theme-button-text-color, #ffffff); }
@@ -34,6 +34,7 @@
         .section.active { display: block; }
         .material-card { background: var(--tg-theme-secondary-bg-color, #f8f9fa); padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .material-card a { color: var(--tg-theme-link-color, #3390ec); text-decoration: none; font-weight: bold; }
+        hr { border: 0; border-top: 1px solid var(--tg-theme-hint-color, #ddd); margin: 25px 0; }
     </style>
 </head>
 <body>
@@ -47,43 +48,11 @@
     <div id="uploadSection" class="section active">
         <h2>Upload Material</h2>
         <form id="uploadForm">
-            <div class="form-group">
-                <label>Academic Year</label>
-                <select id="upYear" required>
-                    <option value="">Select Year...</option>
-                    <option value="2">Year II</option>
-                    <option value="3">Year III</option>
-                    <option value="4">Year IV</option>
-                    <option value="5">Year V</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Semester</label>
-                <select id="upSem" required disabled>
-                    <option value="">Select Semester...</option>
-                    <option value="1">Semester I</option>
-                    <option value="2">Semester II</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Course</label>
-                <select id="upCourse" required disabled><option value="">Select Course...</option></select>
-            </div>
-            <div class="form-group">
-                <label>Material Type</label>
-                <select id="upType" required disabled>
-                    <option value="">Select Type...</option>
-                    <option value="note">📝 Note</option>
-                    <option value="assignment">📄 Assignment</option>
-                    <option value="mid">📝 Mid Exam</option>
-                    <option value="final">📝 Final Exam</option>
-                    <option value="test">⏳ Test</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Select File or Photo</label>
-                <input type="file" id="fileInput" required disabled>
-            </div>
+            <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+            <div class="form-group"><label>Semester</label><select id="upSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+            <div class="form-group"><label>Course</label><select id="upCourse" required disabled><option value="">Select Course...</option></select></div>
+            <div class="form-group"><label>Material Type</label><select id="upType" required disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
+            <div class="form-group"><label>Select File or Photo</label><input type="file" id="fileInput" required disabled></div>
             <button type="submit" id="submitBtn" disabled>Send to Admin</button>
         </form>
     </div>
@@ -91,66 +60,40 @@
     <!-- FIND MATERIALS SECTION -->
     <div id="findSection" class="section">
         <h2>Find Materials</h2>
-        <div class="form-group">
-            <label>Academic Year</label>
-            <select id="findYear">
-                <option value="">Select Year...</option>
-                <option value="2">Year II</option>
-                <option value="3">Year III</option>
-                <option value="4">Year IV</option>
-                <option value="5">Year V</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Semester</label>
-            <select id="findSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select>
-        </div>
-        <div class="form-group">
-            <label>Course</label>
-            <select id="findCourse" disabled><option value="">Select Course...</option></select>
-        </div>
-        <div class="form-group">
-            <label>Material Type</label>
-            <select id="findType" disabled>
-                <option value="">Select Type...</option>
-                <option value="note">📝 Note</option>
-                <option value="assignment">📄 Assignment</option>
-                <option value="mid">📝 Mid Exam</option>
-                <option value="final">📝 Final Exam</option>
-                <option value="test">⏳ Test</option>
-            </select>
-        </div>
+        <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+        <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+        <div class="form-group"><label>Course</label><select id="findCourse" disabled><option value="">Select Course...</option></select></div>
+        <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
         <div id="resultsContainer" style="margin-top: 20px;"></div>
     </div>
 
     <!-- VIDEOS SECTION -->
     <div id="videoSection" class="section">
         <h2>YouTube Tutorials</h2>
-        <div class="form-group">
-            <label>Academic Year</label>
-            <select id="vidYear">
-                <option value="">Select Year...</option>
-                <option value="2">Year II</option>
-                <option value="3">Year III</option>
-                <option value="4">Year IV</option>
-                <option value="5">Year V</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>Semester</label>
-            <select id="vidSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select>
-        </div>
-        <div class="form-group">
-            <label>Course</label>
-            <select id="vidCourse" disabled><option value="">Select Course...</option></select>
-        </div>
+        
+        <!-- Search Approved Videos -->
+        <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+        <div class="form-group"><label>Semester</label><select id="vidSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+        <div class="form-group"><label>Course</label><select id="vidCourse" disabled><option value="">Select Course...</option></select></div>
         <div id="videoResultsContainer" style="margin-top: 20px;"></div>
+
+        <hr>
+
+        <!-- Submit Video Form -->
+        <h3>Suggest a Video Link</h3>
+        <form id="videoForm">
+            <div class="form-group"><label>Year</label><select id="subVidYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+            <div class="form-group"><label>Semester</label><select id="subVidSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+            <div class="form-group"><label>Course</label><select id="subVidCourse" required disabled><option value="">Select Course...</option></select></div>
+            <div class="form-group"><label>Video Title / Description</label><input type="text" id="vidTitle" placeholder="e.g. Chapter 1 Lecture" required disabled></div>
+            <div class="form-group"><label>YouTube Link</label><input type="url" id="vidUrl" placeholder="https://youtube.com/watch?v=..." required disabled></div>
+            <button type="submit" id="subVidBtn" disabled>Submit Video for Review</button>
+        </form>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
-
         const RENDER_URL = "https://scribed-1rqs.onrender.com";
 
         const curriculum = {
@@ -172,118 +115,79 @@
             }
         };
 
-        // Curated Sample YouTube Links Database (You can add more custom course codes and videos here)
-        const videoDatabase = {
-            "Math2101": [{title: "Applied Mathematics III Full Course Review", url: "https://www.youtube.com/results?search_query=Applied+Mathematics+III"}],
-            "ECEg2201": [{title: "Electronic Circuits I - Diode & BJT Analysis", url: "https://www.youtube.com/results?search_query=Electronic+Circuits+I+tutorials"}],
-            "ECEg3201": [{title: "Digital Logic Design Lectures", url: "https://www.youtube.com/results?search_query=Digital+Logic+Design+full+course"}]
-        };
-
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-            if(tab === 'upload') {
-                document.querySelectorAll('.tab-btn')[0].classList.add('active');
-                document.getElementById('uploadSection').classList.add('active');
-            } else if(tab === 'find') {
-                document.querySelectorAll('.tab-btn')[1].classList.add('active');
-                document.getElementById('findSection').classList.add('active');
-            } else {
-                document.querySelectorAll('.tab-btn')[2].classList.add('active');
-                document.getElementById('videoSection').classList.add('active');
-            }
+            if(tab === 'upload') { document.querySelectorAll('.tab-btn')[0].classList.add('active'); document.getElementById('uploadSection').classList.add('active'); }
+            else if(tab === 'find') { document.querySelectorAll('.tab-btn')[1].classList.add('active'); document.getElementById('findSection').classList.add('active'); }
+            else { document.querySelectorAll('.tab-btn')[2].classList.add('active'); document.getElementById('videoSection').classList.add('active'); }
         }
 
         // Upload Cascading Logic
         const upYear = document.getElementById('upYear'), upSem = document.getElementById('upSem'), upCourse = document.getElementById('upCourse'), upType = document.getElementById('upType'), fileInput = document.getElementById('fileInput'), submitBtn = document.getElementById('submitBtn');
         upYear.onchange = () => { upSem.disabled = !upYear.value; upSem.value=""; upCourse.innerHTML='<option value="">Select Course...</option>'; upCourse.disabled=true; upType.disabled=true; fileInput.disabled=true; submitBtn.disabled=true; };
-        upSem.onchange = () => {
-            upCourse.innerHTML='<option value="">Select Course...</option>';
-            if(upYear.value && upSem.value) {
-                curriculum[upYear.value][upSem.value].forEach(c => upCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`);
-                upCourse.disabled = false;
-            } else { upCourse.disabled = true; }
-            upType.disabled = true; fileInput.disabled = true; submitBtn.disabled = true;
-        };
+        upSem.onchange = () => { upCourse.innerHTML='<option value="">Select Course...</option>'; if(upYear.value && upSem.value){ curriculum[upYear.value][upSem.value].forEach(c => upCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); upCourse.disabled = false; } else { upCourse.disabled = true; } upType.disabled = true; fileInput.disabled = true; submitBtn.disabled = true; };
         upCourse.onchange = () => { upType.disabled = !upCourse.value; fileInput.disabled = true; submitBtn.disabled = true; };
         upType.onchange = () => { fileInput.disabled = !upType.value; submitBtn.disabled = true; };
         fileInput.onchange = () => { submitBtn.disabled = !fileInput.files.length; };
 
-        // Find Cascading Logic & Fetching Results
+        // Find Cascading Logic
         const findYear = document.getElementById('findYear'), findSem = document.getElementById('findSem'), findCourse = document.getElementById('findCourse'), findType = document.getElementById('findType'), resultsContainer = document.getElementById('resultsContainer');
         findYear.onchange = () => { findSem.disabled = !findYear.value; findSem.value=""; findCourse.innerHTML='<option value="">Select Course...</option>'; findCourse.disabled=true; findType.disabled=true; resultsContainer.innerHTML=""; };
-        findSem.onchange = () => {
-            findCourse.innerHTML='<option value="">Select Course...</option>';
-            if(findYear.value && findSem.value) {
-                curriculum[findYear.value][findSem.value].forEach(c => findCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`);
-                findCourse.disabled = false;
-            } else { findCourse.disabled = true; }
-            findType.disabled = true; resultsContainer.innerHTML="";
-        };
+        findSem.onchange = () => { findCourse.innerHTML='<option value="">Select Course...</option>'; if(findYear.value && findSem.value){ curriculum[findYear.value][findSem.value].forEach(c => findCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); findCourse.disabled = false; } else { findCourse.disabled = true; } findType.disabled = true; resultsContainer.innerHTML=""; };
         findCourse.onchange = () => { findType.disabled = !findCourse.value; resultsContainer.innerHTML=""; };
         findType.onchange = fetchMaterials;
 
         async function fetchMaterials() {
-            const course = findCourse.value;
-            const type = findType.value;
+            const course = findCourse.value, type = findType.value;
             if(!course || !type) return;
-
             resultsContainer.innerHTML = "<p>Loading materials...</p>";
             try {
                 const res = await fetch(`${RENDER_URL}/api/materials`);
                 const data = await res.json();
-                const key = `${course}_${type}`;
-                const items = data[key] || [];
-
-                if(items.length === 0) {
-                    resultsContainer.innerHTML = "<p>ℹ️ No materials found for this selection yet.</p>";
-                } else {
+                const items = data[`${course}_${type}`] || [];
+                if(items.length === 0) resultsContainer.innerHTML = "<p>ℹ️ No materials found.</p>";
+                else {
                     resultsContainer.innerHTML = `<h3>Found ${items.length} file(s):</h3>`;
                     items.forEach(item => {
-                        resultsContainer.innerHTML += `
-                            <div class="material-card">
-                                <span>📄 ${item.name}</span>
-                                <a href="https://t.me/astuece2026_bot?start=get_${item.file_id}" target="_blank">Open in Bot</a>
-                            </div>`;
+                        resultsContainer.innerHTML += `<div class="material-card"><span>📄 ${item.name}</span><a href="https://t.me/astuece2026_bot?start=get_${item.file_id}" target="_blank">Open in Bot</a></div>`;
                     });
                 }
-            } catch(e) {
-                resultsContainer.innerHTML = "<p>⚠️ Error connecting to server.</p>";
-            }
+            } catch(e) { resultsContainer.innerHTML = "<p>⚠️ Error connecting to server.</p>"; }
         }
 
-        // Video Tab Cascading Logic
+        // Video Find Cascading Logic
         const vidYear = document.getElementById('vidYear'), vidSem = document.getElementById('vidSem'), vidCourse = document.getElementById('vidCourse'), videoResultsContainer = document.getElementById('videoResultsContainer');
         vidYear.onchange = () => { vidSem.disabled = !vidYear.value; vidSem.value=""; vidCourse.innerHTML='<option value="">Select Course...</option>'; vidCourse.disabled=true; videoResultsContainer.innerHTML=""; };
-        vidSem.onchange = () => {
-            vidCourse.innerHTML='<option value="">Select Course...</option>';
-            if(vidYear.value && vidSem.value) {
-                curriculum[vidYear.value][vidSem.value].forEach(c => vidCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`);
-                vidCourse.disabled = false;
-            } else { vidCourse.disabled = true; }
-            videoResultsContainer.innerHTML="";
-        };
+        vidSem.onchange = () => { vidCourse.innerHTML='<option value="">Select Course...</option>'; if(vidYear.value && vidSem.value){ curriculum[vidYear.value][vidSem.value].forEach(c => vidCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); vidCourse.disabled = false; } else { vidCourse.disabled = true; } videoResultsContainer.innerHTML=""; };
         vidCourse.onchange = fetchVideos;
 
-        function fetchVideos() {
+        async function fetchVideos() {
             const courseCode = vidCourse.value;
             if(!courseCode) return;
-
-            const videos = videoDatabase[courseCode] || [
-                {title: `YouTube Search for ${courseCode}`, url: `https://www.youtube.com/results?search_query=${courseCode}+ASTU+ECE`}
-            ];
-
-            videoResultsContainer.innerHTML = `<h3>Recommended Videos:</h3>`;
-            videos.forEach(vid => {
-                videoResultsContainer.innerHTML += `
-                    <div class="material-card">
-                        <span>▶️ ${vid.title}</span>
-                        <a href="${vid.url}" target="_blank">Watch</a>
-                    </div>`;
-            });
+            videoResultsContainer.innerHTML = "<p>Loading videos...</p>";
+            try {
+                const res = await fetch(`${RENDER_URL}/api/videos`);
+                const data = await res.json();
+                const vids = data[courseCode] || [];
+                if(vids.length === 0) {
+                    videoResultsContainer.innerHTML = `<p>ℹ️ No approved videos yet for this course.</p>`;
+                } else {
+                    videoResultsContainer.innerHTML = `<h3>Approved Videos:</h3>`;
+                    vids.forEach(v => {
+                        videoResultsContainer.innerHTML += `<div class="material-card"><span>▶️ ${v.title}</span><a href="${v.url}" target="_blank">Watch</a></div>`;
+                    });
+                }
+            } catch(e) { videoResultsContainer.innerHTML = "<p>⚠️ Error connecting to server.</p>"; }
         }
 
-        // Form Submit
+        // Video Submission Cascading Logic
+        const subVidYear = document.getElementById('subVidYear'), subVidSem = document.getElementById('subVidSem'), subVidCourse = document.getElementById('subVidCourse'), vidTitle = document.getElementById('vidTitle'), vidUrl = document.getElementById('vidUrl'), subVidBtn = document.getElementById('subVidBtn');
+        subVidYear.onchange = () => { subVidSem.disabled = !subVidYear.value; subVidSem.value=""; subVidCourse.innerHTML='<option value="">Select Course...</option>'; subVidCourse.disabled=true; vidTitle.disabled=true; vidUrl.disabled=true; subVidBtn.disabled=true; };
+        subVidSem.onchange = () => { subVidCourse.innerHTML='<option value="">Select Course...</option>'; if(subVidYear.value && subVidSem.value){ curriculum[subVidYear.value][subVidSem.value].forEach(c => subVidCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); subVidCourse.disabled = false; } else { subVidCourse.disabled = true; } vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true; };
+        subVidCourse.onchange = () => { vidTitle.disabled = !subVidCourse.value; vidUrl.disabled = !subVidCourse.value; subVidBtn.disabled = !subVidCourse.value; };
+
+        // Form Submit Handlers
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             submitBtn.innerText = "Uploading..."; submitBtn.disabled = true;
@@ -292,19 +196,37 @@
             formData.append('course', upCourse.value);
             formData.append('type', upType.value);
             formData.append('username', tg.initDataUnsafe?.user?.username ? `@${tg.initDataUnsafe.user.username}` : "Student");
-
             try {
                 const res = await fetch(`${RENDER_URL}/api/upload`, { method: 'POST', body: formData });
+                if(res.ok) { tg.showAlert("Success! Material sent to admin."); tg.close(); }
+                else { tg.showAlert("Upload failed."); submitBtn.innerText = "Send to Admin"; submitBtn.disabled = false; }
+            } catch(e) { tg.showAlert("Network error."); submitBtn.innerText = "Send to Admin"; submitBtn.disabled = false; }
+        });
+
+        document.getElementById('videoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            subVidBtn.innerText = "Submitting..."; subVidBtn.disabled = true;
+            const payload = {
+                course: subVidCourse.value,
+                title: vidTitle.value,
+                url: vidUrl.value,
+                username: tg.initDataUnsafe?.user?.username ? `@${tg.initDataUnsafe.user.username}` : "Student"
+            };
+            try {
+                const res = await fetch(`${RENDER_URL}/api/upload_video`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
                 if(res.ok) {
-                    tg.showAlert("Success! Material sent to admin.");
-                    tg.close();
+                    tg.showAlert("Success! Video submitted for admin approval.");
+                    document.getElementById('videoForm').reset();
+                    subVidSem.disabled = true; subVidCourse.disabled = true; vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true; subVidBtn.innerText = "Submit Video for Review";
                 } else {
-                    tg.showAlert("Upload failed.");
-                    submitBtn.innerText = "Send to Admin"; submitBtn.disabled = false;
+                    tg.showAlert("Submission failed."); subVidBtn.innerText = "Submit Video for Review"; subVidBtn.disabled = false;
                 }
             } catch(e) {
-                tg.showAlert("Network error.");
-                submitBtn.innerText = "Send to Admin"; submitBtn.disabled = false;
+                tg.showAlert("Network error."); subVidBtn.innerText = "Submit Video for Review"; subVidBtn.disabled = false;
             }
         });
     </script>
