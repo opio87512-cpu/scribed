@@ -106,8 +106,7 @@ def main_menu_keyboard():
     markup = InlineKeyboardMarkup()
     
     # --- WEB APP BUTTON ---
-    # IMPORTANT: Replace with your actual GitHub Pages HTML link later
-    webapp_url = "https://yourusername.github.io/astu-ece-portal/"
+    webapp_url = "https://opio87512-cpu.github.io/scribed/"
     markup.row(InlineKeyboardButton("🚀 Open ASTU ECE Portal", web_app=WebAppInfo(url=webapp_url)))
     
     # --- CHAT FALLBACK BUTTONS ---
