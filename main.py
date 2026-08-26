@@ -2,33 +2,86 @@ import os
 import re
 import time
 import queue
+import logging
 import threading
 import subprocess
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import telebot
 from telebot import types
-from flask import Flask
+from flask import Flask, request
 
+# ---------------------------------------------------------------------------
+# Logging — timestamps + levels, replaces bare print() so Render's log
+# viewer shows exactly what failed and when.
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+log = logging.getLogger("tiktok_bot")
+
+# ---------------------------------------------------------------------------
 # Your Telegram Bot Token
+# ---------------------------------------------------------------------------
+
 BOT_TOKEN = "8969647277:AAF3jTCal-ZdqYqghm7ln0mrcTZUcTg3o6U"
 
 # threaded=False: telebot won't spawn an unbounded thread per update.
 # We manage our own bounded worker pool below instead.
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 
-try:
-    bot.remove_webhook()
-    time.sleep(1)
-except Exception:
-    pass
-
 app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# Shared HTTP session with automatic retries on connection errors, timeouts,
+# and 429/5xx responses — covers transient network blips without each call
+# site needing its own retry loop.
+# ---------------------------------------------------------------------------
+
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+http_session = requests.Session()
+_retry = Retry(
+    total=3,
+    backoff_factor=1.5,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET"],
+)
+http_session.mount("https://", HTTPAdapter(max_retries=_retry))
+http_session.mount("http://", HTTPAdapter(max_retries=_retry))
+http_session.headers.update({"User-Agent": BROWSER_UA})
+
+
+def safe_bot_call(fn, *args, **kwargs):
+    """Call a telebot method, swallowing the extremely common and harmless
+    'message is not modified' error, logging anything else, and never
+    raising into a handler or worker thread."""
+    try:
+        return fn(*args, **kwargs)
+    except telebot.apihelper.ApiTelegramException as e:
+        if "message is not modified" in str(e).lower():
+            return None
+        log.warning("Telegram API error in %s: %s", getattr(fn, "__name__", fn), e)
+    except Exception as e:
+        log.warning("Unexpected error in %s: %s", getattr(fn, "__name__", fn), e)
+    return None
 
 
 @app.route('/')
 def home():
     return "TikTok Downloader is running."
+
+
+@app.route('/health')
+def health():
+    return {"status": "ok", "queued_jobs": job_queue.qsize(), "active_jobs": len(jobs)}
 
 
 # ---------------------------------------------------------------------------
@@ -41,11 +94,6 @@ MAX_WORKERS = 2
 STATUS_EDIT_INTERVAL = 3  # seconds between progress message edits (Telegram throttling)
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-BROWSER_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
 
 job_queue = queue.Queue()
 jobs = {}           # job_id -> dict with everything needed to process it
@@ -86,8 +134,7 @@ def safe_filename(title, fallback="tiktok", max_len=60):
 def fetch_tikwm_data(url, retries=2):
     """Query TikWM for metadata + direct media URLs (video, audio, or images).
     Tries both known hosts and both hd param variants, retries briefly on
-    rate-limiting, and logs failures server-side for debugging."""
-    headers = {"User-Agent": BROWSER_UA}
+    rate-limiting, and logs the actual failure reason server-side."""
     hosts = ("https://www.tikwm.com/api/", "https://tikwm.com/api/")
     param_variants = ({"url": url, "hd": 1}, {"url": url})
 
@@ -96,14 +143,18 @@ def fetch_tikwm_data(url, retries=2):
         for host in hosts:
             for params in param_variants:
                 try:
-                    r = requests.get(host, params=params, headers=headers, timeout=15)
+                    r = http_session.get(host, params=params, timeout=15)
                     if r.status_code == 429:
                         last_error = "rate limited (429)"
                         continue
                     if r.status_code != 200:
-                        last_error = f"HTTP {r.status_code} from {host}"
+                        last_error = f"HTTP {r.status_code} from {host}: {r.text[:200]!r}"
                         continue
-                    j = r.json()
+                    try:
+                        j = r.json()
+                    except ValueError:
+                        last_error = f"non-JSON response from {host}: {r.text[:200]!r}"
+                        continue
                     if j.get('code') == 0:
                         data = j.get('data', {}) or {}
                         if data:
@@ -111,12 +162,12 @@ def fetch_tikwm_data(url, retries=2):
                         last_error = "empty data in response"
                     else:
                         last_error = f"API code {j.get('code')}: {j.get('msg')}"
-                except Exception as e:
-                    last_error = str(e)
+                except requests.exceptions.RequestException as e:
+                    last_error = f"network error: {e}"
         if attempt < retries:
             time.sleep(2)
 
-    print(f"[TikWM] Failed to fetch data for {url}: {last_error}")
+    log.error("TikWM fetch failed for %s: %s", url, last_error)
     return {}
 
 
@@ -150,9 +201,8 @@ def extract_image_urls(data):
 def probe_remote_size(url, timeout=15):
     """Range-probe a direct media URL to get its real byte size when TikWM
     doesn't report one."""
-    headers = {"User-Agent": BROWSER_UA, "Range": "bytes=0-0"}
     try:
-        r = requests.get(url, headers=headers, stream=True, timeout=timeout)
+        r = http_session.get(url, headers={"Range": "bytes=0-0"}, stream=True, timeout=timeout)
         cr = r.headers.get('Content-Range')  # "bytes 0-0/1234567"
         r.close()
         if cr and '/' in cr:
@@ -162,8 +212,8 @@ def probe_remote_size(url, timeout=15):
         cl = r.headers.get('Content-Length')
         if r.status_code == 200 and cl and cl.isdigit():
             return int(cl)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Size probe failed for %s: %s", url, e)
     return None
 
 
@@ -204,10 +254,9 @@ def pick_mp3_bitrate(duration_seconds, safety_ratio=0.9):
 def download_with_progress(url, dest_path, cancel_event, chat_id, status_id, markup, label, timeout=60):
     """Stream a direct media URL to disk, editing the status message with
     progress (throttled) and bailing out if cancelled."""
-    headers = {"User-Agent": BROWSER_UA}
     last_edit = 0
     try:
-        with requests.get(url, stream=True, headers=headers, timeout=timeout) as r:
+        with http_session.get(url, stream=True, timeout=timeout) as r:
             r.raise_for_status()
             total = int(r.headers.get('Content-Length') or 0)
             downloaded = 0
@@ -227,25 +276,18 @@ def download_with_progress(url, dest_path, cancel_event, chat_id, status_id, mar
                             text = f"⏳ {label}... {pct}% ({downloaded // 1024 // 1024}MB/{total // 1024 // 1024}MB)"
                         else:
                             text = f"⏳ {label}... {downloaded // 1024 // 1024}MB"
-                        try:
-                            bot.edit_message_text(text, chat_id, status_id, reply_markup=markup)
-                        except Exception:
-                            pass
+                        safe_bot_call(bot.edit_message_text, text, chat_id, status_id, reply_markup=markup)
         return True
-    except Exception:
+    except Exception as e:
+        log.warning("Download failed for %s: %s", url, e)
         return False
 
 
 def send_slideshow(chat_id, images):
     media_group = [types.InputMediaPhoto(u) for u in images[:10]]
-    try:
-        bot.send_media_group(chat_id, media_group)
-    except Exception:
+    if safe_bot_call(bot.send_media_group, chat_id, media_group) is None:
         for u in images[:10]:
-            try:
-                bot.send_photo(chat_id, u)
-            except Exception:
-                continue
+            safe_bot_call(bot.send_photo, chat_id, u)
 
 
 # ---------------------------------------------------------------------------
@@ -254,31 +296,41 @@ def send_slideshow(chat_id, images):
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "Send me a TikTok link — video, photo slideshow, or audio, your choice.")
+    safe_bot_call(bot.reply_to, message, "Send me a TikTok link — video, photo slideshow, or audio, your choice.")
 
 
 @bot.message_handler(func=lambda m: m.text and "tiktok.com" in m.text)
 def handle_link(message):
+    try:
+        _handle_link_impl(message)
+    except Exception:
+        log.exception("Unhandled error in handle_link for chat %s", message.chat.id)
+        safe_bot_call(bot.reply_to, message, "❌ Something went wrong processing that link. Please try again.")
+
+
+def _handle_link_impl(message):
     raw = message.text.strip()
     url = raw.split('?')[0]
-    status = bot.reply_to(message, "⏳ Fetching info...")
+    status = safe_bot_call(bot.reply_to, message, "⏳ Fetching info...")
+    if status is None:
+        return  # couldn't even send the first reply; nothing more we can do
 
     data = fetch_tikwm_data(url)
     if not data:
-        bot.edit_message_text(
-            "❌ Couldn't fetch this link. It may be private, deleted, or TikWM is having issues.",
+        safe_bot_call(
+            bot.edit_message_text,
+            "❌ Couldn't fetch this link. It may be private, deleted, or TikWM is having issues. "
+            "Check the bot's logs for the specific reason if this keeps happening.",
             message.chat.id, status.message_id
         )
         return
 
     images = extract_image_urls(data)
     if images:
-        bot.edit_message_text("📸 Photo slideshow detected! Sending images...", message.chat.id, status.message_id)
+        safe_bot_call(bot.edit_message_text, "📸 Photo slideshow detected! Sending images...",
+                       message.chat.id, status.message_id)
         send_slideshow(message.chat.id, images)
-        try:
-            bot.delete_message(message.chat.id, status.message_id)
-        except Exception:
-            pass
+        safe_bot_call(bot.delete_message, message.chat.id, status.message_id)
         return
 
     candidates = build_video_candidates(data)
@@ -290,12 +342,14 @@ def handle_link(message):
         known_sizes = [c['size'] for c in candidates if c['size']]
         if known_sizes:
             mb = min(known_sizes) / (1024 * 1024)
-            bot.edit_message_text(
+            safe_bot_call(
+                bot.edit_message_text,
                 f"❌ Too large for Telegram's 50MB bot limit (smallest available: {mb:.1f} MB).",
                 message.chat.id, status.message_id
             )
         else:
-            bot.edit_message_text(
+            safe_bot_call(
+                bot.edit_message_text,
                 "❌ Couldn't reliably determine this video's file size, so I won't risk a failed "
                 "upload. Try again later.",
                 message.chat.id, status.message_id
@@ -322,7 +376,8 @@ def handle_link(message):
     markup.row(types.InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{job_id}"))
 
     size_note = f" (~{best['size'] / (1024 * 1024):.1f} MB)" if best['size'] else ""
-    bot.edit_message_text(
+    safe_bot_call(
+        bot.edit_message_text,
         f"✅ Found: {title}{size_note}\nHow would you like it?",
         message.chat.id, status.message_id, reply_markup=markup
     )
@@ -330,37 +385,41 @@ def handle_link(message):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("cancel:"))
 def on_cancel(call):
-    job_id = int(call.data.split(":")[1])
+    try:
+        job_id = int(call.data.split(":")[1])
+    except (IndexError, ValueError):
+        safe_bot_call(bot.answer_callback_query, call.id, "Invalid request.")
+        return
+
     ev = cancel_events.get(job_id)
     if ev:
         ev.set()
     job = jobs.get(job_id)
     if job:
-        try:
-            bot.edit_message_text("🚫 Cancelled.", job['chat_id'], job['status_message_id'])
-        except Exception:
-            pass
-    bot.answer_callback_query(call.id, "Cancelled")
+        safe_bot_call(bot.edit_message_text, "🚫 Cancelled.", job['chat_id'], job['status_message_id'])
+    safe_bot_call(bot.answer_callback_query, call.id, "Cancelled")
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("dl:"))
 def on_choose(call):
-    _, job_id_str, mode = call.data.split(":")
-    job_id = int(job_id_str)
-    job = jobs.get(job_id)
-    if not job:
-        bot.answer_callback_query(call.id, "This request expired, send the link again.")
+    try:
+        _, job_id_str, mode = call.data.split(":")
+        job_id = int(job_id_str)
+    except (IndexError, ValueError):
+        safe_bot_call(bot.answer_callback_query, call.id, "Invalid request.")
         return
 
-    bot.answer_callback_query(call.id, "Queued")
+    job = jobs.get(job_id)
+    if not job:
+        safe_bot_call(bot.answer_callback_query, call.id, "This request expired, send the link again.")
+        return
+
+    safe_bot_call(bot.answer_callback_query, call.id, "Queued")
     cancel_events[job_id] = threading.Event()
 
     markup = types.InlineKeyboardMarkup()
     markup.row(types.InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{job_id}"))
-    try:
-        bot.edit_message_text("⏳ Queued...", job['chat_id'], job['status_message_id'], reply_markup=markup)
-    except Exception:
-        pass
+    safe_bot_call(bot.edit_message_text, "⏳ Queued...", job['chat_id'], job['status_message_id'], reply_markup=markup)
 
     job_queue.put((job_id, mode))
 
@@ -387,10 +446,7 @@ def process_job(job_id, mode):
     cancel_markup.row(types.InlineKeyboardButton("❌ Cancel", callback_data=f"cancel:{job_id}"))
 
     def edit_status(text, markup=None):
-        try:
-            bot.edit_message_text(text, chat_id, status_id, reply_markup=markup)
-        except Exception:
-            pass
+        safe_bot_call(bot.edit_message_text, text, chat_id, status_id, reply_markup=markup)
 
     try:
         if mode in ("video", "document"):
@@ -406,12 +462,17 @@ def process_job(job_id, mode):
                 return
 
             edit_status("⏳ Uploading...", cancel_markup)
-            with open(video_path, 'rb') as f:
-                if mode == "video":
-                    bot.send_video(chat_id, f, supports_streaming=True, caption=title[:1024], timeout=120)
-                else:
-                    bot.send_document(chat_id, f, caption=title[:1024],
-                                       visible_file_name=f"{title}.mp4", timeout=120)
+            try:
+                with open(video_path, 'rb') as f:
+                    if mode == "video":
+                        bot.send_video(chat_id, f, supports_streaming=True, caption=title[:1024], timeout=120)
+                    else:
+                        bot.send_document(chat_id, f, caption=title[:1024],
+                                           visible_file_name=f"{title}.mp4", timeout=120)
+            except telebot.apihelper.ApiTelegramException as e:
+                log.warning("Upload failed for job %s: %s", job_id, e)
+                edit_status(f"❌ Telegram rejected the upload: {e}")
+                return
 
         elif mode == "audio":
             source_url = job['data'].get('music') or job['best_video']['url']
@@ -437,7 +498,12 @@ def process_job(job_id, mode):
             except FileNotFoundError:
                 edit_status("⚠️ ffmpeg isn't installed on the server — can't extract audio.")
                 return
-            except subprocess.CalledProcessError:
+            except subprocess.TimeoutExpired:
+                log.warning("ffmpeg timed out for job %s", job_id)
+                edit_status("❌ Audio conversion timed out.")
+                return
+            except subprocess.CalledProcessError as e:
+                log.warning("ffmpeg failed for job %s: %s", job_id, e.stderr[:300] if e.stderr else e)
                 edit_status("❌ Audio conversion failed.")
                 return
 
@@ -446,23 +512,26 @@ def process_job(job_id, mode):
                 return
 
             edit_status("⏳ Uploading audio...", cancel_markup)
-            with open(audio_path, 'rb') as f:
-                bot.send_audio(chat_id, f, title=title[:64], timeout=120)
+            try:
+                with open(audio_path, 'rb') as f:
+                    bot.send_audio(chat_id, f, title=title[:64], timeout=120)
+            except telebot.apihelper.ApiTelegramException as e:
+                log.warning("Audio upload failed for job %s: %s", job_id, e)
+                edit_status(f"❌ Telegram rejected the upload: {e}")
+                return
 
-        try:
-            bot.delete_message(chat_id, status_id)
-        except Exception:
-            pass
+        safe_bot_call(bot.delete_message, chat_id, status_id)
 
     except Exception as e:
-        edit_status(f"❌ Error: {e}")
+        log.exception("Unhandled error in process_job %s (%s)", job_id, mode)
+        edit_status(f"❌ Unexpected error: {e}")
     finally:
         for p in (video_path, audio_path, src_path):
             if os.path.exists(p):
                 try:
                     os.remove(p)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("Failed to clean up %s: %s", p, e)
         jobs.pop(job_id, None)
         cancel_events.pop(job_id, None)
 
@@ -473,7 +542,7 @@ def worker_loop():
         try:
             process_job(job_id, mode)
         except Exception:
-            pass
+            log.exception("Worker crashed processing job %s (%s)", job_id, mode)
         finally:
             job_queue.task_done()
 
@@ -483,26 +552,76 @@ for _ in range(MAX_WORKERS):
 
 
 # ---------------------------------------------------------------------------
-# Polling loop
+# Transport: webhook (preferred) with polling fallback
+#
+# Polling (getUpdates) inherently conflicts if more than one process talks
+# to Telegram at once — that's the source of the 409 errors. Webhooks avoid
+# this entirely: Telegram pushes updates to our own HTTPS endpoint instead,
+# so there's no shared "who gets the next update" race. Render assigns
+# every web service a public HTTPS URL in RENDER_EXTERNAL_URL, so we use
+# that when present and fall back to polling only if it's missing (e.g.
+# running locally).
 # ---------------------------------------------------------------------------
 
-def run_bot():
+WEBHOOK_SECRET = BOT_TOKEN.split(":")[0]  # not secret-secret, but unguessable enough to keep randoms out
+WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
+PUBLIC_URL = os.environ.get("RENDER_EXTERNAL_URL")
+
+
+@app.route(WEBHOOK_PATH, methods=['POST'])
+def telegram_webhook():
+    try:
+        json_str = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_str)
+        bot.process_new_updates([update])
+    except Exception:
+        log.exception("Failed to process incoming webhook update")
+    return '', 200
+
+
+def setup_webhook():
+    if not PUBLIC_URL:
+        log.info("RENDER_EXTERNAL_URL not set; falling back to polling.")
+        return False
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+        full_url = PUBLIC_URL.rstrip('/') + WEBHOOK_PATH
+        bot.set_webhook(url=full_url)
+        log.info("Webhook set to %s", full_url)
+        return True
+    except Exception:
+        log.exception("Failed to set webhook, falling back to polling.")
+        return False
+
+
+def run_bot_polling():
     backoff = 15
     while True:
         try:
             bot.infinity_polling(timeout=10, long_polling_timeout=5)
         except telebot.apihelper.ApiTelegramException as e:
             if e.error_code == 409:
+                log.warning("409 conflict — another instance is polling. Backing off %ss.", backoff)
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 120)
                 continue
+            log.warning("Telegram API error while polling: %s", e)
             time.sleep(5)
         except Exception:
+            log.exception("Unexpected error in polling loop")
             time.sleep(5)
         backoff = 15
 
 
 if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
+    if not setup_webhook():
+        try:
+            bot.remove_webhook()
+            time.sleep(1)
+        except Exception:
+            pass
+        threading.Thread(target=run_bot_polling, daemon=True).start()
+
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
