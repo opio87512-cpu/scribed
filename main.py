@@ -14,7 +14,7 @@ CORS(app) # Allows the GitHub Web App to talk to your Render server
 # Your exact Telegram ID for receiving files and admin access
 ADMIN_ID = 8429521561 
 
-# --- LOCAL DATABASE STORAGE ---
+# --- LOCAL DATABASE STORAGE & HELPERS ---
 DATA_FILE = "materials.json"
 
 def load_materials():
@@ -31,6 +31,18 @@ def save_material(course_code, mat_type, file_id, file_name):
     data[key].append({"file_id": file_id, "name": file_name})
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
+
+def delete_material_by_index(course_code, mat_type, index):
+    data = load_materials()
+    key = f"{course_code}_{mat_type}"
+    if key in data and 0 <= index < len(data[key]):
+        removed = data[key].pop(index)
+        if not data[key]:
+            del data[key]
+        with open(DATA_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+        return removed.get("name", "File")
+    return None
 
 # --- CURRICULUM DATABASE ---
 CURRICULUM = {
@@ -182,6 +194,12 @@ def admin_add_file_start(message):
         return
     bot.send_message(message.chat.id, "Select the Year to ADD official material:", reply_markup=year_keyboard('a'))
 
+@bot.message_handler(commands=['deletefile'])
+def admin_delete_file_start(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    bot.send_message(message.chat.id, "Select the Year to DELETE material from:", reply_markup=year_keyboard('d'))
+
 # --- CALLBACK HANDLERS ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -192,30 +210,29 @@ def handle_query(call):
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
     
-    # Year Selection (f: find, u: upload, a: admin add)
-    elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_"):
+    # Year Selection (f: find, u: upload, a: admin add, d: delete)
+    elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_") or call.data.startswith("dy_"):
         action = call.data[0]
         year = call.data.split('_')[1]
         roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"} 
         bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
     
     # Semester Selection
-    elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_"):
+    elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_") or call.data.startswith("ds_"):
         parts = call.data.split('_')
         action = parts[0][0]
-        year = parts[1]
-        semester = parts[2]
+        year, semester = parts[1], parts[2]
         bot.edit_message_text(f"Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
     
     # Course Selection
-    elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_"):
+    elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_") or call.data.startswith("dc_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
         bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
     
     # Material Type Selection & Execution
-    elif call.data.startswith("fm_") or call.data.startswith("um_") or call.data.startswith("am_"):
+    elif call.data.startswith("fm_") or call.data.startswith("um_") or call.data.startswith("am_") or call.data.startswith("dm_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
@@ -235,10 +252,27 @@ def handle_query(call):
         elif action == 'a':
             msg = bot.send_message(call.message.chat.id, f"📥 Send official document for **{course_code}** ({material_type.upper()}):", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_admin_save, course_code, material_type)
+        elif action == 'd':
+            materials = load_materials().get(f"{course_code}_{material_type}", [])
+            if not materials:
+                bot.send_message(call.message.chat.id, f"ℹ️ No files found under {course_code} ({material_type.upper()}) to delete.")
+            else:
+                markup = InlineKeyboardMarkup()
+                for idx, item in enumerate(materials):
+                    markup.row(InlineKeyboardButton(f"❌ Delete: {item['name']}", callback_data=f"delitem_{course_code}_{material_type}_{idx}"))
+                markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
+                bot.edit_message_text(f"Select the file you want to delete for {course_code} ({material_type.upper()}):", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+
+    elif call.data.startswith("delitem_"):
+        parts = call.data.split('_')
+        course_code, material_type, idx = parts[1], parts[2], int(parts[3])
+        deleted_name = delete_material_by_index(course_code, material_type, idx)
+        if deleted_name:
+            bot.edit_message_text(f"✅ Successfully deleted **{deleted_name}** from `{course_code}` ({material_type.upper()})!", chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="Markdown")
+        else:
+            bot.edit_message_text("⚠️ Error: File could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
     elif call.data.startswith("approve_"):
-        file_info = call.data.split('_')
-        # Format: approve_course_type_msgid
         bot.send_message(ADMIN_ID, "✅ File approved and saved!")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
     elif call.data == "reject":
