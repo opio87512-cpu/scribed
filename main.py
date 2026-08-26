@@ -9,7 +9,7 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
 # IMPORTANT: Send /myid to your bot on Telegram, then replace 123456789 with that number
-ADMIN_ID = 123456789 
+ADMIN_ID = 8429521561 
 
 # --- CURRICULUM DATABASE ---
 CURRICULUM = {
