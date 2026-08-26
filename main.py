@@ -16,9 +16,9 @@ CORS(app)
 ADMIN_ID = 8429521561
 
 # --- GITHUB-BACKED STORAGE ---
-GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "opio87512-cpu/scribed")
-GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
+GITHUB_TOKEN = "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"
+GITHUB_REPO = "opio87512-cpu/scribed"
+GITHUB_BRANCH = "main"
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
 
 DATA_FILE = "materials.json"
