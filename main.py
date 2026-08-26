@@ -8,12 +8,19 @@ TOKEN = "8969647277:AAF3jTCal-ZdqYqghm7ln0mrcTZUcTg3o6U"
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# Replace with your numeric ID after sending /myid to the bot
+# IMPORTANT: Send /myid to your bot on Telegram, then replace 123456789 with that number
 ADMIN_ID = 123456789 
 
 # --- CURRICULUM DATABASE (Fully Updated) ---
 CURRICULUM = {
     "2": {
+        "1": [
+            ("Math2101", "Applied Mathematics III"),
+            ("ECEg2201", "Electronics Circuit I"),
+            ("EPCE2101", "Fundamentals of Electrical Eng."),
+            ("CSEg2101", "Data Structures & Algorithms"),
+            ("LART1004", "Geography of Ethiopia & the Horn")
+        ],
         "2": [
             ("ECEg2202", "Electronic Circuit II"),
             ("ECEg2204", "Signals and System Analysis"),
@@ -36,7 +43,6 @@ CURRICULUM = {
             ("ECEg3202", "Intro to Comm. Systems"),
             ("Phys3202", "Solid State Physics"),
             ("LART1003", "History of Ethiopia & the Horn"),
-            # Major Electives I, II, & III Options
             ("ECEg3306", "Microelectronic Devices & Circuits"),
             ("ECEg3318", "Optoelectronics"),
             ("CSEg2202", "Object Oriented Programming"),
@@ -52,7 +58,6 @@ CURRICULUM = {
             ("ECEg4205", "EM Waves & Guide Structure"),
             ("SOSC5003", "Entrepreneurship & Bus. Dev."),
             ("ECEg4206", "Eng. Research & Dev Methodology"),
-            # Major Elective IV Options
             ("EPCE3206", "Intro to Power Systems"),
             ("EPCE3207", "Electrical Measurement & Inst.")
         ],
@@ -62,7 +67,6 @@ CURRICULUM = {
             ("ECEg4208", "Data Comm. & Computer Networks"),
             ("SOSC2002", "Introduction to Economics"),
             ("IETP4203", "Integrated Engineering Project"),
-            # Major Elective V Options
             ("ECEg4310", "Microwave Devices & Systems"),
             ("ECEg4312", "Integrated Circuit Technology")
         ]
@@ -72,7 +76,6 @@ CURRICULUM = {
             ("ECEg5201", "Wireless & Mobile Comm."),
             ("ECEg5203", "Capstone Project"),
             ("ECEg5207", "Final Year Project Phase I"),
-            # Major Electives VI, VII, VIII Options
             ("ECEg5307", "VLSI Design"),
             ("CSEg5307", "Advanced Network"),
             ("ECEg5315", "Embedded & Real Time Systems"),
@@ -84,7 +87,6 @@ CURRICULUM = {
         "2": [
             ("SOSC5011", "Project Mgt. for Engineers"),
             ("ECEg5202", "Final Year Project Phase II"),
-            # Major Electives IX, X, XI, XII Options
             ("ECEg5302", "Optics & Optical Comm."),
             ("ECEg5304", "Analysis & Design of Digital IC"),
             ("ECEg5306", "Telecom Networks & Switching"),
