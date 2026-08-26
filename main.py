@@ -56,7 +56,11 @@ _retry = Retry(
 )
 http_session.mount("https://", HTTPAdapter(max_retries=_retry))
 http_session.mount("http://", HTTPAdapter(max_retries=_retry))
-http_session.headers.update({"User-Agent": BROWSER_UA})
+http_session.headers.update({
+    "User-Agent": BROWSER_UA,
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+})
 
 
 def safe_bot_call(fn, *args, **kwargs):
@@ -131,6 +135,26 @@ def safe_filename(title, fallback="tiktok", max_len=60):
 # TikWM metadata + direct media helpers
 # ---------------------------------------------------------------------------
 
+def resolve_tiktok_url(url, timeout=10):
+    """Follow redirects on shortened TikTok links (vm.tiktok.com, vt.tiktok.com,
+    /t/<slug>) so TikWM gets a canonical URL instead of one it has to resolve
+    itself — some shortlink forms trip TikWM's anti-bot layer more than a
+    fully resolved link does."""
+    try:
+        r = http_session.head(url, allow_redirects=True, timeout=timeout)
+        if r.url and r.url != url:
+            return r.url
+    except Exception:
+        pass
+    try:
+        with http_session.get(url, allow_redirects=True, timeout=timeout, stream=True) as r:
+            final = r.url
+        return final or url
+    except Exception as e:
+        log.warning("Failed to resolve short URL %s: %s", url, e)
+        return url
+
+
 def fetch_tikwm_data(url, retries=2):
     """Query TikWM for metadata + direct media URLs (video, audio, or images).
     Tries both known hosts and both hd param variants, retries briefly on
@@ -139,11 +163,16 @@ def fetch_tikwm_data(url, retries=2):
     param_variants = ({"url": url, "hd": 1}, {"url": url})
 
     last_error = None
+    saw_403 = False
     for attempt in range(retries + 1):
         for host in hosts:
             for params in param_variants:
                 try:
                     r = http_session.get(host, params=params, timeout=15)
+                    if r.status_code == 403:
+                        saw_403 = True
+                        last_error = f"HTTP 403 from {host} (likely blocked/WAF)"
+                        continue
                     if r.status_code == 429:
                         last_error = "rate limited (429)"
                         continue
@@ -167,7 +196,11 @@ def fetch_tikwm_data(url, retries=2):
         if attempt < retries:
             time.sleep(2)
 
-    log.error("TikWM fetch failed for %s: %s", url, last_error)
+    if saw_403:
+        log.error("TikWM blocked the request for %s (403 on all attempts) — likely a "
+                   "server-level IP block, not transient. Last detail: %s", url, last_error)
+    else:
+        log.error("TikWM fetch failed for %s: %s", url, last_error)
     return {}
 
 
@@ -314,6 +347,11 @@ def _handle_link_impl(message):
     status = safe_bot_call(bot.reply_to, message, "⏳ Fetching info...")
     if status is None:
         return  # couldn't even send the first reply; nothing more we can do
+
+    # Shortened links (vm./vt.tiktok.com, /t/<slug>) get resolved to their
+    # canonical form first — TikWM handles those more reliably.
+    if "/t/" in url or "vm.tiktok.com" in url or "vt.tiktok.com" in url:
+        url = resolve_tiktok_url(url)
 
     data = fetch_tikwm_data(url)
     if not data:
