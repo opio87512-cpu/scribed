@@ -12,7 +12,6 @@ app = Flask(__name__)
 ADMIN_ID = 123456789 
 
 # --- CURRICULUM DATABASE ---
-# Format: "Year": { "Semester": [ ("CourseCode", "Course Title") ] }
 CURRICULUM = {
     "2": {
         "2": [
@@ -32,56 +31,64 @@ CURRICULUM = {
             ("ECEg3205", "Digital Signal Processing"),
             ("LART2002", "Gen. Psychology and Life Skills"),
             ("Phys2208", "Applied Modern Physics")
+        ],
+        "2": [
+            ("ECEg3202", "Intro to Communication Systems"),
+            ("Phys3202", "Solid State Physics"),
+            ("LART1003", "History of Ethiopia and the Horn"),
+            ("ElectiveI", "Major Elective I"),
+            ("ElectiveII", "Major Elective II"),
+            ("ElectiveIII", "Major Elective III")
         ]
     }
-    # You can continue adding Year 4 and Year 5 here!
 }
 
 # --- INLINE KEYBOARDS ---
 def main_menu_keyboard():
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("📚 Find Materials", callback_data="find_materials"))
-    markup.row(InlineKeyboardButton("📤 Upload Material", callback_data="upload_material"))
+    markup.row(InlineKeyboardButton("📚 Find Materials", callback_data="main_find"))
+    markup.row(InlineKeyboardButton("📤 Upload Material", callback_data="main_upload"))
     markup.row(InlineKeyboardButton("🧮 Grade Calculator", web_app=WebAppInfo(url="https://your-hosted-calculator.com")))
     return markup
 
-def year_keyboard():
+# We pass an 'action' ('f' for find, 'u' for upload) to track what the user is trying to do
+def year_keyboard(action):
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("Year II", callback_data="year_2"),
-               InlineKeyboardButton("Year III", callback_data="year_3"))
-    markup.row(InlineKeyboardButton("Year IV", callback_data="year_4"),
-               InlineKeyboardButton("Year V", callback_data="year_5"))
+    markup.row(InlineKeyboardButton("Year II", callback_data=f"{action}y_2"),
+               InlineKeyboardButton("Year III", callback_data=f"{action}y_3"))
+    markup.row(InlineKeyboardButton("Year IV", callback_data=f"{action}y_4"),
+               InlineKeyboardButton("Year V", callback_data=f"{action}y_5"))
     markup.row(InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="back_main"))
     return markup
 
-def semester_keyboard(year):
+def semester_keyboard(year, action):
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("Semester I", callback_data=f"sem_{year}_1"),
-               InlineKeyboardButton("Semester II", callback_data=f"sem_{year}_2"))
-    markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data="find_materials"))
+    markup.row(InlineKeyboardButton("Semester I", callback_data=f"{action}s_{year}_1"),
+               InlineKeyboardButton("Semester II", callback_data=f"{action}s_{year}_2"))
+    
+    back_target = "main_find" if action == 'f' else "main_upload"
+    markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data=back_target))
     return markup
 
-def subject_keyboard(year, semester):
+def subject_keyboard(year, semester, action):
     markup = InlineKeyboardMarkup()
     
-    # Check if we have data for this year/semester
     if year in CURRICULUM and semester in CURRICULUM[year]:
         for course_code, course_title in CURRICULUM[year][semester]:
-            # Button shows title, callback sends the course code
-            markup.row(InlineKeyboardButton(course_title, callback_data=f"course_{course_code}"))
+            markup.row(InlineKeyboardButton(course_title, callback_data=f"{action}c_{course_code}"))
     else:
         markup.row(InlineKeyboardButton("⚠️ Subjects coming soon!", callback_data="ignore"))
         
-    markup.row(InlineKeyboardButton("⬅️ Back to Semesters", callback_data=f"year_{year}"))
+    markup.row(InlineKeyboardButton("⬅️ Back to Semesters", callback_data=f"{action}y_{year}"))
     return markup
 
-def material_type_keyboard(course_code):
+def material_type_keyboard(course_code, action):
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("📝 Note", callback_data=f"mat_{course_code}_note"),
-               InlineKeyboardButton("📄 Assignment", callback_data=f"mat_{course_code}_assignment"))
-    markup.row(InlineKeyboardButton("📝 Mid Exam", callback_data=f"mat_{course_code}_mid"),
-               InlineKeyboardButton("📝 Final Exam", callback_data=f"mat_{course_code}_final"))
-    markup.row(InlineKeyboardButton("⏳ Test", callback_data=f"mat_{course_code}_test"))
+    markup.row(InlineKeyboardButton("📝 Note", callback_data=f"{action}m_{course_code}_note"),
+               InlineKeyboardButton("📄 Assignment", callback_data=f"{action}m_{course_code}_assignment"))
+    markup.row(InlineKeyboardButton("📝 Mid Exam", callback_data=f"{action}m_{course_code}_mid"),
+               InlineKeyboardButton("📝 Final Exam", callback_data=f"{action}m_{course_code}_final"))
+    markup.row(InlineKeyboardButton("⏳ Test", callback_data=f"{action}m_{course_code}_test"))
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     return markup
 
@@ -102,48 +109,53 @@ def send_id(message):
 # --- CALLBACK HANDLERS ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    # 1. Main Menu -> Show Years
-    if call.data == "find_materials":
-        bot.edit_message_text("Select your academic year:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard())
-                              
-    # 2. Year -> Show Semesters
-    elif call.data.startswith("year_"):
-        year = call.data.split('_')[1]
-        roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"} 
-        bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year))
-
-    # 3. Semester -> Show Subjects
-    elif call.data.startswith("sem_"):
-        parts = call.data.split('_')
-        year = parts[1]
-        semester = parts[2]
-        roman_sems = {"1": "I", "2": "II"}
-        bot.edit_message_text(f"Semester {roman_sems[semester]} Subjects:\nSelect a course:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester))
-
-    # 4. Subject -> Show Material Types (Note, Mid, Final, etc.)
-    elif call.data.startswith("course_"):
-        course_code = call.data.split('_')[1]
-        bot.edit_message_text(f"Course: {course_code}\nSelect the type of material you need:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code))
-
-    # 5. Material Type -> Fetch the actual resource
-    elif call.data.startswith("mat_"):
-        parts = call.data.split('_')
-        course_code = parts[1]
-        material_type = parts[2] # note, mid, final, assignment, or test
-        
-        # Here is where you would link to your Google Drive or forward actual files
-        bot.send_message(call.message.chat.id, f"Fetching {material_type.upper()} materials for {course_code}...\n(Admin @pede_7 will link database files here)")
-
-    # Back to Main Menu
+    # --- 1. MAIN MENU ACTIONS ---
+    if call.data == "main_find":
+        bot.edit_message_text("Select your academic year to FIND materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('f'))
+    elif call.data == "main_upload":
+        bot.edit_message_text("Select your academic year to UPLOAD materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('u'))
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nWhat would you like to do?", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
 
-    # Upload Workflow Trigger
-    elif call.data == "upload_material":
-        bot.send_message(call.message.chat.id, "Please send the file (PDF, DOCX, ZIP) you want to share with the community.")
-        bot.register_next_step_handler(call.message, process_upload)
+    # --- 2. YEAR SELECTED ---
+    elif call.data.startswith("fy_") or call.data.startswith("uy_"):
+        action = call.data[0] # 'f' or 'u'
+        year = call.data.split('_')[1]
+        roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"} 
+        bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
 
-    # Admin Approvals
+    # --- 3. SEMESTER SELECTED ---
+    elif call.data.startswith("fs_") or call.data.startswith("us_"):
+        parts = call.data.split('_')
+        action = parts[0][0]
+        year = parts[1]
+        semester = parts[2]
+        bot.edit_message_text(f"Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
+
+    # --- 4. SUBJECT SELECTED ---
+    elif call.data.startswith("fc_") or call.data.startswith("uc_"):
+        parts = call.data.split('_')
+        action = parts[0][0]
+        course_code = parts[1]
+        bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
+
+    # --- 5. MATERIAL TYPE SELECTED ---
+    elif call.data.startswith("fm_") or call.data.startswith("um_"):
+        parts = call.data.split('_')
+        action = parts[0][0]
+        course_code = parts[1]
+        material_type = parts[2]
+        
+        if action == 'f':
+            # User wants to download
+            bot.send_message(call.message.chat.id, f"Fetching {material_type.upper()} materials for {course_code}...\n(Admin @pede_7 will link database files here)")
+        elif action == 'u':
+            # User wants to upload
+            msg = bot.send_message(call.message.chat.id, f"Please send the **{material_type.upper()}** document for **{course_code}** now.", parse_mode="Markdown")
+            # Passes the specific course and type into the upload function!
+            bot.register_next_step_handler(msg, process_upload, course_code, material_type)
+
+    # --- ADMIN APPROVALS ---
     elif call.data.startswith("approve_"):
         bot.send_message(ADMIN_ID, f"✅ File approved and saved!")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
@@ -153,9 +165,15 @@ def handle_query(call):
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
 # --- UPLOAD WORKFLOW ---
-def process_upload(message):
+def process_upload(message, course_code, material_type):
     if message.document:
-        bot.send_message(ADMIN_ID, f"New material submission from @{message.from_user.username}:")
+        # Now the admin gets exact details about the file!
+        admin_text = (
+            f"📥 **New Upload from @{message.from_user.username}**\n\n"
+            f"**Course:** {course_code}\n"
+            f"**Type:** {material_type.upper()}"
+        )
+        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
         bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
         
         markup = InlineKeyboardMarkup()
@@ -164,9 +182,9 @@ def process_upload(message):
             InlineKeyboardButton("❌ Reject", callback_data="reject")
         )
         bot.send_message(ADMIN_ID, "Review this upload:", reply_markup=markup)
-        bot.reply_to(message, "Thank you! Your material has been sent to @pede_7 for review.")
+        bot.reply_to(message, "Thank you! Your correctly categorized material has been sent to @pede_7 for review.")
     else:
-        bot.reply_to(message, "Please upload a valid document file. Try clicking 'Upload Material' again.")
+        bot.reply_to(message, "Error: Please upload a valid document file. You will need to start the upload process over from the menu.")
 
 # --- WEBHOOK & FLASK SERVER FOR RENDER ---
 @app.route('/' + TOKEN, methods=['POST'])
