@@ -5,7 +5,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 # --- CONFIGURATION ---
-TOKEN = "8969647277:AAF3jTCal-ZdqYqghm7ln0mrcTZUcTg3o6U" 
+TOKEN = "8630946224:AAHjvpI_7uzQAhFjJnX5YWBUIVMA7oKrcEg" 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 CORS(app) # Allows the GitHub Web App to talk to your Render server
