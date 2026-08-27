@@ -277,6 +277,33 @@ def material_type_keyboard(course_code, action):
 # --- COMMAND HANDLERS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    # Handle deep links from the web app's "Open in Bot" button, e.g.
+    # https://t.me/astuece2026_bot?start=g_ECEg2201_note_0
+    # Telegram passes this as the text "/start g_ECEg2201_note_0".
+    # We deliberately reference files by (course, type, index) rather than by
+    # raw file_id: Telegram's start payload is capped at 64 chars and only
+    # allows [A-Za-z0-9_-], and a raw file_id can violate both of those,
+    # silently breaking the link before the bot ever sees it.
+    parts = message.text.split(maxsplit=1)
+    if len(parts) > 1 and parts[1].startswith("g_"):
+        payload = parts[1][2:]
+        segments = payload.rsplit("_", 2)  # course_code, material_type, index
+        if len(segments) == 3:
+            course_code, material_type, idx_str = segments
+            try:
+                idx = int(idx_str)
+                materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
+                if 0 <= idx < len(materials):
+                    item = materials[idx]
+                    bot.send_document(message.chat.id, item["file_id"], caption=item.get("name", ""))
+                else:
+                    bot.send_message(message.chat.id, "⚠️ That file could not be found — it may have been removed.")
+            except ValueError:
+                bot.send_message(message.chat.id, "⚠️ That link looks invalid.")
+        else:
+            bot.send_message(message.chat.id, "⚠️ That link looks invalid.")
+        return
+
     welcome_text = (
         "Welcome to the ASTU ECE Community Bot! 🚀\n\n"
         "Admin: @pede_7\n\n"
