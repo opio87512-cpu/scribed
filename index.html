@@ -93,6 +93,7 @@
         const tg = window.Telegram.WebApp;
         tg.expand();
         const RENDER_URL = "https://scribed-1rqs.onrender.com";
+        const BOT_USERNAME = "astuece2026_bot";
 
         const curriculum = {
             "2": {
@@ -148,8 +149,14 @@
                 if(items.length === 0) resultsContainer.innerHTML = "<p>ℹ️ No materials found.</p>";
                 else {
                     resultsContainer.innerHTML = `<h3>Found ${items.length} file(s):</h3>`;
-                    items.forEach(item => {
-                        resultsContainer.innerHTML += `<div class="material-card"><span>📄 ${item.name}</span><a href="https://t.me/astuece2026_bot?start=get_${item.file_id}" target="_blank">Open in Bot</a></div>`;
+                    items.forEach((item, idx) => {
+                        // NOTE: we deep-link with course_type_index, NOT the raw
+                        // Telegram file_id. Telegram's /start payload is capped
+                        // at 64 chars and only allows [A-Za-z0-9_-], and a raw
+                        // file_id can break both rules, which silently breaks
+                        // the link. The bot looks the real file_id up server-side.
+                        const deepLink = `https://t.me/${BOT_USERNAME}?start=g_${course}_${type}_${idx}`;
+                        resultsContainer.innerHTML += `<div class="material-card"><span>📄 ${item.name}</span><a href="${deepLink}" target="_blank">Open in Bot</a></div>`;
                     });
                 }
             } catch(e) { resultsContainer.innerHTML = "<p>⚠️ Error connecting to server.</p>"; }
