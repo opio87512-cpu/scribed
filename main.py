@@ -16,7 +16,11 @@ CORS(app)
 ADMIN_ID = 8429521561
 
 # --- GITHUB-BACKED STORAGE ---
-GITHUB_TOKEN = "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"
+# IMPORTANT: your old token was hardcoded in this file and must be treated as
+# compromised. Revoke it in GitHub -> Settings -> Developer settings ->
+# Personal access tokens, generate a new one, and set it as an environment
+# variable (e.g. GITHUB_TOKEN) in Render's dashboard. Never hardcode it again.
+GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 GITHUB_REPO = "opio87512-cpu/scribed"
 GITHUB_BRANCH = "main"
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
@@ -55,7 +59,8 @@ def load_json(filename):
 
 def save_json(filename, data):
     """Write `data` as JSON to `filename` in the GitHub repo, creating or
-    updating it as needed."""
+    updating it as needed. Returns True on confirmed success, False otherwise
+    so callers can tell the user the truth instead of assuming it worked."""
     try:
         content_str = json.dumps(data, indent=4)
         encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
@@ -84,16 +89,20 @@ def save_json(filename, data):
         )
         if put_resp.status_code not in (200, 201):
             print(f"GitHub save failed for {filename}: {put_resp.status_code} {put_resp.text}")
+            return False
+        return True
     except Exception as e:
         print(f"GitHub save error for {filename}: {e}")
+        return False
 
 def save_material(course_code, mat_type, file_id, file_name):
+    """Returns True only if the write to GitHub actually succeeded."""
     data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
     if key not in data:
         data[key] = []
     data[key].append({"file_id": file_id, "name": file_name})
-    save_json(DATA_FILE, data)
+    return save_json(DATA_FILE, data)
 
 def delete_material_by_index(course_code, mat_type, index):
     data = load_json(DATA_FILE)
@@ -102,18 +111,24 @@ def delete_material_by_index(course_code, mat_type, index):
         removed = data[key].pop(index)
         if not data[key]:
             del data[key]
-        save_json(DATA_FILE, data)
+        if not save_json(DATA_FILE, data):
+            return None
         return removed.get("name", "File")
     return None
 
+# --- PENDING APPROVAL QUEUES ---
+# Both student uploads and video submissions need to survive the trip through
+# Telegram's callback buttons, so we stash the actual data here keyed by a
+# short random request id, and only put that id in callback_data.
 PENDING_VIDEOS = {}
+PENDING_UPLOADS = {}
 
 def add_approved_video(course_code, title, url):
     data = load_json(VIDEOS_FILE)
     if course_code not in data:
         data[course_code] = []
     data[course_code].append({"title": title, "url": url})
-    save_json(VIDEOS_FILE, data)
+    return save_json(VIDEOS_FILE, data)
 
 # --- CURRICULUM DATABASE ---
 CURRICULUM = {
@@ -370,7 +385,7 @@ def handle_query(call):
         if deleted_name:
             bot.edit_message_text(f"✅ Successfully deleted {deleted_name} from {course_code} ({material_type.upper()})!", chat_id=call.message.chat.id, message_id=call.message.message_id)
         else:
-            bot.edit_message_text("⚠️ Error: File could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+            bot.edit_message_text("⚠️ Error: File could not be found, already deleted, or the save to GitHub failed.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
     elif call.data.startswith("delvid_"):
         parts = call.data.split('_')
@@ -380,8 +395,10 @@ def handle_query(call):
             removed = data[course_code].pop(idx)
             if not data[course_code]:
                 del data[course_code]
-            save_json(VIDEOS_FILE, data)
-            bot.edit_message_text(f"✅ Successfully deleted video: {removed.get('title', 'Video')} from {course_code}!", chat_id=call.message.chat.id, message_id=call.message.message_id)
+            if save_json(VIDEOS_FILE, data):
+                bot.edit_message_text(f"✅ Successfully deleted video: {removed.get('title', 'Video')} from {course_code}!", chat_id=call.message.chat.id, message_id=call.message.message_id)
+            else:
+                bot.edit_message_text("⚠️ Error: Could not save the deletion to GitHub. Please try again.", chat_id=call.message.chat.id, message_id=call.message.message_id)
         else:
             bot.edit_message_text("⚠️ Error: Video could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
@@ -389,8 +406,11 @@ def handle_query(call):
         req_id = call.data.split('_')[2]
         if req_id in PENDING_VIDEOS:
             v_data = PENDING_VIDEOS[req_id]
-            add_approved_video(v_data['course'], v_data['title'], v_data['url'])
-            bot.send_message(ADMIN_ID, f"✅ Video approved and added to {v_data['course']}!")
+            ok = add_approved_video(v_data['course'], v_data['title'], v_data['url'])
+            if ok:
+                bot.send_message(ADMIN_ID, f"✅ Video approved and added to {v_data['course']}!")
+            else:
+                bot.send_message(ADMIN_ID, f"⚠️ Video approved, but saving to GitHub failed. Try approving again or check logs.")
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
             del PENDING_VIDEOS[req_id]
         else:
@@ -399,40 +419,86 @@ def handle_query(call):
         bot.send_message(ADMIN_ID, "❌ Video submission rejected.")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
-    elif call.data.startswith("approve_"):
-        bot.send_message(ADMIN_ID, "✅ File approved and saved!")
-        bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
-    elif call.data == "reject":
+    # --- FIXED: student chat-upload approve/reject now actually saves the file ---
+    elif call.data.startswith("approve_upload_"):
+        req_id = call.data.split('_', 2)[2]
+        if req_id in PENDING_UPLOADS:
+            up = PENDING_UPLOADS[req_id]
+            ok = save_material(up["course_code"], up["material_type"], up["file_id"], up["file_name"])
+            if ok:
+                bot.send_message(ADMIN_ID, f"✅ File approved and saved under {up['course_code']} ({up['material_type'].upper()})!")
+                try:
+                    bot.send_message(up["chat_id"], f"✅ Your file '{up['file_name']}' was approved and added to {up['course_code']} materials!")
+                except Exception:
+                    pass
+            else:
+                bot.send_message(ADMIN_ID, "⚠️ Approved, but saving to GitHub failed. Try again or check server logs.")
+            bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
+            del PENDING_UPLOADS[req_id]
+        else:
+            bot.answer_callback_query(call.id, "Request expired or already handled.")
+    elif call.data.startswith("reject_upload_"):
+        req_id = call.data.split('_', 2)[2]
+        up = PENDING_UPLOADS.pop(req_id, None)
         bot.send_message(ADMIN_ID, "❌ Upload rejected.")
+        if up:
+            try:
+                bot.send_message(up["chat_id"], f"❌ Your submitted file '{up['file_name']}' was not approved.")
+            except Exception:
+                pass
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
 # --- UPLOAD WORKFLOWS ---
 def process_upload(message, course_code, material_type):
-    if message.document or message.photo:
-        admin_text = (
-            f"📥 New Chat Upload from @{message.from_user.username}\n\n"
-            f"Course: {course_code}\n"
-            f"Type: {material_type.upper()}"
-        )
-        bot.send_message(ADMIN_ID, admin_text)
-        bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
+    file_id = None
+    file_name = None
+    if message.document:
+        file_id = message.document.file_id
+        file_name = message.document.file_name or "document"
+    elif message.photo:
+        # Telegram sends multiple sizes; use the largest.
+        file_id = message.photo[-1].file_id
+        file_name = "photo.jpg"
 
-        markup = InlineKeyboardMarkup()
-        markup.row(
-            InlineKeyboardButton("✅ Approve", callback_data="approve_review"),
-            InlineKeyboardButton("❌ Reject", callback_data="reject"),
-        )
-        bot.send_message(ADMIN_ID, "Review this upload:", reply_markup=markup)
-        bot.reply_to(message, "Thank you! Your correctly categorized material has been sent to @pede_7 for review.")
-    else:
+    if not file_id:
         bot.reply_to(message, "Error: Please upload a valid document or photo. You will need to start the upload process over from the menu.")
+        return
+
+    req_id = os.urandom(4).hex()
+    PENDING_UPLOADS[req_id] = {
+        "course_code": course_code,
+        "material_type": material_type,
+        "file_id": file_id,
+        "file_name": file_name,
+        "chat_id": message.chat.id,
+        "username": message.from_user.username,
+    }
+
+    admin_text = (
+        f"📥 New Chat Upload from @{message.from_user.username}\n\n"
+        f"Course: {course_code}\n"
+        f"Type: {material_type.upper()}"
+    )
+    bot.send_message(ADMIN_ID, admin_text)
+    bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
+
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("✅ Approve", callback_data=f"approve_upload_{req_id}"),
+        InlineKeyboardButton("❌ Reject", callback_data=f"reject_upload_{req_id}"),
+    )
+    bot.send_message(ADMIN_ID, "Review this upload:", reply_markup=markup)
+    bot.reply_to(message, "Thank you! Your correctly categorized material has been sent to @pede_7 for review.")
 
 def process_admin_save(message, course_code, material_type):
     if message.document:
         file_id = message.document.file_id
         file_name = message.document.file_name or "document.pdf"
-        save_material(course_code, material_type, file_id, file_name)
-        bot.reply_to(message, f"✅ Successfully saved {file_name} under {course_code} ({material_type.upper()})!")
+        ok = save_material(course_code, material_type, file_id, file_name)
+        if ok:
+            bot.reply_to(message, f"✅ Successfully saved {file_name} under {course_code} ({material_type.upper()})!")
+        else:
+            bot.reply_to(message, f"⚠️ Failed to save {file_name} — the write to GitHub did not succeed. Check that GITHUB_TOKEN is valid and try again.")
     else:
         bot.reply_to(message, "⚠️ Please send a valid document file.")
 
