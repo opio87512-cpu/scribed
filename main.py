@@ -95,13 +95,19 @@ def save_json(filename, data):
         print(f"GitHub save error for {filename}: {e}")
         return False
 
-def save_material(course_code, mat_type, file_id, file_name):
-    """Returns True only if the write to GitHub actually succeeded."""
+def save_material(course_code, mat_type, file_id, file_name, content_type="document"):
+    """Returns True only if the write to GitHub actually succeeded.
+
+    content_type is either "document" or "photo" — a photo's file_id is a
+    different Telegram file type from a document's, and calling
+    send_document() with a photo file_id fails silently, so we have to
+    remember which kind it was in order to deliver it correctly later.
+    """
     data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
     if key not in data:
         data[key] = []
-    data[key].append({"file_id": file_id, "name": file_name})
+    data[key].append({"file_id": file_id, "name": file_name, "content_type": content_type})
     return save_json(DATA_FILE, data)
 
 def delete_material_by_index(course_code, mat_type, index):
@@ -295,7 +301,13 @@ def send_welcome(message):
                 materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
                 if 0 <= idx < len(materials):
                     item = materials[idx]
-                    bot.send_document(message.chat.id, item["file_id"], caption=item.get("name", ""))
+                    # Photos and documents use different file_id types in
+                    # Telegram's API — sending a photo's file_id via
+                    # send_document fails silently, so route by content_type.
+                    if item.get("content_type") == "photo":
+                        bot.send_photo(message.chat.id, item["file_id"], caption=item.get("name", ""))
+                    else:
+                        bot.send_document(message.chat.id, item["file_id"], caption=item.get("name", ""))
                 else:
                     bot.send_message(message.chat.id, "⚠️ That file could not be found — it may have been removed.")
             except ValueError:
@@ -387,12 +399,15 @@ def handle_query(call):
             else:
                 bot.send_message(call.message.chat.id, f"📚 Found {len(materials)} file(s) for {course_code}:")
                 for item in materials:
-                    bot.send_document(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
+                    if item.get("content_type") == "photo":
+                        bot.send_photo(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
+                    else:
+                        bot.send_document(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
         elif action == 'u':
             msg = bot.send_message(call.message.chat.id, f"Please send the {material_type.upper()} document or photo for {course_code} now.")
             bot.register_next_step_handler(msg, process_upload, course_code, material_type)
         elif action == 'a':
-            msg = bot.send_message(call.message.chat.id, f"📥 Send official document for {course_code} ({material_type.upper()}):")
+            msg = bot.send_message(call.message.chat.id, f"📥 Send official document or photo for {course_code} ({material_type.upper()}):")
             bot.register_next_step_handler(msg, process_admin_save, course_code, material_type)
         elif action == 'd':
             materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
@@ -451,7 +466,7 @@ def handle_query(call):
         req_id = call.data.split('_', 2)[2]
         if req_id in PENDING_UPLOADS:
             up = PENDING_UPLOADS[req_id]
-            ok = save_material(up["course_code"], up["material_type"], up["file_id"], up["file_name"])
+            ok = save_material(up["course_code"], up["material_type"], up["file_id"], up["file_name"], up.get("content_type", "document"))
             if ok:
                 bot.send_message(ADMIN_ID, f"✅ File approved and saved under {up['course_code']} ({up['material_type'].upper()})!")
                 try:
@@ -479,13 +494,16 @@ def handle_query(call):
 def process_upload(message, course_code, material_type):
     file_id = None
     file_name = None
+    content_type = "document"
     if message.document:
         file_id = message.document.file_id
         file_name = message.document.file_name or "document"
+        content_type = "document"
     elif message.photo:
         # Telegram sends multiple sizes; use the largest.
         file_id = message.photo[-1].file_id
         file_name = "photo.jpg"
+        content_type = "photo"
 
     if not file_id:
         bot.reply_to(message, "Error: Please upload a valid document or photo. You will need to start the upload process over from the menu.")
@@ -497,6 +515,7 @@ def process_upload(message, course_code, material_type):
         "material_type": material_type,
         "file_id": file_id,
         "file_name": file_name,
+        "content_type": content_type,
         "chat_id": message.chat.id,
         "username": message.from_user.username,
     }
@@ -518,16 +537,27 @@ def process_upload(message, course_code, material_type):
     bot.reply_to(message, "Thank you! Your correctly categorized material has been sent to @pede_7 for review.")
 
 def process_admin_save(message, course_code, material_type):
+    file_id = None
+    file_name = None
+    content_type = "document"
     if message.document:
         file_id = message.document.file_id
         file_name = message.document.file_name or "document.pdf"
-        ok = save_material(course_code, material_type, file_id, file_name)
-        if ok:
-            bot.reply_to(message, f"✅ Successfully saved {file_name} under {course_code} ({material_type.upper()})!")
-        else:
-            bot.reply_to(message, f"⚠️ Failed to save {file_name} — the write to GitHub did not succeed. Check that GITHUB_TOKEN is valid and try again.")
+        content_type = "document"
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+        file_name = "photo.jpg"
+        content_type = "photo"
+
+    if not file_id:
+        bot.reply_to(message, "⚠️ Please send a valid document or photo.")
+        return
+
+    ok = save_material(course_code, material_type, file_id, file_name, content_type)
+    if ok:
+        bot.reply_to(message, f"✅ Successfully saved {file_name} under {course_code} ({material_type.upper()})!")
     else:
-        bot.reply_to(message, "⚠️ Please send a valid document file.")
+        bot.reply_to(message, f"⚠️ Failed to save {file_name} — the write to GitHub did not succeed. Check that GITHUB_TOKEN is valid and try again.")
 
 # --- FLASK SERVER & API ENDPOINTS ---
 @app.route('/' + TOKEN, methods=['POST'])
