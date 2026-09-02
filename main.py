@@ -2,7 +2,6 @@ import os
 import json
 import base64
 import requests
-import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from flask import Flask, request, jsonify
@@ -111,9 +110,8 @@ def delete_material_by_index(course_code, mat_type, index):
 PENDING_VIDEOS = {}
 PENDING_UPLOADS = {}
 
+# Replaced timers with a direct state dictionary that holds the files
 UPLOAD_STATES = {}
-MEDIA_GROUP_CACHE = {}
-MEDIA_GROUP_TIMERS = {}
 
 def add_approved_video(course_code, title, url):
     data = load_json(VIDEOS_FILE)
@@ -266,6 +264,11 @@ def material_type_keyboard(course_code, action):
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     return markup
 
+def finish_upload_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("✅ Finish Upload", callback_data="finish_upload"))
+    return markup
+
 # --- COMMAND HANDLERS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -381,14 +384,41 @@ def handle_query(call):
                         bot.send_document(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
                         
         elif action == 'u':
-            # NEW: Sets the state dictionary instead of next_step_handler
-            UPLOAD_STATES[call.message.chat.id] = {"course_code": course_code, "material_type": material_type, "action": "user"}
-            bot.send_message(call.message.chat.id, f"Please send the {material_type.upper()} document(s) or photo(s) for {course_code} now.\n\n*You can send multiple files at once as an album!*")
+            # Initialize upload state
+            bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+            msg = bot.send_message(
+                call.message.chat.id, 
+                f"📤 **Upload mode started for {course_code} ({material_type.upper()})**\n\n"
+                "Please send your file(s) now. You can send as many as you want.\n\n"
+                "👇 **When you are done sending, click the button below!**",
+                parse_mode="Markdown",
+                reply_markup=finish_upload_keyboard()
+            )
+            UPLOAD_STATES[call.message.chat.id] = {
+                "course_code": course_code, 
+                "material_type": material_type, 
+                "action": "user",
+                "files": [],
+                "status_msg_id": msg.message_id
+            }
             
         elif action == 'a':
-            # NEW: Sets the state dictionary instead of next_step_handler
-            UPLOAD_STATES[call.message.chat.id] = {"course_code": course_code, "material_type": material_type, "action": "admin"}
-            bot.send_message(call.message.chat.id, f"📥 Send official document(s) or photo(s) for {course_code} ({material_type.upper()}).\n\n*You can send multiple files at once as an album!*")
+            bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+            msg = bot.send_message(
+                call.message.chat.id, 
+                f"📥 **Admin save mode started for {course_code} ({material_type.upper()})**\n\n"
+                "Please send your file(s) now. You can send as many as you want.\n\n"
+                "👇 **When you are done sending, click the button below!**",
+                parse_mode="Markdown",
+                reply_markup=finish_upload_keyboard()
+            )
+            UPLOAD_STATES[call.message.chat.id] = {
+                "course_code": course_code, 
+                "material_type": material_type, 
+                "action": "admin",
+                "files": [],
+                "status_msg_id": msg.message_id
+            }
             
         elif action == 'd':
             materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
@@ -400,6 +430,34 @@ def handle_query(call):
                     markup.row(InlineKeyboardButton(f"❌ Delete: {item['name']}", callback_data=f"delitem_{course_code}_{material_type}_{idx}"))
                 markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
                 bot.edit_message_text(f"Select the file you want to delete for {course_code} ({material_type.upper()}):", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+
+    # --- NEW: Finish Upload Button handler ---
+    elif call.data == "finish_upload":
+        chat_id = call.message.chat.id
+        if chat_id not in UPLOAD_STATES:
+            bot.answer_callback_query(call.id, "Upload session expired or already finished.")
+            bot.delete_message(chat_id, call.message.message_id)
+            return
+            
+        state = UPLOAD_STATES[chat_id]
+        files = state["files"]
+        
+        if not files:
+            bot.answer_callback_query(call.id, "You haven't sent any files yet! Send them first.", show_alert=True)
+            return
+            
+        # Update UI to show processing
+        bot.edit_message_text(
+            f"🔄 Processing your {len(files)} file(s)...", 
+            chat_id=chat_id, 
+            message_id=call.message.message_id
+        )
+        
+        # Process them
+        process_files(chat_id, files, state, call.from_user)
+        
+        # Clear the state
+        UPLOAD_STATES.pop(chat_id, None)
 
     elif call.data.startswith("delitem_"):
         parts = call.data.split('_')
@@ -481,12 +539,12 @@ def handle_query(call):
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
 
-# --- NEW: BATCH MEDIA HANDLER ---
+# --- EXPLICIT BUTTON BATCH MEDIA HANDLER ---
 @bot.message_handler(content_types=['document', 'photo'])
 def handle_media(message):
     chat_id = message.chat.id
     if chat_id not in UPLOAD_STATES:
-        return  # Ignore files if user didn't click an upload button
+        return  # Ignore files if user didn't initiate an upload
 
     state = UPLOAD_STATES[chat_id]
 
@@ -506,38 +564,31 @@ def handle_media(message):
     if not file_id:
         return
 
-    file_info = {
+    # Add file to the list
+    state["files"].append({
         "file_id": file_id,
         "file_name": file_name,
         "content_type": content_type,
         "message_id": message.message_id
-    }
+    })
+    
+    # Update the status message text so they know it was caught
+    try:
+        count = len(state["files"])
+        bot.edit_message_text(
+            f"📥 **Collected {count} file(s) so far.**\n\n"
+            f"Keep sending more files, or click **Finish Upload** when you are done.",
+            chat_id=chat_id,
+            message_id=state["status_msg_id"],
+            parse_mode="Markdown",
+            reply_markup=finish_upload_keyboard()
+        )
+    except Exception:
+        # Ignore telegram rate limits if they upload 20 files instantly
+        pass
 
-    group_id = message.media_group_id
 
-    # If the message is part of an album
-    if group_id:
-        if group_id not in MEDIA_GROUP_CACHE:
-            MEDIA_GROUP_CACHE[group_id] = []
-            # Wait 2 seconds to collect the rest of the files in the batch
-            timer = threading.Timer(2.0, process_batch, args=[chat_id, group_id, state, message])
-            MEDIA_GROUP_TIMERS[group_id] = timer
-            timer.start()
-        
-        MEDIA_GROUP_CACHE[group_id].append(file_info)
-    else:
-        # Single file sent without grouping
-        process_files(chat_id, [file_info], state, message)
-        UPLOAD_STATES.pop(chat_id, None)
-
-def process_batch(chat_id, group_id, state, original_message):
-    files = MEDIA_GROUP_CACHE.pop(group_id, [])
-    MEDIA_GROUP_TIMERS.pop(group_id, None)
-    if files:
-        process_files(chat_id, files, state, original_message)
-        UPLOAD_STATES.pop(chat_id, None)
-
-def process_files(chat_id, files, state, original_message):
+def process_files(chat_id, files, state, user):
     course_code = state["course_code"]
     material_type = state["material_type"]
     action = state["action"]
@@ -557,12 +608,12 @@ def process_files(chat_id, files, state, original_message):
             "material_type": material_type,
             "files": files,
             "chat_id": chat_id,
-            "username": original_message.from_user.username,
+            "username": user.username or "Student",
         }
         
         admin_text = (
             f"📥 New Chat Upload (Batch of {len(files)} files)\n"
-            f"From: @{original_message.from_user.username or 'Student'}\n\n"
+            f"From: @{user.username or 'Student'}\n\n"
             f"Course: {course_code}\n"
             f"Type: {material_type.upper()}"
         )
@@ -578,7 +629,8 @@ def process_files(chat_id, files, state, original_message):
             InlineKeyboardButton("❌ Reject All", callback_data=f"reject_upload_{req_id}"),
         )
         bot.send_message(ADMIN_ID, f"Review this batch upload:", reply_markup=markup)
-        bot.send_message(chat_id, f"Thank you! Your batch of {len(files)} file(s) has been sent to @pede_7 for review.")
+        
+        bot.send_message(chat_id, f"✅ Thank you! Your batch of {len(files)} file(s) has been sent to @pede_7 for review.")
 
 
 # --- FLASK SERVER & API ENDPOINTS ---
