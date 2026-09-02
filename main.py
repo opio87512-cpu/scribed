@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import requests
+import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from flask import Flask, request, jsonify
@@ -16,10 +17,6 @@ CORS(app)
 ADMIN_ID = 8429521561
 
 # --- GITHUB-BACKED STORAGE ---
-# IMPORTANT: your old token was hardcoded in this file and must be treated as
-# compromised. Revoke it in GitHub -> Settings -> Developer settings ->
-# Personal access tokens, generate a new one, and set it as an environment
-# variable (e.g. GITHUB_TOKEN) in Render's dashboard. Never hardcode it again.
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 GITHUB_REPO = "opio87512-cpu/scribed"
 GITHUB_BRANCH = "main"
@@ -35,8 +32,6 @@ def _github_headers():
     }
 
 def load_json(filename):
-    """Fetch the current JSON contents of `filename` from the GitHub repo.
-    Returns {} if the file doesn't exist yet or on any error (fail-safe)."""
     try:
         resp = requests.get(
             f"{GITHUB_API_BASE}/{filename}",
@@ -58,9 +53,6 @@ def load_json(filename):
         return {}
 
 def save_json(filename, data):
-    """Write `data` as JSON to `filename` in the GitHub repo, creating or
-    updating it as needed. Returns True on confirmed success, False otherwise
-    so callers can tell the user the truth instead of assuming it worked."""
     try:
         content_str = json.dumps(data, indent=4)
         encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
@@ -96,13 +88,6 @@ def save_json(filename, data):
         return False
 
 def save_material(course_code, mat_type, file_id, file_name, content_type="document"):
-    """Returns True only if the write to GitHub actually succeeded.
-
-    content_type is either "document" or "photo" — a photo's file_id is a
-    different Telegram file type from a document's, and calling
-    send_document() with a photo file_id fails silently, so we have to
-    remember which kind it was in order to deliver it correctly later.
-    """
     data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
     if key not in data:
@@ -122,12 +107,13 @@ def delete_material_by_index(course_code, mat_type, index):
         return removed.get("name", "File")
     return None
 
-# --- PENDING APPROVAL QUEUES ---
-# Both student uploads and video submissions need to survive the trip through
-# Telegram's callback buttons, so we stash the actual data here keyed by a
-# short random request id, and only put that id in callback_data.
+# --- PENDING APPROVAL QUEUES & UPLOAD CACHES ---
 PENDING_VIDEOS = {}
 PENDING_UPLOADS = {}
+
+UPLOAD_STATES = {}
+MEDIA_GROUP_CACHE = {}
+MEDIA_GROUP_TIMERS = {}
 
 def add_approved_video(course_code, title, url):
     data = load_json(VIDEOS_FILE)
@@ -283,17 +269,10 @@ def material_type_keyboard(course_code, action):
 # --- COMMAND HANDLERS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    # Handle deep links from the web app's "Open in Bot" button, e.g.
-    # https://t.me/astuece2026_bot?start=g_ECEg2201_note_0
-    # Telegram passes this as the text "/start g_ECEg2201_note_0".
-    # We deliberately reference files by (course, type, index) rather than by
-    # raw file_id: Telegram's start payload is capped at 64 chars and only
-    # allows [A-Za-z0-9_-], and a raw file_id can violate both of those,
-    # silently breaking the link before the bot ever sees it.
     parts = message.text.split(maxsplit=1)
     if len(parts) > 1 and parts[1].startswith("g_"):
         payload = parts[1][2:]
-        segments = payload.rsplit("_", 2)  # course_code, material_type, index
+        segments = payload.rsplit("_", 2)
         if len(segments) == 3:
             course_code, material_type, idx_str = segments
             try:
@@ -301,9 +280,6 @@ def send_welcome(message):
                 materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
                 if 0 <= idx < len(materials):
                     item = materials[idx]
-                    # Photos and documents use different file_id types in
-                    # Telegram's API — sending a photo's file_id via
-                    # send_document fails silently, so route by content_type.
                     if item.get("content_type") == "photo":
                         bot.send_photo(message.chat.id, item["file_id"], caption=item.get("name", ""))
                     else:
@@ -403,12 +379,17 @@ def handle_query(call):
                         bot.send_photo(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
                     else:
                         bot.send_document(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
+                        
         elif action == 'u':
-            msg = bot.send_message(call.message.chat.id, f"Please send the {material_type.upper()} document or photo for {course_code} now.")
-            bot.register_next_step_handler(msg, process_upload, course_code, material_type)
+            # NEW: Sets the state dictionary instead of next_step_handler
+            UPLOAD_STATES[call.message.chat.id] = {"course_code": course_code, "material_type": material_type, "action": "user"}
+            bot.send_message(call.message.chat.id, f"Please send the {material_type.upper()} document(s) or photo(s) for {course_code} now.\n\n*You can send multiple files at once as an album!*")
+            
         elif action == 'a':
-            msg = bot.send_message(call.message.chat.id, f"📥 Send official document or photo for {course_code} ({material_type.upper()}):")
-            bot.register_next_step_handler(msg, process_admin_save, course_code, material_type)
+            # NEW: Sets the state dictionary instead of next_step_handler
+            UPLOAD_STATES[call.message.chat.id] = {"course_code": course_code, "material_type": material_type, "action": "admin"}
+            bot.send_message(call.message.chat.id, f"📥 Send official document(s) or photo(s) for {course_code} ({material_type.upper()}).\n\n*You can send multiple files at once as an album!*")
+            
         elif action == 'd':
             materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
             if not materials:
@@ -457,89 +438,62 @@ def handle_query(call):
             del PENDING_VIDEOS[req_id]
         else:
             bot.answer_callback_query(call.id, "Request expired or already handled.")
+            
     elif call.data == "reject_vid":
         bot.send_message(ADMIN_ID, "❌ Video submission rejected.")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
-    # --- FIXED: student chat-upload approve/reject now actually saves the file ---
     elif call.data.startswith("approve_upload_"):
         req_id = call.data.split('_', 2)[2]
         if req_id in PENDING_UPLOADS:
             up = PENDING_UPLOADS[req_id]
-            ok = save_material(up["course_code"], up["material_type"], up["file_id"], up["file_name"], up.get("content_type", "document"))
-            if ok:
-                bot.send_message(ADMIN_ID, f"✅ File approved and saved under {up['course_code']} ({up['material_type'].upper()})!")
+            success_count = 0
+            
+            # Loop through all files in the batch
+            for f in up["files"]:
+                ok = save_material(up["course_code"], up["material_type"], f["file_id"], f["file_name"], f["content_type"])
+                if ok: 
+                    success_count += 1
+                    
+            if success_count > 0:
+                bot.send_message(ADMIN_ID, f"✅ {success_count}/{len(up['files'])} files approved and saved under {up['course_code']} ({up['material_type'].upper()})!")
                 try:
-                    bot.send_message(up["chat_id"], f"✅ Your file '{up['file_name']}' was approved and added to {up['course_code']} materials!")
+                    bot.send_message(up["chat_id"], f"✅ Your batch of {success_count} file(s) was approved and added to {up['course_code']} materials!")
                 except Exception:
                     pass
             else:
                 bot.send_message(ADMIN_ID, "⚠️ Approved, but saving to GitHub failed. Try again or check server logs.")
+                
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
             del PENDING_UPLOADS[req_id]
         else:
             bot.answer_callback_query(call.id, "Request expired or already handled.")
+            
     elif call.data.startswith("reject_upload_"):
         req_id = call.data.split('_', 2)[2]
         up = PENDING_UPLOADS.pop(req_id, None)
-        bot.send_message(ADMIN_ID, "❌ Upload rejected.")
+        bot.send_message(ADMIN_ID, "❌ Upload batch rejected.")
         if up:
             try:
-                bot.send_message(up["chat_id"], f"❌ Your submitted file '{up['file_name']}' was not approved.")
+                bot.send_message(up["chat_id"], f"❌ Your submitted batch of {len(up['files'])} file(s) was not approved.")
             except Exception:
                 pass
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
-# --- UPLOAD WORKFLOWS ---
-def process_upload(message, course_code, material_type):
+
+# --- NEW: BATCH MEDIA HANDLER ---
+@bot.message_handler(content_types=['document', 'photo'])
+def handle_media(message):
+    chat_id = message.chat.id
+    if chat_id not in UPLOAD_STATES:
+        return  # Ignore files if user didn't click an upload button
+
+    state = UPLOAD_STATES[chat_id]
+
     file_id = None
     file_name = None
     content_type = "document"
-    if message.document:
-        file_id = message.document.file_id
-        file_name = message.document.file_name or "document"
-        content_type = "document"
-    elif message.photo:
-        # Telegram sends multiple sizes; use the largest.
-        file_id = message.photo[-1].file_id
-        file_name = "photo.jpg"
-        content_type = "photo"
 
-    if not file_id:
-        bot.reply_to(message, "Error: Please upload a valid document or photo. You will need to start the upload process over from the menu.")
-        return
-
-    req_id = os.urandom(4).hex()
-    PENDING_UPLOADS[req_id] = {
-        "course_code": course_code,
-        "material_type": material_type,
-        "file_id": file_id,
-        "file_name": file_name,
-        "content_type": content_type,
-        "chat_id": message.chat.id,
-        "username": message.from_user.username,
-    }
-
-    admin_text = (
-        f"📥 New Chat Upload from @{message.from_user.username}\n\n"
-        f"Course: {course_code}\n"
-        f"Type: {material_type.upper()}"
-    )
-    bot.send_message(ADMIN_ID, admin_text)
-    bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
-
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("✅ Approve", callback_data=f"approve_upload_{req_id}"),
-        InlineKeyboardButton("❌ Reject", callback_data=f"reject_upload_{req_id}"),
-    )
-    bot.send_message(ADMIN_ID, "Review this upload:", reply_markup=markup)
-    bot.reply_to(message, "Thank you! Your correctly categorized material has been sent to @pede_7 for review.")
-
-def process_admin_save(message, course_code, material_type):
-    file_id = None
-    file_name = None
-    content_type = "document"
     if message.document:
         file_id = message.document.file_id
         file_name = message.document.file_name or "document.pdf"
@@ -550,14 +504,82 @@ def process_admin_save(message, course_code, material_type):
         content_type = "photo"
 
     if not file_id:
-        bot.reply_to(message, "⚠️ Please send a valid document or photo.")
         return
 
-    ok = save_material(course_code, material_type, file_id, file_name, content_type)
-    if ok:
-        bot.reply_to(message, f"✅ Successfully saved {file_name} under {course_code} ({material_type.upper()})!")
+    file_info = {
+        "file_id": file_id,
+        "file_name": file_name,
+        "content_type": content_type,
+        "message_id": message.message_id
+    }
+
+    group_id = message.media_group_id
+
+    # If the message is part of an album
+    if group_id:
+        if group_id not in MEDIA_GROUP_CACHE:
+            MEDIA_GROUP_CACHE[group_id] = []
+            # Wait 2 seconds to collect the rest of the files in the batch
+            timer = threading.Timer(2.0, process_batch, args=[chat_id, group_id, state, message])
+            MEDIA_GROUP_TIMERS[group_id] = timer
+            timer.start()
+        
+        MEDIA_GROUP_CACHE[group_id].append(file_info)
     else:
-        bot.reply_to(message, f"⚠️ Failed to save {file_name} — the write to GitHub did not succeed. Check that GITHUB_TOKEN is valid and try again.")
+        # Single file sent without grouping
+        process_files(chat_id, [file_info], state, message)
+        UPLOAD_STATES.pop(chat_id, None)
+
+def process_batch(chat_id, group_id, state, original_message):
+    files = MEDIA_GROUP_CACHE.pop(group_id, [])
+    MEDIA_GROUP_TIMERS.pop(group_id, None)
+    if files:
+        process_files(chat_id, files, state, original_message)
+        UPLOAD_STATES.pop(chat_id, None)
+
+def process_files(chat_id, files, state, original_message):
+    course_code = state["course_code"]
+    material_type = state["material_type"]
+    action = state["action"]
+
+    if action == "admin":
+        success_count = 0
+        for f in files:
+            ok = save_material(course_code, material_type, f["file_id"], f["file_name"], f["content_type"])
+            if ok: success_count += 1
+        
+        bot.send_message(chat_id, f"✅ Successfully saved {success_count}/{len(files)} files under {course_code} ({material_type.upper()})!")
+        
+    elif action == "user":
+        req_id = os.urandom(4).hex()
+        PENDING_UPLOADS[req_id] = {
+            "course_code": course_code,
+            "material_type": material_type,
+            "files": files,
+            "chat_id": chat_id,
+            "username": original_message.from_user.username,
+        }
+        
+        admin_text = (
+            f"📥 New Chat Upload (Batch of {len(files)} files)\n"
+            f"From: @{original_message.from_user.username or 'Student'}\n\n"
+            f"Course: {course_code}\n"
+            f"Type: {material_type.upper()}"
+        )
+        bot.send_message(ADMIN_ID, admin_text)
+        
+        # Forward every file in the batch to the admin
+        for f in files:
+            bot.forward_message(ADMIN_ID, chat_id, f["message_id"])
+        
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("✅ Approve All", callback_data=f"approve_upload_{req_id}"),
+            InlineKeyboardButton("❌ Reject All", callback_data=f"reject_upload_{req_id}"),
+        )
+        bot.send_message(ADMIN_ID, f"Review this batch upload:", reply_markup=markup)
+        bot.send_message(chat_id, f"Thank you! Your batch of {len(files)} file(s) has been sent to @pede_7 for review.")
+
 
 # --- FLASK SERVER & API ENDPOINTS ---
 @app.route('/' + TOKEN, methods=['POST'])
