@@ -483,15 +483,19 @@ def handle_query(call):
         else:
             bot.edit_message_text("⚠️ Error: Video could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
+    # --- NO AUTO-SAVE FOR VIDEOS ---
     elif call.data.startswith("approve_vid_"):
         req_id = call.data.split('_')[2]
         if req_id in PENDING_VIDEOS:
             v_data = PENDING_VIDEOS[req_id]
-            ok = add_approved_video(v_data['course'], v_data['title'], v_data['url'])
-            if ok:
-                bot.send_message(ADMIN_ID, f"✅ Video approved and added to {v_data['course']}!")
-            else:
-                bot.send_message(ADMIN_ID, f"⚠️ Video approved, but saving to GitHub failed. Try approving again or check logs.")
+            
+            # Notify the admin
+            bot.send_message(
+                ADMIN_ID, 
+                f"✅ Video submission '{v_data['title']}' for {v_data['course']} from {v_data['username']} approved!\n\n"
+                f"You can now organize and add this video link manually."
+            )
+            
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
             del PENDING_VIDEOS[req_id]
         else:
@@ -501,26 +505,28 @@ def handle_query(call):
         bot.send_message(ADMIN_ID, "❌ Video submission rejected.")
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
+    # --- NO AUTO-SAVE FOR FILES ---
     elif call.data.startswith("approve_upload_"):
         req_id = call.data.split('_', 2)[2]
         if req_id in PENDING_UPLOADS:
             up = PENDING_UPLOADS[req_id]
-            success_count = 0
             
-            # Loop through all files in the batch
-            for f in up["files"]:
-                ok = save_material(up["course_code"], up["material_type"], f["file_id"], f["file_name"], f["content_type"])
-                if ok: 
-                    success_count += 1
-                    
-            if success_count > 0:
-                bot.send_message(ADMIN_ID, f"✅ {success_count}/{len(up['files'])} files approved and saved under {up['course_code']} ({up['material_type'].upper()})!")
-                try:
-                    bot.send_message(up["chat_id"], f"✅ Your batch of {success_count} file(s) was approved and added to {up['course_code']} materials!")
-                except Exception:
-                    pass
-            else:
-                bot.send_message(ADMIN_ID, "⚠️ Approved, but saving to GitHub failed. Try again or check server logs.")
+            # Notify the admin
+            bot.send_message(
+                ADMIN_ID, 
+                f"✅ Upload batch from @{up.get('username', 'Student')} approved!\n\n"
+                f"The user has been notified. You can now download and organize these files manually, then use /addfile to put them in the system."
+            )
+            
+            # Notify the user that their files were accepted
+            try:
+                bot.send_message(
+                    up["chat_id"], 
+                    f"✅ Good news! Your batch of {len(up['files'])} file(s) for {up['course_code']} has been approved by the admin.\n\n"
+                    f"They will be organized and added to the official portal soon. Thank you for contributing to the community! 🚀"
+                )
+            except Exception:
+                pass
                 
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
             del PENDING_UPLOADS[req_id]
