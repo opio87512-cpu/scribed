@@ -2,123 +2,281 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ASTU ECE Portal</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
+        :root {
+            --bg-color: var(--tg-theme-bg-color, #f3f2f8);
+            --text-color: var(--tg-theme-text-color, #000000);
+            --hint-color: var(--tg-theme-hint-color, #8e8e93);
+            --link-color: var(--tg-theme-link-color, #007aff);
+            --btn-color: var(--tg-theme-button-color, #007aff);
+            --btn-text: var(--tg-theme-button-text-color, #ffffff);
+            --sec-bg: var(--tg-theme-secondary-bg-color, #ffffff);
+        }
+
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            padding: 20px; 
-            background: var(--tg-theme-bg-color, #ffffff); 
-            color: var(--tg-theme-text-color, #000000); 
+            padding: 15px; 
+            margin: 0;
+            background: var(--bg-color); 
+            color: var(--text-color); 
+            -webkit-font-smoothing: antialiased;
         }
-        h2 { text-align: center; margin-bottom: 15px; }
-        .tabs { display: flex; gap: 4px; margin-bottom: 20px; }
-        .tab-btn { flex: 1; padding: 8px 4px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; background: var(--tg-theme-secondary-bg-color, #f0f0f0); color: var(--tg-theme-text-color, #000000); font-size: 13px; }
-        .tab-btn.active { background: var(--tg-theme-button-color, #3390ec); color: var(--tg-theme-button-text-color, #ffffff); }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; color: var(--tg-theme-hint-color, #999999); }
-        select, input, button { 
-            width: 100%; padding: 12px; border-radius: 8px; 
-            border: 1px solid var(--tg-theme-hint-color, #cccccc); 
-            font-size: 16px; box-sizing: border-box; 
-            background: var(--tg-theme-bg-color, #ffffff); color: var(--tg-theme-text-color, #000000);
-        }
-        select:disabled, input:disabled, button:disabled { opacity: 0.5; }
-        button[type="submit"] { 
-            background: var(--tg-theme-button-color, #3390ec); 
-            color: var(--tg-theme-button-text-color, #ffffff); 
-            border: none; font-weight: bold; font-size: 18px; margin-top: 10px; cursor: pointer;
-        }
-        .section { display: none; }
-        .section.active { display: block; }
-        .material-card { background: var(--tg-theme-secondary-bg-color, #f8f9fa); padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .material-card a { color: var(--tg-theme-link-color, #3390ec); text-decoration: none; font-weight: bold; }
 
-        /* --- Video thumbnail cards --- */
+        /* --- Modern App Header --- */
+        .app-header {
+            text-align: center;
+            margin-bottom: 20px;
+            animation: fadeIn 0.5s ease;
+        }
+        .app-header h2 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-color); }
+        .app-header p { margin: 4px 0 0 0; font-size: 13px; color: var(--hint-color); }
+
+        /* --- Modern Tab Bar --- */
+        .tabs { 
+            display: flex; 
+            overflow-x: auto;
+            gap: 8px; 
+            margin-bottom: 25px; 
+            padding-bottom: 5px;
+            scrollbar-width: none; /* Firefox */
+        }
+        .tabs::-webkit-scrollbar { display: none; } /* Safari/Chrome */
+        .tab-btn { 
+            flex: 0 0 auto;
+            padding: 10px 16px; 
+            border: none; 
+            border-radius: 20px; 
+            font-weight: 600; 
+            cursor: pointer; 
+            background: var(--sec-bg); 
+            color: var(--hint-color); 
+            font-size: 14px; 
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.04);
+            transition: all 0.3s ease;
+        }
+        .tab-btn.active { 
+            background: var(--btn-color); 
+            color: var(--btn-text); 
+            box-shadow: 0 4px 10px rgba(0, 122, 255, 0.3);
+        }
+
+        /* --- Modern Forms & Cards --- */
+        .section { display: none; animation: slideUp 0.4s ease; }
+        .section.active { display: block; }
+
+        .card-container {
+            background: var(--sec-bg);
+            padding: 18px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; color: var(--text-color); }
+        
+        select, input, button { 
+            width: 100%; 
+            padding: 14px; 
+            border-radius: 12px; 
+            border: 1px solid rgba(142, 142, 147, 0.2); 
+            font-size: 15px; 
+            box-sizing: border-box; 
+            background: var(--bg-color); 
+            color: var(--text-color);
+            transition: all 0.2s ease;
+            outline: none;
+        }
+        select:focus, input:focus { border-color: var(--btn-color); background: var(--sec-bg); }
+        select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        button[type="submit"], .action-btn { 
+            background: var(--btn-color); 
+            color: var(--btn-text); 
+            border: none; 
+            font-weight: 600; 
+            font-size: 16px; 
+            margin-top: 5px; 
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0, 122, 255, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+        button[type="submit"]:disabled { opacity: 0.6; box-shadow: none; }
+        button[type="submit"]:active { transform: scale(0.98); }
+
+        /* --- Search Bar --- */
+        .search-box {
+            position: relative;
+            margin-bottom: 15px;
+            display: none; /* Shown via JS */
+        }
+        .search-box i { position: absolute; left: 14px; top: 16px; color: var(--hint-color); }
+        .search-box input { padding-left: 40px; border-radius: 20px; }
+
+        /* --- Results Cards --- */
+        .material-card { 
+            background: var(--sec-bg); 
+            padding: 15px; 
+            border-radius: 12px; 
+            margin-bottom: 12px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid rgba(0,0,0,0.02);
+            transition: transform 0.2s;
+        }
+        .material-card:active { transform: scale(0.98); }
+        .material-info { display: flex; flex-direction: column; gap: 4px; flex: 1; margin-right: 10px; }
+        .material-name { font-weight: 600; font-size: 14px; color: var(--text-color); }
+        .material-type { font-size: 12px; color: var(--hint-color); text-transform: uppercase; letter-spacing: 0.5px;}
+        
+        .card-actions { display: flex; gap: 8px; align-items: center; }
+        .material-card a.dl-btn { 
+            background: var(--bg-color); 
+            color: var(--btn-color); 
+            text-decoration: none; 
+            font-weight: 600; 
+            font-size: 13px;
+            padding: 8px 14px;
+            border-radius: 8px;
+        }
+        .fav-btn {
+            background: none; border: none; font-size: 18px; color: #ffb300; padding: 5px; width: auto;
+            cursor: pointer; box-shadow: none; outline: none;
+        }
+        .fav-btn.unstarred { color: var(--hint-color); opacity: 0.5; }
+
+        /* --- Video Cards --- */
         .video-card {
             display: block;
-            background: var(--tg-theme-secondary-bg-color, #f8f9fa);
-            border-radius: 10px;
-            margin-bottom: 14px;
+            background: var(--sec-bg);
+            border-radius: 16px;
+            margin-bottom: 16px;
             overflow: hidden;
             text-decoration: none;
-            color: var(--tg-theme-text-color, #000000);
-            border: 1px solid rgba(0,0,0,0.06);
+            color: var(--text-color);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border: 1px solid rgba(0,0,0,0.03);
+            position: relative;
         }
-        .video-card img {
-            width: 100%;
-            display: block;
-            aspect-ratio: 16 / 9;
-            object-fit: cover;
-            background: #000;
-        }
-        .video-card .video-title {
-            padding: 10px 12px;
-            font-weight: bold;
-            font-size: 14px;
-        }
+        .video-card img { width: 100%; display: block; aspect-ratio: 16 / 9; object-fit: cover; }
+        .video-content { padding: 12px 15px; display: flex; justify-content: space-between; align-items: flex-start;}
+        .video-title { font-weight: 600; font-size: 14px; flex: 1; padding-right: 10px; line-height: 1.4;}
+        .play-icon { position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; color: rgba(255,255,255,0.8); text-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+
+        .empty-state { text-align: center; color: var(--hint-color); padding: 20px; font-size: 14px; }
+        .empty-state i { font-size: 40px; margin-bottom: 10px; opacity: 0.5; }
+
+        /* Animations */
+        @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
+    <div class="app-header">
+        <h2>ASTU ECE Portal</h2>
+        <p>Your ultimate resource hub</p>
+    </div>
+
     <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('upload')">📤 Upload</button>
-        <button class="tab-btn" onclick="switchTab('find')">📚 Find</button>
-        <button class="tab-btn" onclick="switchTab('video')">📺 Videos</button>
-        <button class="tab-btn" onclick="switchTab('addVideo')">➕ Add Vid</button>
+        <button class="tab-btn active" onclick="switchTab('upload')"><i class="fa-solid fa-cloud-arrow-up"></i> Upload</button>
+        <button class="tab-btn" onclick="switchTab('find')"><i class="fa-solid fa-book"></i> Materials</button>
+        <button class="tab-btn" onclick="switchTab('video')"><i class="fa-brands fa-youtube"></i> Videos</button>
+        <button class="tab-btn" onclick="switchTab('favs')"><i class="fa-solid fa-star"></i> Favs</button>
+        <button class="tab-btn" onclick="switchTab('addVideo')"><i class="fa-solid fa-link"></i> Suggest</button>
     </div>
 
     <!-- UPLOAD SECTION -->
-    <div id="uploadSection" class="section active">
-        <h2>Upload Material</h2>
+    <div id="uploadSection" class="section active card-container">
         <form id="uploadForm">
             <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
             <div class="form-group"><label>Semester</label><select id="upSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
             <div class="form-group"><label>Course</label><select id="upCourse" required disabled><option value="">Select Course...</option></select></div>
             <div class="form-group"><label>Material Type</label><select id="upType" required disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
-            <div class="form-group"><label>Select File or Photo</label><input type="file" id="fileInput" required disabled></div>
-            <button type="submit" id="submitBtn" disabled>Send to Admin</button>
+            <div class="form-group">
+                <label>Select Files <small style="color:var(--hint-color)">(You can select multiple!)</small></label>
+                <!-- NEW: 'multiple' attribute added here -->
+                <input type="file" id="fileInput" multiple required disabled>
+            </div>
+            <button type="submit" id="submitBtn" disabled><i class="fa-solid fa-paper-plane"></i> Upload to Admin</button>
         </form>
     </div>
 
     <!-- FIND MATERIALS SECTION -->
     <div id="findSection" class="section">
-        <h2>Find Materials</h2>
-        <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
-        <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
-        <div class="form-group"><label>Course</label><select id="findCourse" disabled><option value="">Select Course...</option></select></div>
-        <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
-        <div id="resultsContainer" style="margin-top: 20px;"></div>
+        <div class="card-container">
+            <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+            <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+            <div class="form-group"><label>Course</label><select id="findCourse" disabled><option value="">Select Course...</option></select></div>
+            <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
+        </div>
+        
+        <!-- NEW: Search Box -->
+        <div class="search-box" id="findSearchBox">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="findSearchInput" placeholder="Search in these results...">
+        </div>
+
+        <div id="resultsContainer"></div>
     </div>
 
     <!-- VIDEOS SECTION -->
     <div id="videoSection" class="section">
-        <h2>YouTube Tutorials</h2>
-        <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
-        <div class="form-group"><label>Semester</label><select id="vidSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
-        <div class="form-group"><label>Course</label><select id="vidCourse" disabled><option value="">Select Course...</option></select></div>
-        <div id="videoResultsContainer" style="margin-top: 20px;"></div>
+        <div class="card-container">
+            <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+            <div class="form-group"><label>Semester</label><select id="vidSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+            <div class="form-group"><label>Course</label><select id="vidCourse" disabled><option value="">Select Course...</option></select></div>
+        </div>
+        
+        <!-- NEW: Search Box -->
+        <div class="search-box" id="vidSearchBox">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="vidSearchInput" placeholder="Search videos...">
+        </div>
+
+        <div id="videoResultsContainer"></div>
+    </div>
+
+    <!-- FAVORITES SECTION -->
+    <div id="favsSection" class="section">
+        <div class="search-box" id="favSearchBox" style="display: block;">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="favSearchInput" placeholder="Search your favorites...">
+        </div>
+        <div id="favsContainer"></div>
     </div>
 
     <!-- ADD VIDEO SECTION -->
-    <div id="addVideoSection" class="section">
-        <h2>Suggest a Video Link</h2>
+    <div id="addVideoSection" class="section card-container">
         <form id="videoForm">
             <div class="form-group"><label>Academic Year</label><select id="subVidYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
             <div class="form-group"><label>Semester</label><select id="subVidSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
             <div class="form-group"><label>Course</label><select id="subVidCourse" required disabled><option value="">Select Course...</option></select></div>
-            <div class="form-group"><label>Video Title / Description</label><input type="text" id="vidTitle" placeholder="e.g. Chapter 1 Lecture" required disabled></div>
+            <div class="form-group"><label>Video Title</label><input type="text" id="vidTitle" placeholder="e.g. Chapter 1 Lecture" required disabled></div>
             <div class="form-group"><label>YouTube Link</label><input type="url" id="vidUrl" placeholder="https://youtube.com/watch?v=..." required disabled></div>
-            <button type="submit" id="subVidBtn" disabled>Submit Video for Review</button>
+            <button type="submit" id="subVidBtn" disabled><i class="fa-solid fa-paper-plane"></i> Submit for Review</button>
         </form>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
+        tg.ready();
         const RENDER_URL = "https://scribed-1rqs.onrender.com";
         const BOT_USERNAME = "astuece2026_bot";
 
+        // Unchanged Curriculum Database
         const curriculum = {
             "2": {
                 "1": [{code: "Math2101", title: "Applied Mathematics III"}, {code: "ECEg2201", title: "Electronics Circuit I"}, {code: "EPCE2101", title: "Fundamentals of Electrical Eng."}, {code: "CSEg2101", title: "Data Structures & Algorithms"}, {code: "LART1004", title: "Geography of Ethiopia & the Horn"}],
@@ -138,14 +296,103 @@
             }
         };
 
+        // --- FAVORITES LOGIC ---
+        let favorites = JSON.parse(localStorage.getItem('astu_ece_favs')) || [];
+        
+        function isFav(id) { return favorites.some(f => f.id === id); }
+        
+        function toggleFav(id, title, url, type, meta) {
+            const index = favorites.findIndex(f => f.id === id);
+            if(index > -1) {
+                favorites.splice(index, 1);
+            } else {
+                favorites.push({ id, title, url, type, meta });
+            }
+            localStorage.setItem('astu_ece_favs', JSON.stringify(favorites));
+            
+            // Re-render current active view to update star states
+            if(document.getElementById('findSection').classList.contains('active')) fetchMaterials();
+            if(document.getElementById('videoSection').classList.contains('active')) fetchVideos();
+            if(document.getElementById('favsSection').classList.contains('active')) renderFavs();
+        }
+
+        function renderFavs() {
+            const container = document.getElementById('favsContainer');
+            const searchInput = document.getElementById('favSearchInput').value.toLowerCase();
+            container.innerHTML = "";
+
+            if(favorites.length === 0) {
+                container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-star"></i><br>No favorites yet.<br>Click the star on any material or video to save it here!</div>`;
+                document.getElementById('favSearchBox').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('favSearchBox').style.display = 'block';
+            let html = "";
+            favorites.forEach(fav => {
+                if(searchInput && !fav.title.toLowerCase().includes(searchInput) && !fav.meta.toLowerCase().includes(searchInput)) return;
+                
+                const starClass = "fa-solid fa-star";
+                
+                if(fav.type === 'material') {
+                    html += `
+                    <div class="material-card searchable-item" data-text="${fav.title} ${fav.meta}">
+                        <div class="material-info">
+                            <span class="material-name">📄 ${fav.title}</span>
+                            <span class="material-type">${fav.meta}</span>
+                        </div>
+                        <div class="card-actions">
+                            <button class="fav-btn" onclick="toggleFav('${fav.id}', '${fav.title}', '${fav.url}', 'material', '${fav.meta}')"><i class="${starClass}"></i></button>
+                            <a class="dl-btn" href="${fav.url}" target="_blank">Open</a>
+                        </div>
+                    </div>`;
+                } else if(fav.type === 'video') {
+                    const ytId = getYouTubeId(fav.url);
+                    const thumbUrl = ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : '';
+                    html += `
+                    <div class="video-card searchable-item" data-text="${fav.title} ${fav.meta}">
+                        <a href="${fav.url}" target="_blank" rel="noopener">
+                            ${thumbUrl ? `<img src="${thumbUrl}" alt="Video">` : ''}
+                            <i class="fa-solid fa-play play-icon"></i>
+                        </a>
+                        <div class="video-content">
+                            <div class="video-title">${fav.title} <div style="font-size:11px;color:var(--hint-color);font-weight:normal;margin-top:4px;">${fav.meta}</div></div>
+                            <button class="fav-btn" onclick="toggleFav('${fav.id}', '${fav.title}', '${fav.url}', 'video', '${fav.meta}')"><i class="${starClass}"></i></button>
+                        </div>
+                    </div>`;
+                }
+            });
+            container.innerHTML = html || "<p style='text-align:center'>No matches found.</p>";
+        }
+
+        // Tab Switcher
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            
             if(tab === 'upload') { document.querySelectorAll('.tab-btn')[0].classList.add('active'); document.getElementById('uploadSection').classList.add('active'); }
             else if(tab === 'find') { document.querySelectorAll('.tab-btn')[1].classList.add('active'); document.getElementById('findSection').classList.add('active'); }
             else if(tab === 'video') { document.querySelectorAll('.tab-btn')[2].classList.add('active'); document.getElementById('videoSection').classList.add('active'); }
-            else { document.querySelectorAll('.tab-btn')[3].classList.add('active'); document.getElementById('addVideoSection').classList.add('active'); }
+            else if(tab === 'favs') { 
+                document.querySelectorAll('.tab-btn')[3].classList.add('active'); 
+                document.getElementById('favsSection').classList.add('active');
+                renderFavs();
+            }
+            else { document.querySelectorAll('.tab-btn')[4].classList.add('active'); document.getElementById('addVideoSection').classList.add('active'); }
         }
+
+        // --- Live Search Logic ---
+        function filterResults(inputId, itemClass) {
+            const query = document.getElementById(inputId).value.toLowerCase();
+            document.querySelectorAll(itemClass).forEach(el => {
+                const text = el.getAttribute('data-text').toLowerCase();
+                el.style.display = text.includes(query) ? "" : "none";
+            });
+        }
+        document.getElementById('findSearchInput').addEventListener('input', () => filterResults('findSearchInput', '#resultsContainer .searchable-item'));
+        document.getElementById('vidSearchInput').addEventListener('input', () => filterResults('vidSearchInput', '#videoResultsContainer .searchable-item'));
+        document.getElementById('favSearchInput').addEventListener('input', renderFavs);
+
 
         // Upload Cascading Logic
         const upYear = document.getElementById('upYear'), upSem = document.getElementById('upSem'), upCourse = document.getElementById('upCourse'), upType = document.getElementById('upType'), fileInput = document.getElementById('fileInput'), submitBtn = document.getElementById('submitBtn');
@@ -156,127 +403,173 @@
         fileInput.onchange = () => { submitBtn.disabled = !fileInput.files.length; };
 
         // Find Cascading Logic
-        const findYear = document.getElementById('findYear'), findSem = document.getElementById('findSem'), findCourse = document.getElementById('findCourse'), findType = document.getElementById('findType'), resultsContainer = document.getElementById('resultsContainer');
-        findYear.onchange = () => { findSem.disabled = !findYear.value; findSem.value=""; findCourse.innerHTML='<option value="">Select Course...</option>'; findCourse.disabled=true; findType.disabled=true; resultsContainer.innerHTML=""; };
-        findSem.onchange = () => { findCourse.innerHTML='<option value="">Select Course...</option>'; if(findYear.value && findSem.value){ curriculum[findYear.value][findSem.value].forEach(c => findCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); findCourse.disabled = false; } else { findCourse.disabled = true; } findType.disabled = true; resultsContainer.innerHTML=""; };
-        findCourse.onchange = () => { findType.disabled = !findCourse.value; resultsContainer.innerHTML=""; };
+        const findYear = document.getElementById('findYear'), findSem = document.getElementById('findSem'), findCourse = document.getElementById('findCourse'), findType = document.getElementById('findType'), resultsContainer = document.getElementById('resultsContainer'), findSearchBox = document.getElementById('findSearchBox');
+        findYear.onchange = () => { findSem.disabled = !findYear.value; findSem.value=""; findCourse.innerHTML='<option value="">Select Course...</option>'; findCourse.disabled=true; findType.disabled=true; resultsContainer.innerHTML=""; findSearchBox.style.display="none"; };
+        findSem.onchange = () => { findCourse.innerHTML='<option value="">Select Course...</option>'; if(findYear.value && findSem.value){ curriculum[findYear.value][findSem.value].forEach(c => findCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); findCourse.disabled = false; } else { findCourse.disabled = true; } findType.disabled = true; resultsContainer.innerHTML=""; findSearchBox.style.display="none"; };
+        findCourse.onchange = () => { findType.disabled = !findCourse.value; resultsContainer.innerHTML=""; findSearchBox.style.display="none"; };
         findType.onchange = fetchMaterials;
 
         async function fetchMaterials() {
             const course = findCourse.value, type = findType.value;
             if(!course || !type) return;
-            resultsContainer.innerHTML = "<p>Loading materials...</p>";
+            resultsContainer.innerHTML = `<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><br>Loading materials...</div>`;
+            findSearchBox.style.display = "none";
+            document.getElementById('findSearchInput').value = "";
+            
             try {
                 const res = await fetch(`${RENDER_URL}/api/materials`);
                 const data = await res.json();
                 const items = data[`${course}_${type}`] || [];
-                if(items.length === 0) resultsContainer.innerHTML = "<p>ℹ️ No materials found.</p>";
-                else {
-                    resultsContainer.innerHTML = `<h3>Found ${items.length} file(s):</h3>`;
+                
+                if(items.length === 0) {
+                    resultsContainer.innerHTML = `<div class="empty-state"><i class="fa-solid fa-folder-open"></i><br>No materials found for this section.</div>`;
+                } else {
+                    findSearchBox.style.display = "block";
+                    let html = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${items.length} file(s)</div>`;
+                    
                     items.forEach((item, idx) => {
-                        // NOTE: we deep-link with course_type_index, NOT the raw
-                        // Telegram file_id. Telegram's /start payload is capped
-                        // at 64 chars and only allows [A-Za-z0-9_-], and a raw
-                        // file_id can break both rules, which silently breaks
-                        // the link. The bot looks the real file_id up server-side.
                         const deepLink = `https://t.me/${BOT_USERNAME}?start=g_${course}_${type}_${idx}`;
-                        resultsContainer.innerHTML += `<div class="material-card"><span>📄 ${item.name}</span><a href="${deepLink}" target="_blank">Open in Bot</a></div>`;
+                        const favId = `mat_${course}_${type}_${idx}`;
+                        const isStarred = isFav(favId);
+                        const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
+                        
+                        // Added searchable-item and data-text for live filter
+                        html += `
+                        <div class="material-card searchable-item" data-text="${item.name}">
+                            <div class="material-info">
+                                <span class="material-name">📄 ${item.name}</span>
+                                <span class="material-type">${course} • ${type}</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${item.name}', '${deepLink}', 'material', '${course} • ${type.toUpperCase()}')">
+                                    <i class="${starClass}"></i>
+                                </button>
+                                <a class="dl-btn" href="${deepLink}" target="_blank">Open</a>
+                            </div>
+                        </div>`;
                     });
+                    resultsContainer.innerHTML = html;
                 }
-            } catch(e) { resultsContainer.innerHTML = "<p>⚠️ Error connecting to server.</p>"; }
+            } catch(e) { resultsContainer.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><br>Error connecting to server.</div>`; }
         }
 
         // Video Find Cascading Logic
-        const vidYear = document.getElementById('vidYear'), vidSem = document.getElementById('vidSem'), vidCourse = document.getElementById('vidCourse'), videoResultsContainer = document.getElementById('videoResultsContainer');
-        vidYear.onchange = () => { vidSem.disabled = !vidYear.value; vidSem.value=""; vidCourse.innerHTML='<option value="">Select Course...</option>'; vidCourse.disabled=true; videoResultsContainer.innerHTML=""; };
-        vidSem.onchange = () => { vidCourse.innerHTML='<option value="">Select Course...</option>'; if(vidYear.value && vidSem.value){ curriculum[vidYear.value][vidSem.value].forEach(c => vidCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); vidCourse.disabled = false; } else { vidCourse.disabled = true; } videoResultsContainer.innerHTML=""; };
+        const vidYear = document.getElementById('vidYear'), vidSem = document.getElementById('vidSem'), vidCourse = document.getElementById('vidCourse'), videoResultsContainer = document.getElementById('videoResultsContainer'), vidSearchBox = document.getElementById('vidSearchBox');
+        vidYear.onchange = () => { vidSem.disabled = !vidYear.value; vidSem.value=""; vidCourse.innerHTML='<option value="">Select Course...</option>'; vidCourse.disabled=true; videoResultsContainer.innerHTML=""; vidSearchBox.style.display="none"; };
+        vidSem.onchange = () => { vidCourse.innerHTML='<option value="">Select Course...</option>'; if(vidYear.value && vidSem.value){ curriculum[vidYear.value][vidSem.value].forEach(c => vidCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); vidCourse.disabled = false; } else { vidCourse.disabled = true; } videoResultsContainer.innerHTML=""; vidSearchBox.style.display="none"; };
         vidCourse.onchange = fetchVideos;
 
-        // Extracts the 11-character YouTube video ID from common URL shapes:
-        // watch?v=, youtu.be/, /embed/, /shorts/
         function getYouTubeId(url) {
             if (!url) return null;
-            const patterns = [
-                /youtube\.com\/watch\?(?:.*&)?v=([\w-]{11})/,
-                /youtu\.be\/([\w-]{11})/,
-                /youtube\.com\/embed\/([\w-]{11})/,
-                /youtube\.com\/shorts\/([\w-]{11})/
-            ];
-            for (const p of patterns) {
-                const m = url.match(p);
-                if (m) return m[1];
-            }
+            const patterns = [ /youtube\.com\/watch\?(?:.*&)?v=([\w-]{11})/, /youtu\.be\/([\w-]{11})/, /youtube\.com\/embed\/([\w-]{11})/, /youtube\.com\/shorts\/([\w-]{11})/ ];
+            for (const p of patterns) { const m = url.match(p); if (m) return m[1]; }
             return null;
         }
-
-        // Basic HTML-escaping for text we inject via innerHTML (titles are
-        // free-text submitted by students).
-        function escapeHtml(str) {
-            const div = document.createElement('div');
-            div.textContent = str ?? '';
-            return div.innerHTML;
-        }
+        function escapeHtml(str) { const div = document.createElement('div'); div.textContent = str ?? ''; return div.innerHTML; }
 
         async function fetchVideos() {
             const courseCode = vidCourse.value;
             if(!courseCode) return;
-            videoResultsContainer.innerHTML = "<p>Loading videos...</p>";
+            videoResultsContainer.innerHTML = `<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><br>Loading videos...</div>`;
+            vidSearchBox.style.display = "none";
+            document.getElementById('vidSearchInput').value = "";
+
             try {
                 const res = await fetch(`${RENDER_URL}/api/videos`);
                 const data = await res.json();
                 const vids = data[courseCode] || [];
                 if(vids.length === 0) {
-                    videoResultsContainer.innerHTML = `<p>ℹ️ No approved videos yet for this course.</p>`;
+                    videoResultsContainer.innerHTML = `<div class="empty-state"><i class="fa-brands fa-youtube" style="font-size:50px"></i><br>No approved videos yet for this course.</div>`;
                 } else {
-                    let html = `<h3>Approved Videos:</h3>`;
-                    vids.forEach(v => {
+                    vidSearchBox.style.display = "block";
+                    let html = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${vids.length} video(s)</div>`;
+                    
+                    vids.forEach((v, idx) => {
                         const ytId = getYouTubeId(v.url);
-                        // hqdefault.jpg exists for every YouTube video; maxresdefault
-                        // isn't always generated, so this is the safe default choice.
                         const thumbUrl = ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : '';
                         const watchUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : v.url;
+                        const favId = `vid_${courseCode}_${idx}`;
+                        const isStarred = isFav(favId);
+                        const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
+                        
                         html += `
-                            <a class="video-card" href="${watchUrl}" target="_blank" rel="noopener">
+                        <div class="video-card searchable-item" data-text="${escapeHtml(v.title)}">
+                            <a href="${watchUrl}" target="_blank" rel="noopener">
                                 ${thumbUrl ? `<img src="${thumbUrl}" alt="${escapeHtml(v.title)}" loading="lazy">` : ''}
-                                <div class="video-title">▶️ ${escapeHtml(v.title)}</div>
-                            </a>`;
+                                <i class="fa-solid fa-play play-icon"></i>
+                            </a>
+                            <div class="video-content">
+                                <div class="video-title">${escapeHtml(v.title)}</div>
+                                <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${escapeHtml(v.title)}', '${v.url}', 'video', '${courseCode}')"><i class="${starClass}"></i></button>
+                            </div>
+                        </div>`;
                     });
                     videoResultsContainer.innerHTML = html;
                 }
-            } catch(e) { videoResultsContainer.innerHTML = "<p>⚠️ Error connecting to server.</p>"; }
+            } catch(e) { videoResultsContainer.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><br>Error connecting to server.</div>`; }
         }
 
-        // Video Submission Cascading Logic
+        // Video Submission Logic (unchanged API logic)
         const subVidYear = document.getElementById('subVidYear'), subVidSem = document.getElementById('subVidSem'), subVidCourse = document.getElementById('subVidCourse'), vidTitle = document.getElementById('vidTitle'), vidUrl = document.getElementById('vidUrl'), subVidBtn = document.getElementById('subVidBtn');
         subVidYear.onchange = () => { subVidSem.disabled = !subVidYear.value; subVidSem.value=""; subVidCourse.innerHTML='<option value="">Select Course...</option>'; subVidCourse.disabled=true; vidTitle.disabled=true; vidUrl.disabled=true; subVidBtn.disabled=true; };
         subVidSem.onchange = () => { subVidCourse.innerHTML='<option value="">Select Course...</option>'; if(subVidYear.value && subVidSem.value){ curriculum[subVidYear.value][subVidSem.value].forEach(c => subVidCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); subVidCourse.disabled = false; } else { subVidCourse.disabled = true; } vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true; };
         subVidCourse.onchange = () => { vidTitle.disabled = !subVidCourse.value; vidUrl.disabled = !subVidCourse.value; subVidBtn.disabled = !subVidCourse.value; };
 
-        // Form Submit Handlers
+        // --- UPDATED: MULTIPLE FILE UPLOAD HANDLER ---
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            submitBtn.innerText = "Uploading..."; submitBtn.disabled = true;
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('course', upCourse.value);
-            formData.append('type', upType.value);
-            formData.append('username', tg.initDataUnsafe?.user?.username ? `@${tg.initDataUnsafe.user.username}` : "Student");
-            try {
-                const res = await fetch(`${RENDER_URL}/api/upload`, { method: 'POST', body: formData });
-                if(res.ok) { tg.showAlert("Success! Material sent to admin."); tg.close(); }
-                else { tg.showAlert("Upload failed."); submitBtn.innerText = "Send to Admin"; submitBtn.disabled = false; }
-            } catch(e) { tg.showAlert("Network error."); submitBtn.innerText = "Send to Admin"; submitBtn.disabled = false; }
+            const files = fileInput.files;
+            if (files.length === 0) return;
+
+            submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading (0/${files.length})...`; 
+            submitBtn.disabled = true;
+            
+            let successCount = 0;
+            
+            // Loop through selected files and send them one by one to support your python backend
+            for (let i = 0; i < files.length; i++) {
+                const formData = new FormData();
+                formData.append('file', files[i]);
+                formData.append('course', upCourse.value);
+                formData.append('type', upType.value);
+                formData.append('username', tg.initDataUnsafe?.user?.username ? `@${tg.initDataUnsafe.user.username}` : "Student");
+                
+                try {
+                    const res = await fetch(`${RENDER_URL}/api/upload`, { method: 'POST', body: formData });
+                    if(res.ok) successCount++;
+                } catch(err) {
+                    console.error("Upload error on file " + i, err);
+                }
+                
+                if (i < files.length - 1) {
+                    submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading (${i+1}/${files.length})...`;
+                }
+            }
+
+            if (successCount > 0) { 
+                tg.showAlert(`✅ Success! ${successCount}/${files.length} file(s) sent to admin for review.`); 
+                document.getElementById('uploadForm').reset();
+                upSem.disabled = true; upCourse.disabled = true; upType.disabled = true; fileInput.disabled = true;
+            } else { 
+                tg.showAlert("⚠️ All uploads failed. Please check your connection."); 
+            }
+            submitBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Upload to Admin`; 
+            submitBtn.disabled = false;
         });
 
+        // Add Video Submit (unchanged API logic)
         document.getElementById('videoForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            subVidBtn.innerText = "Submitting..."; subVidBtn.disabled = true;
+            subVidBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Submitting...`; 
+            subVidBtn.disabled = true;
+            
             const payload = {
                 course: subVidCourse.value,
                 title: vidTitle.value,
                 url: vidUrl.value,
                 username: tg.initDataUnsafe?.user?.username ? `@${tg.initDataUnsafe.user.username}` : "Student"
             };
+            
             try {
                 const res = await fetch(`${RENDER_URL}/api/upload_video`, {
                     method: 'POST',
@@ -284,15 +577,17 @@
                     body: JSON.stringify(payload)
                 });
                 if(res.ok) {
-                    tg.showAlert("Success! Video submitted for admin approval.");
+                    tg.showAlert("✅ Success! Video submitted for admin approval.");
                     document.getElementById('videoForm').reset();
-                    subVidSem.disabled = true; subVidCourse.disabled = true; vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true; subVidBtn.innerText = "Submit Video for Review";
+                    subVidSem.disabled = true; subVidCourse.disabled = true; vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true; 
                 } else {
-                    tg.showAlert("Submission failed."); subVidBtn.innerText = "Submit Video for Review"; subVidBtn.disabled = false;
+                    tg.showAlert("⚠️ Submission failed."); 
                 }
             } catch(e) {
-                tg.showAlert("Network error."); subVidBtn.innerText = "Submit Video for Review"; subVidBtn.disabled = false;
+                tg.showAlert("⚠️ Network error."); 
             }
+            subVidBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Submit for Review`; 
+            subVidBtn.disabled = false;
         });
     </script>
 </body>
