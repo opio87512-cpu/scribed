@@ -3,7 +3,13 @@ import json
 import base64
 import requests
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telebot.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    WebAppInfo,
+    InputMediaDocument,
+    InputMediaPhoto,
+)
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -92,6 +98,21 @@ def save_material(course_code, mat_type, file_id, file_name, content_type="docum
     if key not in data:
         data[key] = []
     data[key].append({"file_id": file_id, "name": file_name, "content_type": content_type})
+    return save_json(DATA_FILE, data)
+
+def save_material_batch(course_code, mat_type, files, title):
+    """Save multiple files as one titled batch in a single GitHub write."""
+    data = load_json(DATA_FILE)
+    key = f"{course_code}_{mat_type}"
+    if key not in data:
+        data[key] = []
+    for f in files:
+        data[key].append({
+            "file_id": f["file_id"],
+            "name": title if len(files) == 1 else f"{title} - {f['file_name']}",
+            "content_type": f["content_type"],
+            "title": title,
+        })
     return save_json(DATA_FILE, data)
 
 def delete_material_by_index(course_code, mat_type, index):
@@ -431,32 +452,39 @@ def handle_query(call):
                 markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
                 bot.edit_message_text(f"Select the file you want to delete for {course_code} ({material_type.upper()}):", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
-    # --- NEW: Finish Upload Button handler ---
+    # --- Finish Upload Button handler ---
     elif call.data == "finish_upload":
         chat_id = call.message.chat.id
         if chat_id not in UPLOAD_STATES:
             bot.answer_callback_query(call.id, "Upload session expired or already finished.")
             bot.delete_message(chat_id, call.message.message_id)
             return
-            
+
         state = UPLOAD_STATES[chat_id]
         files = state["files"]
-        
+
         if not files:
             bot.answer_callback_query(call.id, "You haven't sent any files yet! Send them first.", show_alert=True)
             return
-            
-        # Update UI to show processing
+
+        if state["action"] == "admin":
+            # Admin flow: ask for a title before saving/grouping the files
+            state["awaiting_title"] = True
+            bot.edit_message_text(
+                f"✏️ Got {len(files)} file(s). Please type a *title* for this material.",
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                parse_mode="Markdown"
+            )
+            return  # wait for the title text message before processing
+
+        # Student/user flow — unchanged, processes immediately
         bot.edit_message_text(
-            f"🔄 Processing your {len(files)} file(s)...", 
-            chat_id=chat_id, 
+            f"🔄 Processing your {len(files)} file(s)...",
+            chat_id=chat_id,
             message_id=call.message.message_id
         )
-        
-        # Process them
         process_files(chat_id, files, state, call.from_user)
-        
-        # Clear the state
         UPLOAD_STATES.pop(chat_id, None)
 
     elif call.data.startswith("delitem_"):
@@ -554,6 +582,10 @@ def handle_media(message):
 
     state = UPLOAD_STATES[chat_id]
 
+    # Don't accept new files once we're waiting on a title for this batch
+    if state.get("awaiting_title"):
+        return
+
     file_id = None
     file_name = None
     content_type = "document"
@@ -594,19 +626,76 @@ def handle_media(message):
         pass
 
 
-def process_files(chat_id, files, state, user):
+# --- TITLE INPUT HANDLER (admin flow only) ---
+@bot.message_handler(
+    content_types=['text'],
+    func=lambda m: UPLOAD_STATES.get(m.chat.id, {}).get("awaiting_title") and not m.text.startswith('/')
+)
+def handle_title_input(message):
+    chat_id = message.chat.id
+    state = UPLOAD_STATES[chat_id]
+    title = message.text.strip()
+
+    if not title:
+        bot.send_message(chat_id, "Please send a non-empty title.")
+        return
+
+    files = state["files"]
+    bot.send_message(chat_id, f"🔄 Saving \"{title}\" ({len(files)} file(s))...")
+    process_files(chat_id, files, state, message.from_user, title=title)
+    UPLOAD_STATES.pop(chat_id, None)
+
+
+def send_as_album(chat_id, files, caption=None):
+    """Send files back as grouped Telegram albums.
+
+    Telegram can't mix documents and photos in a single media group,
+    and each group is capped at 10 items, so we split by type and chunk.
+    """
+    docs = [f for f in files if f["content_type"] == "document"]
+    photos = [f for f in files if f["content_type"] == "photo"]
+
+    def chunks(lst, n=10):
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    for group in chunks(docs):
+        if len(group) == 1:
+            bot.send_document(chat_id, group[0]["file_id"], caption=caption)
+        else:
+            media = [
+                InputMediaDocument(f["file_id"], caption=caption if i == 0 else None)
+                for i, f in enumerate(group)
+            ]
+            bot.send_media_group(chat_id, media)
+
+    for group in chunks(photos):
+        if len(group) == 1:
+            bot.send_photo(chat_id, group[0]["file_id"], caption=caption)
+        else:
+            media = [
+                InputMediaPhoto(f["file_id"], caption=caption if i == 0 else None)
+                for i, f in enumerate(group)
+            ]
+            bot.send_media_group(chat_id, media)
+
+
+def process_files(chat_id, files, state, user, title=None):
     course_code = state["course_code"]
     material_type = state["material_type"]
     action = state["action"]
 
     if action == "admin":
-        success_count = 0
-        for f in files:
-            ok = save_material(course_code, material_type, f["file_id"], f["file_name"], f["content_type"])
-            if ok: success_count += 1
-        
-        bot.send_message(chat_id, f"✅ Successfully saved {success_count}/{len(files)} files under {course_code} ({material_type.upper()})!")
-        
+        ok = save_material_batch(course_code, material_type, files, title or "Untitled")
+        if ok:
+            bot.send_message(
+                chat_id,
+                f"✅ Saved \"{title}\" ({len(files)} file(s)) under {course_code} ({material_type.upper()})!"
+            )
+            send_as_album(chat_id, files, caption=title)
+        else:
+            bot.send_message(chat_id, "⚠️ Failed to save to GitHub. Please try again.")
+
     elif action == "user":
         req_id = os.urandom(4).hex()
         PENDING_UPLOADS[req_id] = {
