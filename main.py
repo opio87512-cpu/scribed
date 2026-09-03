@@ -290,6 +290,20 @@ def finish_upload_keyboard():
     markup.row(InlineKeyboardButton("✅ Finish Upload", callback_data="finish_upload"))
     return markup
 
+def build_delete_list(course_code, material_type):
+    """Build the (text, markup) pair for the delete-material list, so it
+    can be redisplayed after each deletion for sequential deleting."""
+    materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
+    markup = InlineKeyboardMarkup()
+    if materials:
+        for idx, item in enumerate(materials):
+            markup.row(InlineKeyboardButton(f"❌ Delete: {item['name']}", callback_data=f"delitem_{course_code}_{material_type}_{idx}"))
+        text = f"Select the file you want to delete for {course_code} ({material_type.upper()}):"
+    else:
+        text = f"✅ No files remain for {course_code} ({material_type.upper()})."
+    markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
+    return text, markup
+
 # --- COMMAND HANDLERS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -446,11 +460,8 @@ def handle_query(call):
             if not materials:
                 bot.send_message(call.message.chat.id, f"ℹ️ No files found under {course_code} ({material_type.upper()}) to delete.")
             else:
-                markup = InlineKeyboardMarkup()
-                for idx, item in enumerate(materials):
-                    markup.row(InlineKeyboardButton(f"❌ Delete: {item['name']}", callback_data=f"delitem_{course_code}_{material_type}_{idx}"))
-                markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
-                bot.edit_message_text(f"Select the file you want to delete for {course_code} ({material_type.upper()}):", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+                text, markup = build_delete_list(course_code, material_type)
+                bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
     # --- Finish Upload Button handler ---
     elif call.data == "finish_upload":
@@ -492,9 +503,13 @@ def handle_query(call):
         course_code, material_type, idx = parts[1], parts[2], int(parts[3])
         deleted_name = delete_material_by_index(course_code, material_type, idx)
         if deleted_name:
-            bot.edit_message_text(f"✅ Successfully deleted {deleted_name} from {course_code} ({material_type.upper()})!", chat_id=call.message.chat.id, message_id=call.message.message_id)
+            bot.answer_callback_query(call.id, f"✅ Deleted {deleted_name}")
         else:
-            bot.edit_message_text("⚠️ Error: File could not be found, already deleted, or the save to GitHub failed.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+            bot.answer_callback_query(call.id, "⚠️ Could not delete (already removed or save failed).", show_alert=True)
+
+        # Refresh the list in place so the admin can keep deleting sequentially
+        text, markup = build_delete_list(course_code, material_type)
+        bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
     elif call.data.startswith("delvid_"):
         parts = call.data.split('_')
