@@ -343,6 +343,13 @@ def admin_add_file_start(message):
         return
     bot.send_message(message.chat.id, "Select the Year to ADD official material:", reply_markup=year_keyboard('a'))
 
+# --- NEW: ADD VIDEO COMMAND ---
+@bot.message_handler(commands=['addvideo'])
+def admin_add_video_start(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    bot.send_message(message.chat.id, "Select the Year to ADD a video link:", reply_markup=year_keyboard('v'))
+
 @bot.message_handler(commands=['deletefile'])
 def admin_delete_file_start(message):
     if message.from_user.id != ADMIN_ID:
@@ -382,23 +389,41 @@ def handle_query(call):
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
 
-    elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_") or call.data.startswith("dy_"):
+    # --- UPDATED: ADDED 'vy_' ---
+    elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_") or call.data.startswith("dy_") or call.data.startswith("vy_"):
         action = call.data[0]
         year = call.data.split('_')[1]
         roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"}
         bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
 
-    elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_") or call.data.startswith("ds_"):
+    # --- UPDATED: ADDED 'vs_' ---
+    elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_") or call.data.startswith("ds_") or call.data.startswith("vs_"):
         parts = call.data.split('_')
         action = parts[0][0]
         year, semester = parts[1], parts[2]
         bot.edit_message_text("Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
 
-    elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_") or call.data.startswith("dc_"):
+    # --- UPDATED: ADDED 'vc_' AND VIDEO LOGIC ---
+    elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_") or call.data.startswith("dc_") or call.data.startswith("vc_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
-        bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
+        
+        # Check if this is the "Add Video" flow
+        if action == 'v':
+            msg = bot.edit_message_text(
+                f"Course: {course_code}\n\n"
+                f"Please reply to this message with the **Video Title** and **URL** separated by a new line.\n\n"
+                f"Example:\n"
+                f"Lecture 1 Introduction\n"
+                f"https://youtube.com/watch?v=...", 
+                chat_id=call.message.chat.id, 
+                message_id=call.message.message_id,
+                parse_mode="Markdown"
+            )
+            bot.register_next_step_handler(msg, process_admin_add_video, course_code)
+        else:
+            bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
 
     elif call.data.startswith("fm_") or call.data.startswith("um_") or call.data.startswith("am_") or call.data.startswith("dm_"):
         parts = call.data.split('_')
@@ -536,7 +561,7 @@ def handle_query(call):
             bot.send_message(
                 ADMIN_ID, 
                 f"✅ Video submission '{v_data['title']}' for {v_data['course']} from {v_data['username']} approved!\n\n"
-                f"You can now organize and add this video link manually."
+                f"You can now organize and add this video link manually using /addvideo."
             )
             
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
@@ -639,6 +664,27 @@ def handle_media(message):
     except Exception:
         # Ignore telegram rate limits if they upload 20 files instantly
         pass
+
+
+# --- NEW: TEXT HANDLER FOR /ADDVIDEO ---
+def process_admin_add_video(message, course_code):
+    if not message.text:
+        bot.reply_to(message, "⚠️ Error: Please send text only. Start over with /addvideo")
+        return
+        
+    parts = message.text.strip().split('\n', 1)
+    if len(parts) != 2:
+        bot.reply_to(message, "⚠️ Invalid format. You must put the **Title** on the first line and the **URL** on the second line.\n\nStart over with /addvideo", parse_mode="Markdown")
+        return
+        
+    title = parts[0].strip()
+    url = parts[1].strip()
+    
+    ok = add_approved_video(course_code, title, url)
+    if ok:
+        bot.reply_to(message, f"✅ Successfully added video '{title}' to {course_code}!")
+    else:
+        bot.reply_to(message, f"⚠️ Failed to save video to GitHub. Please check your token or server logs.")
 
 
 # --- TITLE INPUT HANDLER (admin flow only) ---
