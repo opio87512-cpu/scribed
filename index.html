@@ -34,6 +34,30 @@
         .section.active { display: block; }
         .material-card { background: var(--tg-theme-secondary-bg-color, #f8f9fa); padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .material-card a { color: var(--tg-theme-link-color, #3390ec); text-decoration: none; font-weight: bold; }
+
+        /* --- Video thumbnail cards --- */
+        .video-card {
+            display: block;
+            background: var(--tg-theme-secondary-bg-color, #f8f9fa);
+            border-radius: 10px;
+            margin-bottom: 14px;
+            overflow: hidden;
+            text-decoration: none;
+            color: var(--tg-theme-text-color, #000000);
+            border: 1px solid rgba(0,0,0,0.06);
+        }
+        .video-card img {
+            width: 100%;
+            display: block;
+            aspect-ratio: 16 / 9;
+            object-fit: cover;
+            background: #000;
+        }
+        .video-card .video-title {
+            padding: 10px 12px;
+            font-weight: bold;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -168,6 +192,31 @@
         vidSem.onchange = () => { vidCourse.innerHTML='<option value="">Select Course...</option>'; if(vidYear.value && vidSem.value){ curriculum[vidYear.value][vidSem.value].forEach(c => vidCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); vidCourse.disabled = false; } else { vidCourse.disabled = true; } videoResultsContainer.innerHTML=""; };
         vidCourse.onchange = fetchVideos;
 
+        // Extracts the 11-character YouTube video ID from common URL shapes:
+        // watch?v=, youtu.be/, /embed/, /shorts/
+        function getYouTubeId(url) {
+            if (!url) return null;
+            const patterns = [
+                /youtube\.com\/watch\?(?:.*&)?v=([\w-]{11})/,
+                /youtu\.be\/([\w-]{11})/,
+                /youtube\.com\/embed\/([\w-]{11})/,
+                /youtube\.com\/shorts\/([\w-]{11})/
+            ];
+            for (const p of patterns) {
+                const m = url.match(p);
+                if (m) return m[1];
+            }
+            return null;
+        }
+
+        // Basic HTML-escaping for text we inject via innerHTML (titles are
+        // free-text submitted by students).
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str ?? '';
+            return div.innerHTML;
+        }
+
         async function fetchVideos() {
             const courseCode = vidCourse.value;
             if(!courseCode) return;
@@ -179,10 +228,20 @@
                 if(vids.length === 0) {
                     videoResultsContainer.innerHTML = `<p>ℹ️ No approved videos yet for this course.</p>`;
                 } else {
-                    videoResultsContainer.innerHTML = `<h3>Approved Videos:</h3>`;
+                    let html = `<h3>Approved Videos:</h3>`;
                     vids.forEach(v => {
-                        videoResultsContainer.innerHTML += `<div class="material-card"><span>▶️ ${v.title}</span><a href="${v.url}" target="_blank">Watch</a></div>`;
+                        const ytId = getYouTubeId(v.url);
+                        // hqdefault.jpg exists for every YouTube video; maxresdefault
+                        // isn't always generated, so this is the safe default choice.
+                        const thumbUrl = ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : '';
+                        const watchUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : v.url;
+                        html += `
+                            <a class="video-card" href="${watchUrl}" target="_blank" rel="noopener">
+                                ${thumbUrl ? `<img src="${thumbUrl}" alt="${escapeHtml(v.title)}" loading="lazy">` : ''}
+                                <div class="video-title">▶️ ${escapeHtml(v.title)}</div>
+                            </a>`;
                     });
+                    videoResultsContainer.innerHTML = html;
                 }
             } catch(e) { videoResultsContainer.innerHTML = "<p>⚠️ Error connecting to server.</p>"; }
         }
