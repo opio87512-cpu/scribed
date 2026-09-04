@@ -26,16 +26,27 @@
             -webkit-font-smoothing: antialiased;
         }
 
-        .app-header { text-align: center; margin-bottom: 20px; animation: fadeIn 0.5s ease; }
-        .app-header h2 { margin: 0; font-size: 22px; font-weight: 700; }
-        .app-header p { margin: 4px 0 0 0; font-size: 13px; color: var(--hint-color); }
+        .top-navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 8px 12px;
+            background: var(--sec-bg);
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .top-navbar .nav-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .nav-menu-btn { width: auto; padding: 8px 16px; border-radius: 12px; border: none; background: var(--btn-color); color: var(--btn-text); font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25); }
 
-        .tabs { display: flex; overflow-x: auto; gap: 8px; margin-bottom: 20px; padding-bottom: 5px; scrollbar-width: none; }
-        .tabs::-webkit-scrollbar { display: none; } 
-        .tab-btn { flex: 0 0 auto; padding: 10px 16px; border: none; border-radius: 20px; font-weight: 600; cursor: pointer; background: var(--sec-bg); color: var(--hint-color); font-size: 14px; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.04); transition: all 0.3s ease; }
-        .tab-btn.active { background: var(--btn-color); color: var(--btn-text); box-shadow: 0 4px 10px rgba(0, 122, 255, 0.3); }
+        .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; animation: fadeIn 0.4s ease; }
+        .menu-card { background: var(--sec-bg); padding: 18px 14px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease; border: 1px solid rgba(0,0,0,0.02); user-select: none; }
+        .menu-card:active { transform: scale(0.97); }
+        .menu-card .menu-icon { font-size: 30px; color: var(--btn-color); margin-bottom: 10px; display: inline-block; }
+        .menu-card .menu-label { font-weight: 700; font-size: 15px; margin-bottom: 4px; color: var(--text-color); }
+        .menu-card .menu-sub { font-size: 12px; color: var(--hint-color); line-height: 1.3; }
 
-        .section { display: none; animation: slideUp 0.4s ease; }
+        .section { display: none; animation: slideUp 0.35s ease; }
         .section.active { display: block; }
 
         .card-container { background: var(--sec-bg); padding: 18px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 15px; }
@@ -51,7 +62,7 @@
         select:focus, input:focus { border-color: var(--btn-color); background: var(--sec-bg); }
         select:disabled, input:disabled { opacity: 0.5; }
         
-        button[type="submit"], .action-btn { background: var(--btn-color); color: var(--btn-text); border: none; font-weight: 600; font-size: 16px; cursor: pointer; display: flex; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(0, 122, 255, 0.2); width: 100%; padding: 14px; border-radius: 12px;}
+        button[type="submit"], .action-btn { background: var(--btn-color); color: var(--btn-text); border: none; font-weight: 600; font-size: 16px; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 10px rgba(0, 122, 255, 0.2); width: 100%; padding: 14px; border-radius: 12px;}
         button:disabled { opacity: 0.6; box-shadow: none; }
 
         .search-box { position: relative; margin-bottom: 15px; }
@@ -82,14 +93,13 @@
         .empty-state { text-align: center; color: var(--hint-color); padding: 30px 10px; font-size: 14px; }
         .empty-state i { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
 
-        /* GPA Calculator Specific Styles */
         .course-row, .cgpa-row { display: flex; gap: 8px; margin-bottom: 12px; }
         .course-row input, .course-row select, .cgpa-row input, .cgpa-row select { padding: 12px 8px; font-size: 14px; border-radius: 8px; }
         .remove-btn { background: #ff3b30; color: white; width: auto; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; box-shadow: none; font-size: 16px; }
 
-        /* --- NEW: Tic-Tac-Toe Game Styles --- */
-        .tic-tac-toe-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 250px; margin: 0 auto 20px auto; }
-        .tic-tac-toe-cell { aspect-ratio: 1; background: var(--bg-color); border: 2px solid rgba(0,0,0,0.05); border-radius: 12px; font-size: 45px; display: flex; justify-content: center; align-items: center; font-weight: bold; cursor: pointer; color: var(--text-color); box-shadow: inset 0 2px 5px rgba(0,0,0,0.02); transition: 0.1s; user-select: none; }
+        /* Advanced Tic-Tac-Toe Game Styles */
+        .tic-tac-toe-board { display: grid; gap: 6px; max-width: 320px; margin: 0 auto 20px auto; }
+        .tic-tac-toe-cell { aspect-ratio: 1; background: var(--bg-color); border: 2px solid rgba(0,0,0,0.05); border-radius: 10px; font-size: 32px; display: flex; justify-content: center; align-items: center; font-weight: bold; cursor: pointer; color: var(--text-color); box-shadow: inset 0 2px 5px rgba(0,0,0,0.02); transition: 0.1s; user-select: none; }
         .tic-tac-toe-cell.x { color: var(--btn-color); }
         .tic-tac-toe-cell.o { color: #ff3b30; }
         .tic-tac-toe-cell:active { transform: scale(0.95); background: var(--sec-bg); }
@@ -99,23 +109,59 @@
     </style>
 </head>
 <body>
-    <div class="app-header">
-        <h2>ASTU ECE Portal</h2>
-        <p>Your ultimate resource hub</p>
+    <!-- TOP NAVIGATION BAR -->
+    <div class="top-navbar">
+        <div class="nav-title" id="navTitle">
+            <i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal
+        </div>
+        <button class="nav-menu-btn" onclick="openMenuHub()">
+            <i class="fa-solid fa-bars"></i> Menu
+        </button>
     </div>
 
-    <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('upload')"><i class="fa-solid fa-cloud-arrow-up"></i> Upload</button>
-        <button class="tab-btn" onclick="switchTab('find')"><i class="fa-solid fa-book"></i> Materials</button>
-        <button class="tab-btn" onclick="switchTab('video')"><i class="fa-brands fa-youtube"></i> Videos</button>
-        <button class="tab-btn" onclick="switchTab('gpa')"><i class="fa-solid fa-calculator"></i> GPA</button>
-        <button class="tab-btn" onclick="switchTab('game')"><i class="fa-solid fa-gamepad"></i> Game</button>
-        <button class="tab-btn" onclick="switchTab('favs')"><i class="fa-solid fa-star"></i> Favs</button>
-        <button class="tab-btn" onclick="switchTab('addVideo')"><i class="fa-solid fa-link"></i> Suggest</button>
+    <!-- ONE UNIFIED MENU (HUB DASHBOARD) -->
+    <div id="menuHubSection" class="section active">
+        <div class="menu-grid">
+            <div class="menu-card" onclick="switchSection('find')">
+                <i class="fa-solid fa-book menu-icon"></i>
+                <div class="menu-label">Find Materials</div>
+                <div class="menu-sub">Notes, exams, assignments</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('upload')">
+                <i class="fa-solid fa-cloud-arrow-up menu-icon"></i>
+                <div class="menu-label">Upload Files</div>
+                <div class="menu-sub">Contribute to community</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('video')">
+                <i class="fa-brands fa-youtube menu-icon"></i>
+                <div class="menu-label">Video Tutorials</div>
+                <div class="menu-sub">YouTube course lectures</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('gpa')">
+                <i class="fa-solid fa-calculator menu-icon"></i>
+                <div class="menu-label">GPA Calculator</div>
+                <div class="menu-sub">ASTU semester & CGPA</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('game')">
+                <i class="fa-solid fa-gamepad menu-icon"></i>
+                <div class="menu-label">Advanced XO</div>
+                <div class="menu-sub">4x4, 6x6, and 8x8 AI Challenge</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('favs')">
+                <i class="fa-solid fa-star menu-icon"></i>
+                <div class="menu-label">Saved Favorites</div>
+                <div class="menu-sub">Quick-access bookmarks</div>
+            </div>
+            <div class="menu-card" style="grid-column: span 2;" onclick="switchSection('addVideo')">
+                <i class="fa-solid fa-link menu-icon"></i>
+                <div class="menu-label">Suggest a Tutorial Link</div>
+                <div class="menu-sub">Submit helpful YouTube videos for approval</div>
+            </div>
+        </div>
     </div>
 
     <!-- UPLOAD SECTION -->
-    <div id="uploadSection" class="section active card-container">
+    <div id="uploadSection" class="section card-container">
         <form id="uploadForm">
             <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
             <div class="form-group"><label>Semester</label><select id="upSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
@@ -186,9 +232,7 @@
                 </select>
             </div>
 
-            <div id="courseRows">
-                <!-- Rows injected by JS -->
-            </div>
+            <div id="courseRows"></div>
             <button type="button" onclick="addCourseRow()" class="action-btn" style="margin-bottom:15px; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-plus"></i> Add Extra Course</button>
             <button type="button" onclick="calculateGPA()" class="action-btn"><i class="fa-solid fa-calculator"></i> Calculate GPA</button>
             <div id="gpaResult" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 18px;"></div>
@@ -198,9 +242,7 @@
             <h3 style="margin-top:0;">Cumulative CGPA Builder</h3>
             <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Add your past semesters to calculate total CGPA.</p>
             
-            <div id="cgpaRows">
-                <!-- CGPA Rows injected by JS -->
-            </div>
+            <div id="cgpaRows"></div>
             
             <button type="button" onclick="addCGPARow()" class="action-btn" style="margin-bottom:15px; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-plus"></i> Add Semester</button>
             <button type="button" onclick="calculateMultiCGPA()" class="action-btn"><i class="fa-solid fa-chart-line"></i> Calculate Total CGPA</button>
@@ -208,43 +250,23 @@
         </div>
     </div>
 
-    <!-- GAME SECTION -->
+    <!-- ADVANCED GAME SECTION -->
     <div id="gameSection" class="section">
-        <!-- NEW: Tic-Tac-Toe Game -->
         <div class="card-container" style="text-align: center; margin-bottom: 20px;">
-            <h3 style="margin-top:0;"><i class="fa-solid fa-xmarks-lines" style="color:var(--btn-color)"></i> Tic-Tac-Toe vs Bot</h3>
-            <p style="font-size:13px; color:var(--hint-color); margin-top:-10px; margin-bottom:20px;">Can you beat the AI?</p>
+            <h3 style="margin-top:0;"><i class="fa-solid fa-xmarks-lines" style="color:var(--btn-color)"></i> Advanced XO</h3>
+            <p style="font-size:13px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Outsmart the AI on larger grids!</p>
             
-            <div id="xoStatus" style="font-weight:bold; margin-bottom:15px; font-size:16px;">Your Turn <span style="color:var(--btn-color)">(X)</span></div>
-            
-            <div class="tic-tac-toe-board" id="xoBoard">
-                <div class="tic-tac-toe-cell" onclick="makeMove(0)"></div>
-                <div class="tic-tac-toe-cell" onclick="makeMove(1)"></div>
-                <div class="tic-tac-toe-cell" onclick="makeMove(2)"></div>
-                <div class="tic-tac-toe-cell" onclick="makeMove(3)"></div>
-                <div class="tic-tac-toe-cell" onclick="makeMove(4)"></div>
-                <div class="tic-tac-toe-cell" onclick="makeMove(5)"></div>
-                <div class="tic-tac-toe-cell" onclick="makeMove(6)"></div>
-                <div class="tic-tac-toe-cell" onclick="makeMove(7)"></div>
-                <div class="tic-tac-toe-cell" onclick="makeMove(8)"></div>
+            <div style="display:flex; justify-content:center; gap:8px; margin-bottom: 20px; flex-wrap: wrap;">
+                <button class="action-btn" id="btnSz4" onclick="setGridSize(4)" style="width:auto; padding: 6px 12px; font-size:13px;">4x4 Grid</button>
+                <button class="action-btn" id="btnSz6" onclick="setGridSize(6)" style="width:auto; padding: 6px 12px; font-size:13px; background:var(--bg-color); color:var(--btn-color); border:1px solid var(--btn-color); box-shadow:none;">6x6 Grid</button>
+                <button class="action-btn" id="btnSz8" onclick="setGridSize(8)" style="width:auto; padding: 6px 12px; font-size:13px; background:var(--bg-color); color:var(--btn-color); border:1px solid var(--btn-color); box-shadow:none;">8x8 Grid</button>
             </div>
             
-            <button type="button" onclick="initXO()" class="action-btn" style="max-width: 200px; margin: 0 auto; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-rotate-right"></i> Restart Match</button>
-        </div>
-
-        <!-- Number Guessing Game (Preserved) -->
-        <div class="card-container" style="text-align: center;">
-            <h3 style="margin-top:0;"><i class="fa-solid fa-dice" style="color:var(--btn-color)"></i> Number Challenge</h3>
-            <p style="font-size:13px; color:var(--hint-color); margin-top:-10px; margin-bottom:20px;">Guess the secret number between 1 and 100.</p>
+            <div id="xoStatus" style="font-weight:bold; margin-bottom:15px; font-size:16px; line-height: 1.3;">Your Turn <span style="color:var(--btn-color)">(X)</span></div>
             
-            <div id="gameSetup"><div style="font-size: 40px; margin-bottom: 15px;">🤔</div></div>
-            <div class="form-group" style="max-width: 200px; margin: 0 auto 15px auto;">
-                <input type="number" id="guessInput" placeholder="Enter guess..." min="1" max="100" style="text-align:center; font-size:18px; font-weight:bold;">
-            </div>
-            <button type="button" id="guessBtn" onclick="checkGuess()" class="action-btn" style="max-width: 200px; margin: 0 auto;"><i class="fa-solid fa-check"></i> Submit Guess</button>
-            <div id="gameFeedback" style="margin-top: 20px; font-weight: bold; font-size: 16px; min-height: 24px;"></div>
-            <div id="gameAttempts" style="margin-top: 10px; font-size: 13px; color: var(--hint-color);">Attempts: 0</div>
-            <button type="button" id="restartGameBtn" onclick="initGame()" class="action-btn" style="display: none; max-width: 200px; margin: 15px auto 0 auto; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-rotate-right"></i> Play Again</button>
+            <div class="tic-tac-toe-board" id="xoBoard"></div>
+            
+            <button type="button" onclick="renderXOBoard()" class="action-btn" style="max-width: 200px; margin: 0 auto; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-rotate-right"></i> Restart Match</button>
         </div>
     </div>
 
@@ -303,6 +325,48 @@
         let allMaterials = {};
         let allVideos = {};
         
+        // --- UNIFIED MENU CONTROLLER ---
+        const sectionTitles = {
+            'menu': '<i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal',
+            'find': '<i class="fa-solid fa-book" style="color:var(--btn-color)"></i> Materials',
+            'upload': '<i class="fa-solid fa-cloud-arrow-up" style="color:var(--btn-color)"></i> Upload Material',
+            'video': '<i class="fa-brands fa-youtube" style="color:var(--btn-color)"></i> Video Tutorials',
+            'gpa': '<i class="fa-solid fa-calculator" style="color:var(--btn-color)"></i> GPA Calculator',
+            'game': '<i class="fa-solid fa-gamepad" style="color:var(--btn-color)"></i> Advanced XO',
+            'favs': '<i class="fa-solid fa-star" style="color:var(--btn-color)"></i> Saved Favorites',
+            'addVideo': '<i class="fa-solid fa-link" style="color:var(--btn-color)"></i> Suggest Video'
+        };
+
+        function openMenuHub() {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById('menuHubSection').classList.add('active');
+            document.getElementById('navTitle').innerHTML = sectionTitles['menu'];
+        }
+
+        async function switchSection(sec) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            
+            if(sec === 'upload') document.getElementById('uploadSection').classList.add('active');
+            else if(sec === 'find') {
+                document.getElementById('findSection').classList.add('active');
+                if(Object.keys(allMaterials).length === 0) await fetchAllMaterials(); else renderMaterials();
+            }
+            else if(sec === 'video') {
+                document.getElementById('videoSection').classList.add('active');
+                if(Object.keys(allVideos).length === 0) await fetchAllVideos(); else renderVideos();
+            }
+            else if(sec === 'gpa') document.getElementById('gpaSection').classList.add('active');
+            else if(sec === 'game') {
+                document.getElementById('gameSection').classList.add('active');
+                if(xoBoard.length === 0) setGridSize(4);
+            }
+            else if(sec === 'favs') { document.getElementById('favsSection').classList.add('active'); renderFavs(); }
+            else if(sec === 'addVideo') document.getElementById('addVideoSection').classList.add('active');
+            
+            document.getElementById('navTitle').innerHTML = sectionTitles[sec] || sectionTitles['menu'];
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
         // --- FAVORITES LOGIC ---
         let favorites = JSON.parse(localStorage.getItem('astu_ece_favs')) || [];
         function isFav(id) { return favorites.some(f => f.id === id); }
@@ -353,30 +417,55 @@
             </div>`;
         }
 
-        // --- TIC-TAC-TOE LOGIC ---
-        let xoBoard = ['', '', '', '', '', '', '', '', ''];
+        // --- ADVANCED TIC-TAC-TOE LOGIC ---
+        let xoBoard = [];
         let xoActive = true;
-        const winCombos = [
-            [0,1,2], [3,4,5], [6,7,8], // rows
-            [0,3,6], [1,4,7], [2,5,8], // cols
-            [0,4,8], [2,4,6]           // diagonals
-        ];
+        let xoSize = 4;
+        let xoWinStreak = 4;
 
-        function initXO() {
-            xoBoard = ['', '', '', '', '', '', '', '', ''];
-            xoActive = true;
-            document.getElementById('xoStatus').innerHTML = 'Your Turn <span style="color:var(--btn-color)">(X)</span>';
-            const cells = document.getElementById('xoBoard').children;
-            for(let i=0; i<9; i++) {
-                cells[i].innerText = '';
-                cells[i].className = 'tic-tac-toe-cell';
+        function setGridSize(size) {
+            xoSize = size;
+            xoWinStreak = size === 8 ? 5 : 4; 
+            
+            document.getElementById('btnSz4').style.background = size === 4 ? 'var(--btn-color)' : 'var(--bg-color)';
+            document.getElementById('btnSz4').style.color = size === 4 ? 'var(--btn-text)' : 'var(--btn-color)';
+            document.getElementById('btnSz4').style.border = size === 4 ? 'none' : '1px solid var(--btn-color)';
+            document.getElementById('btnSz4').style.boxShadow = size === 4 ? '0 4px 10px rgba(0, 122, 255, 0.2)' : 'none';
+
+            document.getElementById('btnSz6').style.background = size === 6 ? 'var(--btn-color)' : 'var(--bg-color)';
+            document.getElementById('btnSz6').style.color = size === 6 ? 'var(--btn-text)' : 'var(--btn-color)';
+            document.getElementById('btnSz6').style.border = size === 6 ? 'none' : '1px solid var(--btn-color)';
+            document.getElementById('btnSz6').style.boxShadow = size === 6 ? '0 4px 10px rgba(0, 122, 255, 0.2)' : 'none';
+
+            document.getElementById('btnSz8').style.background = size === 8 ? 'var(--btn-color)' : 'var(--bg-color)';
+            document.getElementById('btnSz8').style.color = size === 8 ? 'var(--btn-text)' : 'var(--btn-color)';
+            document.getElementById('btnSz8').style.border = size === 8 ? 'none' : '1px solid var(--btn-color)';
+            document.getElementById('btnSz8').style.boxShadow = size === 8 ? '0 4px 10px rgba(0, 122, 255, 0.2)' : 'none';
+            
+            renderXOBoard();
+        }
+
+        function renderXOBoard() {
+            const board = document.getElementById('xoBoard');
+            board.style.gridTemplateColumns = `repeat(${xoSize}, 1fr)`;
+            board.innerHTML = '';
+            xoBoard = Array(xoSize * xoSize).fill('');
+            
+            for(let i=0; i<xoSize * xoSize; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'tic-tac-toe-cell';
+                if(xoSize === 6) { cell.style.fontSize = '26px'; cell.style.borderRadius = '8px'; }
+                if(xoSize === 8) { cell.style.fontSize = '20px'; cell.style.borderRadius = '6px'; cell.style.borderWidth = '1px'; }
+                cell.onclick = () => makeMove(i);
+                board.appendChild(cell);
             }
+            xoActive = true;
+            document.getElementById('xoStatus').innerHTML = `Your Turn <span style="color:var(--btn-color)">(X)</span><br><span style="font-size:12px;color:var(--hint-color);font-weight:normal;">Connect ${xoWinStreak} to win!</span>`;
         }
 
         function makeMove(index) {
             if(!xoActive || xoBoard[index] !== '') return;
             
-            // Player move
             xoBoard[index] = 'X';
             updateXOCell(index, 'X');
             if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
@@ -384,13 +473,12 @@
             if(checkXOWin('X')) { endGame('🎉 You Win!'); return; }
             if(xoBoard.indexOf('') === -1) { endGame('🤝 Draw!'); return; }
 
-            // Bot move
             xoActive = false;
             document.getElementById('xoStatus').innerText = 'Bot is thinking...';
             
             setTimeout(() => {
                 let emptyIndices = [];
-                for(let i=0; i<9; i++) if(xoBoard[i] === '') emptyIndices.push(i);
+                for(let i=0; i<xoSize*xoSize; i++) if(xoBoard[i] === '') emptyIndices.push(i);
                 
                 if(emptyIndices.length > 0) {
                     let botMove = getSmartBotMove();
@@ -404,27 +492,66 @@
                     if(xoBoard.indexOf('') === -1) { endGame('🤝 Draw!'); return; }
                 }
                 xoActive = true;
-                document.getElementById('xoStatus').innerHTML = 'Your Turn <span style="color:var(--btn-color)">(X)</span>';
-            }, 500);
+                document.getElementById('xoStatus').innerHTML = `Your Turn <span style="color:var(--btn-color)">(X)</span><br><span style="font-size:12px;color:var(--hint-color);font-weight:normal;">Connect ${xoWinStreak} to win!</span>`;
+            }, 350);
+        }
+
+        function findWinningMove(player) {
+            for(let r=0; r<xoSize; r++) {
+                for(let c=0; c<=xoSize-xoWinStreak; c++) {
+                    let pCount = 0, eCount = 0, eIdx = -1;
+                    for(let i=0; i<xoWinStreak; i++) {
+                        let idx = r*xoSize + c + i;
+                        if(xoBoard[idx] === player) pCount++;
+                        else if(xoBoard[idx] === '') { eCount++; eIdx = idx; }
+                    }
+                    if(pCount === xoWinStreak-1 && eCount === 1) return eIdx;
+                }
+            }
+            for(let c=0; c<xoSize; c++) {
+                for(let r=0; r<=xoSize-xoWinStreak; r++) {
+                    let pCount = 0, eCount = 0, eIdx = -1;
+                    for(let i=0; i<xoWinStreak; i++) {
+                        let idx = (r+i)*xoSize + c;
+                        if(xoBoard[idx] === player) pCount++;
+                        else if(xoBoard[idx] === '') { eCount++; eIdx = idx; }
+                    }
+                    if(pCount === xoWinStreak-1 && eCount === 1) return eIdx;
+                }
+            }
+            for(let r=0; r<=xoSize-xoWinStreak; r++) {
+                for(let c=0; c<=xoSize-xoWinStreak; c++) {
+                    let pCount = 0, eCount = 0, eIdx = -1;
+                    for(let i=0; i<xoWinStreak; i++) {
+                        let idx = (r+i)*xoSize + c + i;
+                        if(xoBoard[idx] === player) pCount++;
+                        else if(xoBoard[idx] === '') { eCount++; eIdx = idx; }
+                    }
+                    if(pCount === xoWinStreak-1 && eCount === 1) return eIdx;
+                }
+            }
+            for(let r=xoWinStreak-1; r<xoSize; r++) {
+                for(let c=0; c<=xoSize-xoWinStreak; c++) {
+                    let pCount = 0, eCount = 0, eIdx = -1;
+                    for(let i=0; i<xoWinStreak; i++) {
+                        let idx = (r-i)*xoSize + c + i;
+                        if(xoBoard[idx] === player) pCount++;
+                        else if(xoBoard[idx] === '') { eCount++; eIdx = idx; }
+                    }
+                    if(pCount === xoWinStreak-1 && eCount === 1) return eIdx;
+                }
+            }
+            return null;
         }
 
         function getSmartBotMove() {
-            // Can Bot Win?
-            for(let combo of winCombos) {
-                let [a,b,c] = combo;
-                if(xoBoard[a]=='O' && xoBoard[b]=='O' && xoBoard[c]=='') return c;
-                if(xoBoard[a]=='O' && xoBoard[c]=='O' && xoBoard[b]=='') return b;
-                if(xoBoard[b]=='O' && xoBoard[c]=='O' && xoBoard[a]=='') return a;
-            }
-            // Can Player Win? Block them.
-            for(let combo of winCombos) {
-                let [a,b,c] = combo;
-                if(xoBoard[a]=='X' && xoBoard[b]=='X' && xoBoard[c]=='') return c;
-                if(xoBoard[a]=='X' && xoBoard[c]=='X' && xoBoard[b]=='') return b;
-                if(xoBoard[b]=='X' && xoBoard[c]=='X' && xoBoard[a]=='') return a;
-            }
-            // Take center if open
-            if(xoBoard[4] === '') return 4;
+            let winMove = findWinningMove('O');
+            if(winMove !== null) return winMove;
+            let blockMove = findWinningMove('X');
+            if(blockMove !== null) return blockMove;
+            
+            let center = Math.floor((xoSize*xoSize)/2);
+            if(xoBoard[center] === '') return center;
             return null;
         }
 
@@ -435,228 +562,90 @@
         }
 
         function checkXOWin(player) {
-            return winCombos.some(combo => combo.every(index => xoBoard[index] === player));
+            for(let r=0; r<xoSize; r++) {
+                for(let c=0; c<=xoSize-xoWinStreak; c++) {
+                    let win = true;
+                    for(let i=0; i<xoWinStreak; i++) if(xoBoard[r*xoSize + c + i] !== player) win = false;
+                    if(win) return true;
+                }
+            }
+            for(let c=0; c<xoSize; c++) {
+                for(let r=0; r<=xoSize-xoWinStreak; r++) {
+                    let win = true;
+                    for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r+i)*xoSize + c] !== player) win = false;
+                    if(win) return true;
+                }
+            }
+            for(let r=0; r<=xoSize-xoWinStreak; r++) {
+                for(let c=0; c<=xoSize-xoWinStreak; c++) {
+                    let win = true;
+                    for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r+i)*xoSize + c + i] !== player) win = false;
+                    if(win) return true;
+                }
+            }
+            for(let r=xoWinStreak-1; r<xoSize; r++) {
+                for(let c=0; c<=xoSize-xoWinStreak; c++) {
+                    let win = true;
+                    for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r-i)*xoSize + c + i] !== player) win = false;
+                    if(win) return true;
+                }
+            }
+            return false;
         }
 
         function endGame(msg) {
-            xoActive = false;
-            document.getElementById('xoStatus').innerHTML = msg;
-            if(msg.includes('Win!')) {
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            } else if (msg.includes('Bot')) {
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
-            } else {
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning');
-            }
+            xoActive = false; document.getElementById('xoStatus').innerHTML = msg;
+            if(msg.includes('Win!')) { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success'); } 
+            else if (msg.includes('Bot')) { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error'); } 
+            else { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning'); }
         }
-        initXO();
 
         // --- GPA LOGIC ---
         const ASTU_GRADES = { "A+": 4.0, "A": 4.0, "A-": 3.75, "B+": 3.5, "B": 3.0, "B-": 2.75, "C+": 2.5, "C": 2.0, "C-": 1.75, "D": 1.0, "F": 0.0 };
-
         function loadSemesterGPA() {
-            const y = document.getElementById('gpaYear').value;
-            const s = document.getElementById('gpaSem').value;
-            const container = document.getElementById('courseRows');
-            container.innerHTML = '';
-            
+            const y = document.getElementById('gpaYear').value; const s = document.getElementById('gpaSem').value;
+            const container = document.getElementById('courseRows'); container.innerHTML = '';
             if(y && s && curriculum[y] && curriculum[y][s]) {
                 curriculum[y][s].forEach(course => {
-                    const row = document.createElement('div');
-                    row.className = 'course-row';
-                    row.innerHTML = `
-                        <input type="text" value="${course.title}" readonly style="flex:2; background: var(--bg-color); opacity:0.8; font-size:12px;">
-                        <input type="number" value="${course.cr}" class="gpa-cr" readonly style="flex:1; background: var(--bg-color); opacity:0.8; text-align:center;">
-                        <select class="gpa-gr" style="flex:1">
-                            <option value="">Gr</option>
-                            ${Object.keys(ASTU_GRADES).map(g => `<option value="${g}">${g}</option>`).join('')}
-                        </select>
-                        <button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
-                    `;
+                    const row = document.createElement('div'); row.className = 'course-row';
+                    row.innerHTML = `<input type="text" value="${course.title}" readonly style="flex:2; background: var(--bg-color); opacity:0.8; font-size:12px;"><input type="number" value="${course.cr}" class="gpa-cr" readonly style="flex:1; background: var(--bg-color); opacity:0.8; text-align:center;"><select class="gpa-gr" style="flex:1"><option value="">Gr</option>${Object.keys(ASTU_GRADES).map(g => `<option value="${g}">${g}</option>`).join('')}</select><button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>`;
                     container.appendChild(row);
                 });
-            } else {
-                for(let i=0; i<5; i++) addCourseRow();
-            }
+            } else { for(let i=0; i<5; i++) addCourseRow(); }
             document.getElementById('gpaResult').innerHTML = '';
         }
-
         function addCourseRow() {
-            const row = document.createElement('div');
-            row.className = 'course-row';
-            row.innerHTML = `
-                <input type="text" placeholder="Subject (Opt)" style="flex:2">
-                <input type="number" placeholder="Cr" class="gpa-cr" style="flex:1" min="1" max="10">
-                <select class="gpa-gr" style="flex:1">
-                    <option value="">Gr</option>
-                    ${Object.keys(ASTU_GRADES).map(g => `<option value="${g}">${g}</option>`).join('')}
-                </select>
-                <button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
-            `;
+            const row = document.createElement('div'); row.className = 'course-row';
+            row.innerHTML = `<input type="text" placeholder="Subject (Opt)" style="flex:2"><input type="number" placeholder="Cr" class="gpa-cr" style="flex:1" min="1" max="10"><select class="gpa-gr" style="flex:1"><option value="">Gr</option>${Object.keys(ASTU_GRADES).map(g => `<option value="${g}">${g}</option>`).join('')}</select><button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>`;
             document.getElementById('courseRows').appendChild(row);
         }
-        
         for(let i=0; i<5; i++) addCourseRow(); 
-
         function calculateGPA() {
-            let cr = 0, pts = 0;
-            let valid = false;
-            document.querySelectorAll('.course-row').forEach(row => {
-                const c = parseFloat(row.querySelector('.gpa-cr').value);
-                const g = row.querySelector('.gpa-gr').value;
-                if(!isNaN(c) && g && ASTU_GRADES[g] !== undefined) {
-                    cr += c;
-                    pts += (c * ASTU_GRADES[g]);
-                    valid = true;
-                }
-            });
+            let cr = 0, pts = 0; let valid = false;
+            document.querySelectorAll('.course-row').forEach(row => { const c = parseFloat(row.querySelector('.gpa-cr').value); const g = row.querySelector('.gpa-gr').value; if(!isNaN(c) && g && ASTU_GRADES[g] !== undefined) { cr += c; pts += (c * ASTU_GRADES[g]); valid = true; } });
             const res = document.getElementById('gpaResult');
             if(!valid) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Fill at least one Credit and Grade.</span>'; return; }
             const gpa = (pts / cr).toFixed(2);
             res.innerHTML = `🌟 Semester GPA: <span style="color:var(--btn-color)">${gpa}</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ${cr}</div>`;
         }
-
-        function getSemCredits(y, s) {
-            if(!curriculum[y] || !curriculum[y][s]) return 0;
-            let total = 0;
-            curriculum[y][s].forEach(c => total += c.cr);
-            return total;
-        }
-
+        function getSemCredits(y, s) { if(!curriculum[y] || !curriculum[y][s]) return 0; let total = 0; curriculum[y][s].forEach(c => total += c.cr); return total; }
         function addCGPARow() {
-            const row = document.createElement('div');
-            row.className = 'cgpa-row';
-            
+            const row = document.createElement('div'); row.className = 'cgpa-row';
             let options = '<option value="">Select Sem...</option>';
-            for(let y=1; y<=5; y++) {
-                for(let s=1; s<=2; s++) {
-                    if(curriculum[y] && curriculum[y][s]) {
-                        options += `<option value="${y}_${s}">Year ${y} Sem ${s}</option>`;
-                    }
-                }
-            }
+            for(let y=1; y<=5; y++) { for(let s=1; s<=2; s++) { if(curriculum[y] && curriculum[y][s]) { options += `<option value="${y}_${s}">Year ${y} Sem ${s}</option>`; } } }
             options += '<option value="custom">Custom / Other</option>';
-
-            row.innerHTML = `
-                <select style="flex:2;" onchange="autoFillCr(this)">
-                    ${options}
-                </select>
-                <input type="number" class="cgpa-cr" placeholder="Cr" style="flex:1;">
-                <input type="number" class="cgpa-gpa" placeholder="GPA" step="0.01" min="0" max="4" style="flex:1;">
-                <button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
-            `;
+            row.innerHTML = `<select style="flex:2;" onchange="autoFillCr(this)">${options}</select><input type="number" class="cgpa-cr" placeholder="Cr" style="flex:1;"><input type="number" class="cgpa-gpa" placeholder="GPA" step="0.01" min="0" max="4" style="flex:1;"><button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>`;
             document.getElementById('cgpaRows').appendChild(row);
         }
-
-        function autoFillCr(selectEl) {
-            const val = selectEl.value;
-            const crInput = selectEl.parentElement.querySelector('.cgpa-cr');
-            if(val && val !== 'custom') {
-                const parts = val.split('_');
-                crInput.value = getSemCredits(parts[0], parts[1]);
-            } else {
-                crInput.value = '';
-            }
-        }
-
-        addCGPARow();
-        addCGPARow();
-
+        function autoFillCr(selectEl) { const val = selectEl.value; const crInput = selectEl.parentElement.querySelector('.cgpa-cr'); if(val && val !== 'custom') { const parts = val.split('_'); crInput.value = getSemCredits(parts[0], parts[1]); } else { crInput.value = ''; } }
+        addCGPARow(); addCGPARow();
         function calculateMultiCGPA() {
-            let tCr = 0;
-            let tPts = 0;
-            let valid = false;
-            document.querySelectorAll('.cgpa-row').forEach(row => {
-                const cr = parseFloat(row.querySelector('.cgpa-cr').value);
-                const gpa = parseFloat(row.querySelector('.cgpa-gpa').value);
-                if(!isNaN(cr) && !isNaN(gpa)) {
-                    tCr += cr;
-                    tPts += (cr * gpa);
-                    valid = true;
-                }
-            });
-            
+            let tCr = 0; let tPts = 0; let valid = false;
+            document.querySelectorAll('.cgpa-row').forEach(row => { const cr = parseFloat(row.querySelector('.cgpa-cr').value); const gpa = parseFloat(row.querySelector('.cgpa-gpa').value); if(!isNaN(cr) && !isNaN(gpa)) { tCr += cr; tPts += (cr * gpa); valid = true; } });
             const res = document.getElementById('multiCgpaResult');
             if(!valid) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Please fill at least one row correctly.</span>'; return; }
-            
             const cgpa = (tPts / tCr).toFixed(2);
             res.innerHTML = `🎓 Cumulative CGPA: <span style="color:var(--btn-color)">${cgpa}</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ${tCr}</div>`;
-        }
-
-        // --- NUMBER GAME LOGIC ---
-        let secretNumber = 0;
-        let attempts = 0;
-        let gameOverNum = false;
-
-        function initGame() {
-            secretNumber = Math.floor(Math.random() * 100) + 1;
-            attempts = 0;
-            gameOverNum = false;
-            document.getElementById('guessInput').value = '';
-            document.getElementById('guessInput').disabled = false;
-            document.getElementById('guessBtn').disabled = false;
-            document.getElementById('gameFeedback').innerHTML = '';
-            document.getElementById('gameAttempts').innerText = 'Attempts: 0';
-            document.getElementById('restartGameBtn').style.display = 'none';
-        }
-
-        function checkGuess() {
-            if (gameOverNum) return;
-            const inputEl = document.getElementById('guessInput');
-            const guess = parseInt(inputEl.value);
-            const feedbackEl = document.getElementById('gameFeedback');
-            const attemptsEl = document.getElementById('gameAttempts');
-
-            if (isNaN(guess) || guess < 1 || guess > 100) {
-                feedbackEl.innerHTML = '<span style="color:#ff3b30;">⚠️ Please enter a number between 1 and 100.</span>';
-                return;
-            }
-
-            attempts++;
-            attemptsEl.innerText = `Attempts: ${attempts}`;
-
-            if (guess === secretNumber) {
-                feedbackEl.innerHTML = `🎉 <span style="color:#34c759;">Correct! The number was ${secretNumber}!</span>`;
-                gameOverNum = true;
-                inputEl.disabled = true;
-                document.getElementById('guessBtn').disabled = true;
-                document.getElementById('restartGameBtn').style.display = 'block';
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-            } else if (guess < secretNumber) {
-                feedbackEl.innerHTML = '📉 <span style="color:#ff9500;">Too low! Try a higher number.</span>';
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning');
-            } else {
-                feedbackEl.innerHTML = '📈 <span style="color:#ff9500;">Too high! Try a lower number.</span>';
-                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning');
-            }
-            inputEl.value = '';
-            inputEl.focus();
-        }
-
-        initGame();
-        
-        document.getElementById('guessInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') { e.preventDefault(); checkGuess(); }
-        });
-
-        // Tab Switcher
-        async function switchTab(tab) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-            
-            if(tab === 'upload') { document.querySelectorAll('.tab-btn')[0].classList.add('active'); document.getElementById('uploadSection').classList.add('active'); }
-            else if(tab === 'find') { 
-                document.querySelectorAll('.tab-btn')[1].classList.add('active'); document.getElementById('findSection').classList.add('active'); 
-                if(Object.keys(allMaterials).length === 0) await fetchAllMaterials(); else renderMaterials();
-            }
-            else if(tab === 'video') { 
-                document.querySelectorAll('.tab-btn')[2].classList.add('active'); document.getElementById('videoSection').classList.add('active'); 
-                if(Object.keys(allVideos).length === 0) await fetchAllVideos(); else renderVideos();
-            }
-            else if(tab === 'gpa') { document.querySelectorAll('.tab-btn')[3].classList.add('active'); document.getElementById('gpaSection').classList.add('active'); }
-            else if(tab === 'game') { document.querySelectorAll('.tab-btn')[4].classList.add('active'); document.getElementById('gameSection').classList.add('active'); }
-            else if(tab === 'favs') { document.querySelectorAll('.tab-btn')[5].classList.add('active'); document.getElementById('favsSection').classList.add('active'); renderFavs(); }
-            else { document.querySelectorAll('.tab-btn')[6].classList.add('active'); document.getElementById('addVideoSection').classList.add('active'); }
         }
 
         // --- GLOBAL FETCH & RENDER FOR MATERIALS ---
@@ -740,6 +729,43 @@
             else container.innerHTML = html;
         }
         function filterGlobalVideos() { renderVideos(); }
+
+        // --- Render Favorites ---
+        function renderFavs() {
+            const container = document.getElementById('favsContainer');
+            const searchInput = document.getElementById('favSearchInput').value.toLowerCase();
+            container.innerHTML = "";
+
+            if(favorites.length === 0) {
+                container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-star"></i><br>No favorites yet.<br>Click the star on any material or video to save it here!</div>`;
+                document.getElementById('favSearchBox').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('favSearchBox').style.display = 'block';
+            let html = "";
+            favorites.forEach(fav => {
+                if(searchInput && !fav.title.toLowerCase().includes(searchInput) && !fav.meta.toLowerCase().includes(searchInput)) return;
+                
+                const starClass = "fa-solid fa-star";
+                if(fav.type === 'material') {
+                    html += `
+                    <div class="material-card">
+                        <div class="material-info">
+                            <span class="material-name">📄 ${fav.title}</span>
+                            <span class="material-type">${fav.meta}</span>
+                        </div>
+                        <div class="card-actions">
+                            <button class="fav-btn" onclick="toggleFav('${fav.id}', '${fav.title.replace(/'/g,"\\'")}', '${fav.url}', 'material', '${fav.meta}')"><i class="${starClass}"></i></button>
+                            <a class="dl-btn" href="${fav.url}" target="_blank">Open</a>
+                        </div>
+                    </div>`;
+                } else if(fav.type === 'video') {
+                    html += generateVideoCard({title: fav.title, url: fav.url}, fav.meta, fav.id.split('_').pop());
+                }
+            });
+            container.innerHTML = html || "<p style='text-align:center'>No matches found.</p>";
+        }
 
         // Dropdown Cascading Listeners
         const upYear = document.getElementById('upYear'), upSem = document.getElementById('upSem'), upCourse = document.getElementById('upCourse'), upType = document.getElementById('upType'), fileInput = document.getElementById('fileInput'), submitBtn = document.getElementById('submitBtn');
