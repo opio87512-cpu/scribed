@@ -83,8 +83,8 @@
         .empty-state i { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
 
         /* GPA Calculator Specific Styles */
-        .course-row { display: flex; gap: 8px; margin-bottom: 12px; }
-        .course-row input, .course-row select { padding: 12px 8px; font-size: 14px; border-radius: 8px; }
+        .course-row, .cgpa-row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .course-row input, .course-row select, .cgpa-row input, .cgpa-row select { padding: 12px 8px; font-size: 14px; border-radius: 8px; }
         .remove-btn { background: #ff3b30; color: white; width: auto; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; box-shadow: none; font-size: 16px; }
 
         @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
@@ -186,18 +186,18 @@
             <div id="gpaResult" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 18px;"></div>
         </div>
         
+        <!-- NEW: SEMESTER-BY-SEMESTER CGPA BUILDER -->
         <div class="card-container">
-            <h3 style="margin-top:0;">Cumulative CGPA</h3>
-            <div class="form-group">
-                <label>Previous Total Credit Hours</label>
-                <input type="number" id="prevCredits" placeholder="e.g. 30" min="0">
+            <h3 style="margin-top:0;">Cumulative CGPA Builder</h3>
+            <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Add your past semesters to calculate total CGPA.</p>
+            
+            <div id="cgpaRows">
+                <!-- CGPA Rows injected by JS -->
             </div>
-            <div class="form-group">
-                <label>Previous CGPA</label>
-                <input type="number" id="prevCGPA" placeholder="e.g. 3.5" step="0.01" min="0" max="4">
-            </div>
-            <button type="button" onclick="calculateCGPA()" class="action-btn"><i class="fa-solid fa-chart-line"></i> Calculate CGPA</button>
-            <div id="cgpaResult" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 18px;"></div>
+            
+            <button type="button" onclick="addCGPARow()" class="action-btn" style="margin-bottom:15px; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-plus"></i> Add Semester</button>
+            <button type="button" onclick="calculateMultiCGPA()" class="action-btn"><i class="fa-solid fa-chart-line"></i> Calculate Total CGPA</button>
+            <div id="multiCgpaResult" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 18px;"></div>
         </div>
     </div>
 
@@ -308,7 +308,6 @@
 
         // --- GPA LOGIC ---
         const ASTU_GRADES = { "A+": 4.0, "A": 4.0, "A-": 3.75, "B+": 3.5, "B": 3.0, "B-": 2.75, "C+": 2.5, "C": 2.0, "C-": 1.75, "D": 1.0, "F": 0.0 };
-        let currentSemCr = 0, currentSemPts = 0;
 
         function loadSemesterGPA() {
             const y = document.getElementById('gpaYear').value;
@@ -352,7 +351,7 @@
             document.getElementById('courseRows').appendChild(row);
         }
         
-        for(let i=0; i<5; i++) addCourseRow(); // Initial empty state
+        for(let i=0; i<5; i++) addCourseRow(); 
 
         function calculateGPA() {
             let cr = 0, pts = 0;
@@ -368,18 +367,75 @@
             });
             const res = document.getElementById('gpaResult');
             if(!valid) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Fill at least one Credit and Grade.</span>'; return; }
-            currentSemCr = cr; currentSemPts = pts;
             const gpa = (pts / cr).toFixed(2);
             res.innerHTML = `🌟 Semester GPA: <span style="color:var(--btn-color)">${gpa}</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ${cr}</div>`;
         }
 
-        function calculateCGPA() {
-            const pCr = parseFloat(document.getElementById('prevCredits').value) || 0;
-            const pGPA = parseFloat(document.getElementById('prevCGPA').value) || 0;
-            const tCr = pCr + currentSemCr;
-            const tPts = (pCr * pGPA) + currentSemPts;
-            const res = document.getElementById('cgpaResult');
-            if(tCr === 0) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Please calculate a semester GPA first or enter previous data.</span>'; return; }
+        // --- NEW: MULTI-SEMESTER CGPA BUILDER LOGIC ---
+        function getSemCredits(y, s) {
+            if(!curriculum[y] || !curriculum[y][s]) return 0;
+            let total = 0;
+            curriculum[y][s].forEach(c => total += c.cr);
+            return total;
+        }
+
+        function addCGPARow() {
+            const row = document.createElement('div');
+            row.className = 'cgpa-row';
+            
+            let options = '<option value="">Select Sem...</option>';
+            for(let y=1; y<=5; y++) {
+                for(let s=1; s<=2; s++) {
+                    if(curriculum[y] && curriculum[y][s]) {
+                        options += `<option value="${y}_${s}">Year ${y} Sem ${s}</option>`;
+                    }
+                }
+            }
+            options += '<option value="custom">Custom / Other</option>';
+
+            row.innerHTML = `
+                <select style="flex:2;" onchange="autoFillCr(this)">
+                    ${options}
+                </select>
+                <input type="number" class="cgpa-cr" placeholder="Cr" style="flex:1;">
+                <input type="number" class="cgpa-gpa" placeholder="GPA" step="0.01" min="0" max="4" style="flex:1;">
+                <button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
+            `;
+            document.getElementById('cgpaRows').appendChild(row);
+        }
+
+        function autoFillCr(selectEl) {
+            const val = selectEl.value;
+            const crInput = selectEl.parentElement.querySelector('.cgpa-cr');
+            if(val && val !== 'custom') {
+                const parts = val.split('_');
+                crInput.value = getSemCredits(parts[0], parts[1]);
+            } else {
+                crInput.value = '';
+            }
+        }
+
+        // Add two default rows so it's obvious how it works
+        addCGPARow();
+        addCGPARow();
+
+        function calculateMultiCGPA() {
+            let tCr = 0;
+            let tPts = 0;
+            let valid = false;
+            document.querySelectorAll('.cgpa-row').forEach(row => {
+                const cr = parseFloat(row.querySelector('.cgpa-cr').value);
+                const gpa = parseFloat(row.querySelector('.cgpa-gpa').value);
+                if(!isNaN(cr) && !isNaN(gpa)) {
+                    tCr += cr;
+                    tPts += (cr * gpa);
+                    valid = true;
+                }
+            });
+            
+            const res = document.getElementById('multiCgpaResult');
+            if(!valid) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Please fill at least one row correctly.</span>'; return; }
+            
             const cgpa = (tPts / tCr).toFixed(2);
             res.innerHTML = `🎓 Cumulative CGPA: <span style="color:var(--btn-color)">${cgpa}</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ${tCr}</div>`;
         }
