@@ -87,6 +87,13 @@
         .course-row input, .course-row select, .cgpa-row input, .cgpa-row select { padding: 12px 8px; font-size: 14px; border-radius: 8px; }
         .remove-btn { background: #ff3b30; color: white; width: auto; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; box-shadow: none; font-size: 16px; }
 
+        /* --- NEW: Tic-Tac-Toe Game Styles --- */
+        .tic-tac-toe-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 250px; margin: 0 auto 20px auto; }
+        .tic-tac-toe-cell { aspect-ratio: 1; background: var(--bg-color); border: 2px solid rgba(0,0,0,0.05); border-radius: 12px; font-size: 45px; display: flex; justify-content: center; align-items: center; font-weight: bold; cursor: pointer; color: var(--text-color); box-shadow: inset 0 2px 5px rgba(0,0,0,0.02); transition: 0.1s; user-select: none; }
+        .tic-tac-toe-cell.x { color: var(--btn-color); }
+        .tic-tac-toe-cell.o { color: #ff3b30; }
+        .tic-tac-toe-cell:active { transform: scale(0.95); background: var(--sec-bg); }
+
         @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
@@ -97,7 +104,6 @@
         <p>Your ultimate resource hub</p>
     </div>
 
-    <!-- NEW: GAME TAB ADDED HERE -->
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('upload')"><i class="fa-solid fa-cloud-arrow-up"></i> Upload</button>
         <button class="tab-btn" onclick="switchTab('find')"><i class="fa-solid fa-book"></i> Materials</button>
@@ -202,25 +208,42 @@
         </div>
     </div>
 
-    <!-- NEW: GAME SECTION -->
+    <!-- GAME SECTION -->
     <div id="gameSection" class="section">
+        <!-- NEW: Tic-Tac-Toe Game -->
+        <div class="card-container" style="text-align: center; margin-bottom: 20px;">
+            <h3 style="margin-top:0;"><i class="fa-solid fa-xmarks-lines" style="color:var(--btn-color)"></i> Tic-Tac-Toe vs Bot</h3>
+            <p style="font-size:13px; color:var(--hint-color); margin-top:-10px; margin-bottom:20px;">Can you beat the AI?</p>
+            
+            <div id="xoStatus" style="font-weight:bold; margin-bottom:15px; font-size:16px;">Your Turn <span style="color:var(--btn-color)">(X)</span></div>
+            
+            <div class="tic-tac-toe-board" id="xoBoard">
+                <div class="tic-tac-toe-cell" onclick="makeMove(0)"></div>
+                <div class="tic-tac-toe-cell" onclick="makeMove(1)"></div>
+                <div class="tic-tac-toe-cell" onclick="makeMove(2)"></div>
+                <div class="tic-tac-toe-cell" onclick="makeMove(3)"></div>
+                <div class="tic-tac-toe-cell" onclick="makeMove(4)"></div>
+                <div class="tic-tac-toe-cell" onclick="makeMove(5)"></div>
+                <div class="tic-tac-toe-cell" onclick="makeMove(6)"></div>
+                <div class="tic-tac-toe-cell" onclick="makeMove(7)"></div>
+                <div class="tic-tac-toe-cell" onclick="makeMove(8)"></div>
+            </div>
+            
+            <button type="button" onclick="initXO()" class="action-btn" style="max-width: 200px; margin: 0 auto; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-rotate-right"></i> Restart Match</button>
+        </div>
+
+        <!-- Number Guessing Game (Preserved) -->
         <div class="card-container" style="text-align: center;">
             <h3 style="margin-top:0;"><i class="fa-solid fa-dice" style="color:var(--btn-color)"></i> Number Challenge</h3>
-            <p style="font-size:13px; color:var(--hint-color); margin-top:-10px; margin-bottom:20px;">Can you guess the secret number between 1 and 100?</p>
+            <p style="font-size:13px; color:var(--hint-color); margin-top:-10px; margin-bottom:20px;">Guess the secret number between 1 and 100.</p>
             
-            <div id="gameSetup">
-                <div style="font-size: 40px; margin-bottom: 15px;">🤔</div>
-            </div>
-
+            <div id="gameSetup"><div style="font-size: 40px; margin-bottom: 15px;">🤔</div></div>
             <div class="form-group" style="max-width: 200px; margin: 0 auto 15px auto;">
                 <input type="number" id="guessInput" placeholder="Enter guess..." min="1" max="100" style="text-align:center; font-size:18px; font-weight:bold;">
             </div>
-            
             <button type="button" id="guessBtn" onclick="checkGuess()" class="action-btn" style="max-width: 200px; margin: 0 auto;"><i class="fa-solid fa-check"></i> Submit Guess</button>
-            
             <div id="gameFeedback" style="margin-top: 20px; font-weight: bold; font-size: 16px; min-height: 24px;"></div>
             <div id="gameAttempts" style="margin-top: 10px; font-size: 13px; color: var(--hint-color);">Attempts: 0</div>
-            
             <button type="button" id="restartGameBtn" onclick="initGame()" class="action-btn" style="display: none; max-width: 200px; margin: 15px auto 0 auto; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-rotate-right"></i> Play Again</button>
         </div>
     </div>
@@ -329,6 +352,104 @@
                 </div>
             </div>`;
         }
+
+        // --- TIC-TAC-TOE LOGIC ---
+        let xoBoard = ['', '', '', '', '', '', '', '', ''];
+        let xoActive = true;
+        const winCombos = [
+            [0,1,2], [3,4,5], [6,7,8], // rows
+            [0,3,6], [1,4,7], [2,5,8], // cols
+            [0,4,8], [2,4,6]           // diagonals
+        ];
+
+        function initXO() {
+            xoBoard = ['', '', '', '', '', '', '', '', ''];
+            xoActive = true;
+            document.getElementById('xoStatus').innerHTML = 'Your Turn <span style="color:var(--btn-color)">(X)</span>';
+            const cells = document.getElementById('xoBoard').children;
+            for(let i=0; i<9; i++) {
+                cells[i].innerText = '';
+                cells[i].className = 'tic-tac-toe-cell';
+            }
+        }
+
+        function makeMove(index) {
+            if(!xoActive || xoBoard[index] !== '') return;
+            
+            // Player move
+            xoBoard[index] = 'X';
+            updateXOCell(index, 'X');
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+            
+            if(checkXOWin('X')) { endGame('🎉 You Win!'); return; }
+            if(xoBoard.indexOf('') === -1) { endGame('🤝 Draw!'); return; }
+
+            // Bot move
+            xoActive = false;
+            document.getElementById('xoStatus').innerText = 'Bot is thinking...';
+            
+            setTimeout(() => {
+                let emptyIndices = [];
+                for(let i=0; i<9; i++) if(xoBoard[i] === '') emptyIndices.push(i);
+                
+                if(emptyIndices.length > 0) {
+                    let botMove = getSmartBotMove();
+                    if(botMove === null) botMove = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+
+                    xoBoard[botMove] = 'O';
+                    updateXOCell(botMove, 'O');
+                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+
+                    if(checkXOWin('O')) { endGame('💀 Bot Wins!'); return; }
+                    if(xoBoard.indexOf('') === -1) { endGame('🤝 Draw!'); return; }
+                }
+                xoActive = true;
+                document.getElementById('xoStatus').innerHTML = 'Your Turn <span style="color:var(--btn-color)">(X)</span>';
+            }, 500);
+        }
+
+        function getSmartBotMove() {
+            // Can Bot Win?
+            for(let combo of winCombos) {
+                let [a,b,c] = combo;
+                if(xoBoard[a]=='O' && xoBoard[b]=='O' && xoBoard[c]=='') return c;
+                if(xoBoard[a]=='O' && xoBoard[c]=='O' && xoBoard[b]=='') return b;
+                if(xoBoard[b]=='O' && xoBoard[c]=='O' && xoBoard[a]=='') return a;
+            }
+            // Can Player Win? Block them.
+            for(let combo of winCombos) {
+                let [a,b,c] = combo;
+                if(xoBoard[a]=='X' && xoBoard[b]=='X' && xoBoard[c]=='') return c;
+                if(xoBoard[a]=='X' && xoBoard[c]=='X' && xoBoard[b]=='') return b;
+                if(xoBoard[b]=='X' && xoBoard[c]=='X' && xoBoard[a]=='') return a;
+            }
+            // Take center if open
+            if(xoBoard[4] === '') return 4;
+            return null;
+        }
+
+        function updateXOCell(index, player) {
+            const cell = document.getElementById('xoBoard').children[index];
+            cell.innerText = player;
+            cell.classList.add(player.toLowerCase());
+        }
+
+        function checkXOWin(player) {
+            return winCombos.some(combo => combo.every(index => xoBoard[index] === player));
+        }
+
+        function endGame(msg) {
+            xoActive = false;
+            document.getElementById('xoStatus').innerHTML = msg;
+            if(msg.includes('Win!')) {
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            } else if (msg.includes('Bot')) {
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+            } else {
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning');
+            }
+        }
+        initXO();
 
         // --- GPA LOGIC ---
         const ASTU_GRADES = { "A+": 4.0, "A": 4.0, "A-": 3.75, "B+": 3.5, "B": 3.0, "B-": 2.75, "C+": 2.5, "C": 2.0, "C-": 1.75, "D": 1.0, "F": 0.0 };
@@ -462,15 +583,15 @@
             res.innerHTML = `🎓 Cumulative CGPA: <span style="color:var(--btn-color)">${cgpa}</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ${tCr}</div>`;
         }
 
-        // --- NEW: GAME LOGIC ---
+        // --- NUMBER GAME LOGIC ---
         let secretNumber = 0;
         let attempts = 0;
-        let gameOver = false;
+        let gameOverNum = false;
 
         function initGame() {
             secretNumber = Math.floor(Math.random() * 100) + 1;
             attempts = 0;
-            gameOver = false;
+            gameOverNum = false;
             document.getElementById('guessInput').value = '';
             document.getElementById('guessInput').disabled = false;
             document.getElementById('guessBtn').disabled = false;
@@ -480,7 +601,7 @@
         }
 
         function checkGuess() {
-            if (gameOver) return;
+            if (gameOverNum) return;
             const inputEl = document.getElementById('guessInput');
             const guess = parseInt(inputEl.value);
             const feedbackEl = document.getElementById('gameFeedback');
@@ -496,19 +617,16 @@
 
             if (guess === secretNumber) {
                 feedbackEl.innerHTML = `🎉 <span style="color:#34c759;">Correct! The number was ${secretNumber}!</span>`;
-                gameOver = true;
+                gameOverNum = true;
                 inputEl.disabled = true;
                 document.getElementById('guessBtn').disabled = true;
                 document.getElementById('restartGameBtn').style.display = 'block';
-                // Trigger Telegram success vibration
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
             } else if (guess < secretNumber) {
                 feedbackEl.innerHTML = '📉 <span style="color:#ff9500;">Too low! Try a higher number.</span>';
-                // Trigger Telegram warning vibration
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning');
             } else {
                 feedbackEl.innerHTML = '📈 <span style="color:#ff9500;">Too high! Try a lower number.</span>';
-                // Trigger Telegram warning vibration
                 if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning');
             }
             inputEl.value = '';
@@ -518,10 +636,7 @@
         initGame();
         
         document.getElementById('guessInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                checkGuess();
-            }
+            if (e.key === 'Enter') { e.preventDefault(); checkGuess(); }
         });
 
         // Tab Switcher
@@ -618,50 +733,13 @@
                 });
             }
             
-            allVidsFlat.reverse(); // Newest first
+            allVidsFlat.reverse(); 
             allVidsFlat.forEach(item => { html += generateVideoCard(item.v, item.courseCode, item.idx); count++; });
 
             if(count === 0) container.innerHTML = `<div class="empty-state"><i class="fa-brands fa-youtube" style="font-size:50px"></i><br>No videos found.</div>`;
             else container.innerHTML = html;
         }
         function filterGlobalVideos() { renderVideos(); }
-
-        // --- Render Favorites ---
-        function renderFavs() {
-            const container = document.getElementById('favsContainer');
-            const searchInput = document.getElementById('favSearchInput').value.toLowerCase();
-            container.innerHTML = "";
-
-            if(favorites.length === 0) {
-                container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-star"></i><br>No favorites yet.<br>Click the star on any material or video to save it here!</div>`;
-                document.getElementById('favSearchBox').style.display = 'none';
-                return;
-            }
-
-            document.getElementById('favSearchBox').style.display = 'block';
-            let html = "";
-            favorites.forEach(fav => {
-                if(searchInput && !fav.title.toLowerCase().includes(searchInput) && !fav.meta.toLowerCase().includes(searchInput)) return;
-                
-                const starClass = "fa-solid fa-star";
-                if(fav.type === 'material') {
-                    html += `
-                    <div class="material-card">
-                        <div class="material-info">
-                            <span class="material-name">📄 ${fav.title}</span>
-                            <span class="material-type">${fav.meta}</span>
-                        </div>
-                        <div class="card-actions">
-                            <button class="fav-btn" onclick="toggleFav('${fav.id}', '${fav.title.replace(/'/g,"\\'")}', '${fav.url}', 'material', '${fav.meta}')"><i class="${starClass}"></i></button>
-                            <a class="dl-btn" href="${fav.url}" target="_blank">Open</a>
-                        </div>
-                    </div>`;
-                } else if(fav.type === 'video') {
-                    html += generateVideoCard({title: fav.title, url: fav.url}, fav.meta, fav.id.split('_').pop());
-                }
-            });
-            container.innerHTML = html || "<p style='text-align:center'>No matches found.</p>";
-        }
 
         // Dropdown Cascading Listeners
         const upYear = document.getElementById('upYear'), upSem = document.getElementById('upSem'), upCourse = document.getElementById('upCourse'), upType = document.getElementById('upType'), fileInput = document.getElementById('fileInput'), submitBtn = document.getElementById('submitBtn');
