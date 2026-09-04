@@ -19,7 +19,8 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 CORS(app)
 
-ADMIN_ID = 8429521561
+# --- ADD YOUR ADMIN IDS HERE ---
+ADMIN_IDS = [8429521561, 8244142809]  # Both admins are now active
 
 # --- GITHUB-BACKED STORAGE ---
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
@@ -30,11 +31,13 @@ GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
 DATA_FILE = "materials.json"
 VIDEOS_FILE = "videos.json"
 
+
 def _github_headers():
     return {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
     }
+
 
 def load_json(filename):
     try:
@@ -56,6 +59,7 @@ def load_json(filename):
     except Exception as e:
         print(f"GitHub load error for {filename}: {e}")
         return {}
+
 
 def save_json(filename, data):
     try:
@@ -92,6 +96,7 @@ def save_json(filename, data):
         print(f"GitHub save error for {filename}: {e}")
         return False
 
+
 def save_material(course_code, mat_type, file_id, file_name, content_type="document"):
     data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
@@ -99,6 +104,7 @@ def save_material(course_code, mat_type, file_id, file_name, content_type="docum
         data[key] = []
     data[key].append({"file_id": file_id, "name": file_name, "content_type": content_type})
     return save_json(DATA_FILE, data)
+
 
 def save_material_batch(course_code, mat_type, files, title):
     """Save multiple files as one titled batch in a single GitHub write."""
@@ -115,6 +121,7 @@ def save_material_batch(course_code, mat_type, files, title):
         })
     return save_json(DATA_FILE, data)
 
+
 def delete_material_by_index(course_code, mat_type, index):
     data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
@@ -127,12 +134,12 @@ def delete_material_by_index(course_code, mat_type, index):
         return removed.get("name", "File")
     return None
 
+
 # --- PENDING APPROVAL QUEUES & UPLOAD CACHES ---
 PENDING_VIDEOS = {}
 PENDING_UPLOADS = {}
-
-# Replaced timers with a direct state dictionary that holds the files
 UPLOAD_STATES = {}
+
 
 def add_approved_video(course_code, title, url):
     data = load_json(VIDEOS_FILE)
@@ -140,6 +147,7 @@ def add_approved_video(course_code, title, url):
         data[course_code] = []
     data[course_code].append({"title": title, "url": url})
     return save_json(VIDEOS_FILE, data)
+
 
 # --- CURRICULUM DATABASE ---
 CURRICULUM = {
@@ -229,6 +237,7 @@ CURRICULUM = {
     },
 }
 
+
 # --- INLINE KEYBOARDS ---
 def main_menu_keyboard():
     markup = InlineKeyboardMarkup()
@@ -237,6 +246,7 @@ def main_menu_keyboard():
     markup.row(InlineKeyboardButton("📚 Find Materials (Chat)", callback_data="main_find"))
     markup.row(InlineKeyboardButton("📤 Upload Material (Chat)", callback_data="main_upload"))
     return markup
+
 
 def year_keyboard(action):
     markup = InlineKeyboardMarkup()
@@ -251,6 +261,7 @@ def year_keyboard(action):
     markup.row(InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="back_main"))
     return markup
 
+
 def semester_keyboard(year, action):
     markup = InlineKeyboardMarkup()
     markup.row(
@@ -261,6 +272,7 @@ def semester_keyboard(year, action):
     markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data=back_target))
     return markup
 
+
 def subject_keyboard(year, semester, action):
     markup = InlineKeyboardMarkup()
     if year in CURRICULUM and semester in CURRICULUM[year]:
@@ -270,6 +282,7 @@ def subject_keyboard(year, semester, action):
         markup.row(InlineKeyboardButton("⚠️ Subjects coming soon!", callback_data="ignore"))
     markup.row(InlineKeyboardButton("⬅️ Back to Semesters", callback_data=f"{action}y_{year}"))
     return markup
+
 
 def material_type_keyboard(course_code, action):
     markup = InlineKeyboardMarkup()
@@ -285,14 +298,14 @@ def material_type_keyboard(course_code, action):
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     return markup
 
+
 def finish_upload_keyboard():
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("✅ Finish Upload", callback_data="finish_upload"))
     return markup
 
+
 def build_delete_list(course_code, material_type):
-    """Build the (text, markup) pair for the delete-material list, so it
-    can be redisplayed after each deletion for sequential deleting."""
     materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
     markup = InlineKeyboardMarkup()
     if materials:
@@ -303,6 +316,7 @@ def build_delete_list(course_code, material_type):
         text = f"✅ No files remain for {course_code} ({material_type.upper()})."
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     return text, markup
+
 
 # --- COMMAND HANDLERS ---
 @bot.message_handler(commands=['start'])
@@ -332,35 +346,36 @@ def send_welcome(message):
 
     welcome_text = (
         "Welcome to the ASTU ECE Community Bot! 🚀\n\n"
-        "Admin: @pede_7\n\n"
         "Tap 'Open Portal' for the best experience, or use the chat menus below."
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu_keyboard())
 
+
 @bot.message_handler(commands=['addfile'])
 def admin_add_file_start(message):
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         return
     bot.send_message(message.chat.id, "Select the Year to ADD official material:", reply_markup=year_keyboard('a'))
 
-# --- NEW: ADD VIDEO COMMAND ---
+
 @bot.message_handler(commands=['addvideo'])
 def admin_add_video_start(message):
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         return
     bot.send_message(message.chat.id, "Select the Year to ADD a video link:", reply_markup=year_keyboard('v'))
 
+
 @bot.message_handler(commands=['deletefile'])
 def admin_delete_file_start(message):
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         return
     bot.send_message(message.chat.id, "Select the Year to DELETE material from:", reply_markup=year_keyboard('d'))
 
+
 @bot.message_handler(commands=['deletevideo'])
 def admin_delete_video_start(message):
-    if message.from_user.id != ADMIN_ID:
+    if message.from_user.id not in ADMIN_IDS:
         return
-
     data = load_json(VIDEOS_FILE)
     if not data:
         bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
@@ -376,40 +391,38 @@ def admin_delete_video_start(message):
     if not has_videos:
         bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
         return
-
     bot.send_message(message.chat.id, "Select the video you want to delete:", reply_markup=markup)
+
 
 # --- CALLBACK HANDLERS ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     if call.data == "main_find":
         bot.edit_message_text("Select your academic year to FIND materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('f'))
+    
     elif call.data == "main_upload":
         bot.edit_message_text("Select your academic year to UPLOAD materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('u'))
+    
     elif call.data == "back_main":
-        bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nAdmin: @pede_7\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
+        bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
 
-    # --- UPDATED: ADDED 'vy_' ---
     elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_") or call.data.startswith("dy_") or call.data.startswith("vy_"):
         action = call.data[0]
         year = call.data.split('_')[1]
         roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"}
         bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
 
-    # --- UPDATED: ADDED 'vs_' ---
     elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_") or call.data.startswith("ds_") or call.data.startswith("vs_"):
         parts = call.data.split('_')
         action = parts[0][0]
         year, semester = parts[1], parts[2]
         bot.edit_message_text("Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
 
-    # --- UPDATED: ADDED 'vc_' AND VIDEO LOGIC ---
     elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_") or call.data.startswith("dc_") or call.data.startswith("vc_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
         
-        # Check if this is the "Add Video" flow
         if action == 'v':
             msg = bot.edit_message_text(
                 f"Course: {course_code}\n\n"
@@ -444,7 +457,6 @@ def handle_query(call):
                         bot.send_document(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
                         
         elif action == 'u':
-            # Initialize upload state
             bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
             msg = bot.send_message(
                 call.message.chat.id, 
@@ -488,7 +500,6 @@ def handle_query(call):
                 text, markup = build_delete_list(course_code, material_type)
                 bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
-    # --- Finish Upload Button handler ---
     elif call.data == "finish_upload":
         chat_id = call.message.chat.id
         if chat_id not in UPLOAD_STATES:
@@ -504,7 +515,6 @@ def handle_query(call):
             return
 
         if state["action"] == "admin":
-            # Admin flow: ask for a title before saving/grouping the files
             state["awaiting_title"] = True
             bot.edit_message_text(
                 f"✏️ Got {len(files)} file(s). Please type a *title* for this material.",
@@ -512,14 +522,9 @@ def handle_query(call):
                 message_id=call.message.message_id,
                 parse_mode="Markdown"
             )
-            return  # wait for the title text message before processing
+            return
 
-        # Student/user flow — unchanged, processes immediately
-        bot.edit_message_text(
-            f"🔄 Processing your {len(files)} file(s)...",
-            chat_id=chat_id,
-            message_id=call.message.message_id
-        )
+        bot.edit_message_text(f"🔄 Processing your {len(files)} file(s)...", chat_id=chat_id, message_id=call.message.message_id)
         process_files(chat_id, files, state, call.from_user)
         UPLOAD_STATES.pop(chat_id, None)
 
@@ -530,9 +535,7 @@ def handle_query(call):
         if deleted_name:
             bot.answer_callback_query(call.id, f"✅ Deleted {deleted_name}")
         else:
-            bot.answer_callback_query(call.id, "⚠️ Could not delete (already removed or save failed).", show_alert=True)
-
-        # Refresh the list in place so the admin can keep deleting sequentially
+            bot.answer_callback_query(call.id, "⚠️ Could not delete.", show_alert=True)
         text, markup = build_delete_list(course_code, material_type)
         bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
@@ -547,55 +550,45 @@ def handle_query(call):
             if save_json(VIDEOS_FILE, data):
                 bot.edit_message_text(f"✅ Successfully deleted video: {removed.get('title', 'Video')} from {course_code}!", chat_id=call.message.chat.id, message_id=call.message.message_id)
             else:
-                bot.edit_message_text("⚠️ Error: Could not save the deletion to GitHub. Please try again.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+                bot.edit_message_text("⚠️ Error: Could not save the deletion.", chat_id=call.message.chat.id, message_id=call.message.message_id)
         else:
-            bot.edit_message_text("⚠️ Error: Video could not be found or already deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+            bot.edit_message_text("⚠️ Error: Video not found.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
-    # --- NO AUTO-SAVE FOR VIDEOS ---
     elif call.data.startswith("approve_vid_"):
         req_id = call.data.split('_')[2]
         if req_id in PENDING_VIDEOS:
             v_data = PENDING_VIDEOS[req_id]
-            
-            # Notify the admin
-            bot.send_message(
-                ADMIN_ID, 
-                f"✅ Video submission '{v_data['title']}' for {v_data['course']} from {v_data['username']} approved!\n\n"
-                f"You can now organize and add this video link manually using /addvideo."
-            )
-            
+            for admin in ADMIN_IDS:
+                try:
+                    bot.send_message(admin, f"✅ Video '{v_data['title']}' for {v_data['course']} from {v_data['username']} approved! You can now organize and add it using /addvideo.")
+                except Exception:
+                    pass
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
             del PENDING_VIDEOS[req_id]
         else:
             bot.answer_callback_query(call.id, "Request expired or already handled.")
             
     elif call.data == "reject_vid":
-        bot.send_message(ADMIN_ID, "❌ Video submission rejected.")
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(admin, "❌ Video submission rejected.")
+            except Exception:
+                pass
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
-    # --- NO AUTO-SAVE FOR FILES ---
     elif call.data.startswith("approve_upload_"):
         req_id = call.data.split('_', 2)[2]
         if req_id in PENDING_UPLOADS:
             up = PENDING_UPLOADS[req_id]
-            
-            # Notify the admin
-            bot.send_message(
-                ADMIN_ID, 
-                f"✅ Upload batch from @{up.get('username', 'Student')} approved!\n\n"
-                f"The user has been notified. You can now download and organize these files manually, then use /addfile to put them in the system."
-            )
-            
-            # Notify the user that their files were accepted
+            for admin in ADMIN_IDS:
+                try:
+                    bot.send_message(admin, f"✅ Upload batch from @{up.get('username', 'Student')} approved! You can now download and organize these files, then use /addfile.")
+                except Exception:
+                    pass
             try:
-                bot.send_message(
-                    up["chat_id"], 
-                    f"✅ Good news! Your batch of {len(up['files'])} file(s) for {up['course_code']} has been approved by the admin.\n\n"
-                    f"They will be organized and added to the official portal soon. Thank you for contributing to the community! 🚀"
-                )
+                bot.send_message(up["chat_id"], f"✅ Good news! Your batch of {len(up['files'])} file(s) for {up['course_code']} has been approved by the admin.\n\nThey will be organized and added to the official portal soon.")
             except Exception:
                 pass
-                
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
             del PENDING_UPLOADS[req_id]
         else:
@@ -604,7 +597,11 @@ def handle_query(call):
     elif call.data.startswith("reject_upload_"):
         req_id = call.data.split('_', 2)[2]
         up = PENDING_UPLOADS.pop(req_id, None)
-        bot.send_message(ADMIN_ID, "❌ Upload batch rejected.")
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(admin, "❌ Upload batch rejected.")
+            except Exception:
+                pass
         if up:
             try:
                 bot.send_message(up["chat_id"], f"❌ Your submitted batch of {len(up['files'])} file(s) was not approved.")
@@ -613,16 +610,14 @@ def handle_query(call):
         bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
 
 
-# --- EXPLICIT BUTTON BATCH MEDIA HANDLER ---
 @bot.message_handler(content_types=['document', 'photo'])
 def handle_media(message):
     chat_id = message.chat.id
     if chat_id not in UPLOAD_STATES:
-        return  # Ignore files if user didn't initiate an upload
-
+        return 
+    
     state = UPLOAD_STATES[chat_id]
-
-    # Don't accept new files once we're waiting on a title for this batch
+    
     if state.get("awaiting_title"):
         return
 
@@ -642,7 +637,6 @@ def handle_media(message):
     if not file_id:
         return
 
-    # Add file to the list
     state["files"].append({
         "file_id": file_id,
         "file_name": file_name,
@@ -650,7 +644,6 @@ def handle_media(message):
         "message_id": message.message_id
     })
     
-    # Update the status message text so they know it was caught
     try:
         count = len(state["files"])
         bot.edit_message_text(
@@ -662,11 +655,9 @@ def handle_media(message):
             reply_markup=finish_upload_keyboard()
         )
     except Exception:
-        # Ignore telegram rate limits if they upload 20 files instantly
         pass
 
 
-# --- NEW: TEXT HANDLER FOR /ADDVIDEO ---
 def process_admin_add_video(message, course_code):
     if not message.text:
         bot.reply_to(message, "⚠️ Error: Please send text only. Start over with /addvideo")
@@ -683,11 +674,23 @@ def process_admin_add_video(message, course_code):
     ok = add_approved_video(course_code, title, url)
     if ok:
         bot.reply_to(message, f"✅ Successfully added video '{title}' to {course_code}!")
+        try:
+            CHANNEL_USERNAME = "@astuece_updates" # <-- Change to your channel username
+            alert = (
+                f"📺 **New Video Added!**\n\n"
+                f"📚 **Course:** {course_code}\n"
+                f"📝 **Title:** {title}\n\n"
+                f"Open the Web App to watch it!"
+            )
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
+            bot.send_message(CHANNEL_USERNAME, alert, parse_mode="Markdown", reply_markup=markup)
+        except Exception:
+            pass
     else:
         bot.reply_to(message, f"⚠️ Failed to save video to GitHub. Please check your token or server logs.")
 
 
-# --- TITLE INPUT HANDLER (admin flow only) ---
 @bot.message_handler(
     content_types=['text'],
     func=lambda m: UPLOAD_STATES.get(m.chat.id, {}).get("awaiting_title") and not m.text.startswith('/')
@@ -708,34 +711,29 @@ def handle_title_input(message):
 
 
 def send_as_album(chat_id, files, caption=None):
-    """Send files back as grouped Telegram albums.
-
-    Telegram can't mix documents and photos in a single media group,
-    and each group is capped at 10 items, so we split by type and chunk.
-    """
     docs = [f for f in files if f["content_type"] == "document"]
     photos = [f for f in files if f["content_type"] == "photo"]
-
+    
     def chunks(lst, n=10):
         for i in range(0, len(lst), n):
             yield lst[i:i + n]
-
+            
     for group in chunks(docs):
         if len(group) == 1:
             bot.send_document(chat_id, group[0]["file_id"], caption=caption)
         else:
             media = [
-                InputMediaDocument(f["file_id"], caption=caption if i == 0 else None)
+                InputMediaDocument(f["file_id"], caption=caption if i == 0 else None) 
                 for i, f in enumerate(group)
             ]
             bot.send_media_group(chat_id, media)
-
+            
     for group in chunks(photos):
         if len(group) == 1:
             bot.send_photo(chat_id, group[0]["file_id"], caption=caption)
         else:
             media = [
-                InputMediaPhoto(f["file_id"], caption=caption if i == 0 else None)
+                InputMediaPhoto(f["file_id"], caption=caption if i == 0 else None) 
                 for i, f in enumerate(group)
             ]
             bot.send_media_group(chat_id, media)
@@ -749,11 +747,24 @@ def process_files(chat_id, files, state, user, title=None):
     if action == "admin":
         ok = save_material_batch(course_code, material_type, files, title or "Untitled")
         if ok:
-            bot.send_message(
-                chat_id,
-                f"✅ Saved \"{title}\" ({len(files)} file(s)) under {course_code} ({material_type.upper()})!"
-            )
+            bot.send_message(chat_id, f"✅ Saved \"{title}\" ({len(files)} file(s)) under {course_code} ({material_type.upper()})!")
             send_as_album(chat_id, files, caption=title)
+            
+            try:
+                CHANNEL_USERNAME = "@astuece_updates" # <-- Change to your channel username
+                alert = (
+                    f"🆕 **New Material Uploaded!**\n\n"
+                    f"📚 **Course:** {course_code}\n"
+                    f"📂 **Type:** {material_type.upper()}\n"
+                    f"📝 **Title:** {title or 'Untitled'}\n\n"
+                    f"Open the Web App to download it!"
+                )
+                markup = InlineKeyboardMarkup()
+                markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
+                bot.send_message(CHANNEL_USERNAME, alert, parse_mode="Markdown", reply_markup=markup)
+            except Exception:
+                pass
+                
         else:
             bot.send_message(chat_id, "⚠️ Failed to save to GitHub. Please try again.")
 
@@ -766,27 +777,23 @@ def process_files(chat_id, files, state, user, title=None):
             "chat_id": chat_id,
             "username": user.username or "Student",
         }
+        admin_text = f"📥 New Chat Upload (Batch of {len(files)} files)\nFrom: @{user.username or 'Student'}\n\nCourse: {course_code}\nType: {material_type.upper()}"
         
-        admin_text = (
-            f"📥 New Chat Upload (Batch of {len(files)} files)\n"
-            f"From: @{user.username or 'Student'}\n\n"
-            f"Course: {course_code}\n"
-            f"Type: {material_type.upper()}"
-        )
-        bot.send_message(ADMIN_ID, admin_text)
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(admin, admin_text)
+                for f in files: 
+                    bot.forward_message(admin, chat_id, f["message_id"])
+                markup = InlineKeyboardMarkup()
+                markup.row(
+                    InlineKeyboardButton("✅ Approve All", callback_data=f"approve_upload_{req_id}"),
+                    InlineKeyboardButton("❌ Reject All", callback_data=f"reject_upload_{req_id}"),
+                )
+                bot.send_message(admin, f"Review this batch upload:", reply_markup=markup)
+            except Exception:
+                pass
         
-        # Forward every file in the batch to the admin
-        for f in files:
-            bot.forward_message(ADMIN_ID, chat_id, f["message_id"])
-        
-        markup = InlineKeyboardMarkup()
-        markup.row(
-            InlineKeyboardButton("✅ Approve All", callback_data=f"approve_upload_{req_id}"),
-            InlineKeyboardButton("❌ Reject All", callback_data=f"reject_upload_{req_id}"),
-        )
-        bot.send_message(ADMIN_ID, f"Review this batch upload:", reply_markup=markup)
-        
-        bot.send_message(chat_id, f"✅ Thank you! Your batch of {len(files)} file(s) has been sent to @pede_7 for review.")
+        bot.send_message(chat_id, f"✅ Thank you! Your batch of {len(files)} file(s) has been sent for review.")
 
 
 # --- FLASK SERVER & API ENDPOINTS ---
@@ -807,11 +814,15 @@ def handle_webapp_upload():
     username = request.form.get('username', 'Student')
 
     admin_text = f"🌐 WEB APP File Upload from {username}\n\nCourse: {course}\nType: {mat_type.upper()}"
-    try:
-        bot.send_document(ADMIN_ID, file.read(), caption=admin_text, visible_file_name=file.filename)
-        return jsonify({"status": "success"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    file_data = file.read()
+    
+    for admin in ADMIN_IDS:
+        try:
+            bot.send_document(admin, file_data, caption=admin_text, visible_file_name=file.filename)
+        except Exception:
+            pass
+            
+    return jsonify({"status": "success"}), 200
 
 @app.route('/api/upload_video', methods=['POST'])
 def handle_video_upload():
@@ -828,24 +839,21 @@ def handle_video_upload():
             "username": data.get('username', 'Student'),
         }
 
-        admin_text = (
-            f"📺 New Video Submission from {data.get('username', 'Student')}\n\n"
-            f"Course: {data['course']}\n"
-            f"Title: {data['title']}\n"
-            f"URL: {data['url']}"
-        )
+        admin_text = f"📺 New Video Submission from {data.get('username', 'Student')}\n\nCourse: {data['course']}\nTitle: {data['title']}\nURL: {data['url']}"
         markup = InlineKeyboardMarkup()
         markup.row(
             InlineKeyboardButton("✅ Approve Video", callback_data=f"approve_vid_{req_id}"),
             InlineKeyboardButton("❌ Reject", callback_data="reject_vid"),
         )
 
-        bot.send_message(int(ADMIN_ID), admin_text, reply_markup=markup)
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(admin, admin_text, reply_markup=markup)
+            except Exception:
+                pass
+                
         return jsonify({"status": "pending_approval"}), 200
     except Exception as e:
-        print(f"CRITICAL ERROR in handle_video_upload: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/materials', methods=['GET'])
@@ -859,6 +867,7 @@ def get_videos():
 @app.route("/")
 def webhook():
     return "ASTU ECE Bot is running on Render!", 200
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
