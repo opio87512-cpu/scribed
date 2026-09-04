@@ -40,7 +40,6 @@
 
         .card-container { background: var(--sec-bg); padding: 18px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 15px; }
         
-        /* Modern Filter Accordion */
         details.filter-accordion { background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow: hidden; }
         details.filter-accordion summary { padding: 16px; font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; color: var(--btn-color); user-select: none; }
         details.filter-accordion summary::-webkit-details-marker { display: none; }
@@ -52,15 +51,13 @@
         select:focus, input:focus { border-color: var(--btn-color); background: var(--sec-bg); }
         select:disabled, input:disabled { opacity: 0.5; }
         
-        button[type="submit"] { background: var(--btn-color); color: var(--btn-text); border: none; font-weight: 600; font-size: 16px; cursor: pointer; display: flex; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(0, 122, 255, 0.2); }
-        button[type="submit"]:disabled { opacity: 0.6; box-shadow: none; }
+        button[type="submit"], .action-btn { background: var(--btn-color); color: var(--btn-text); border: none; font-weight: 600; font-size: 16px; cursor: pointer; display: flex; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(0, 122, 255, 0.2); width: 100%; padding: 14px; border-radius: 12px;}
+        button:disabled { opacity: 0.6; box-shadow: none; }
 
-        /* Global Search Box */
         .search-box { position: relative; margin-bottom: 15px; }
         .search-box i { position: absolute; left: 14px; top: 16px; color: var(--hint-color); }
         .search-box input { padding-left: 40px; border-radius: 20px; font-weight: 500; background: var(--sec-bg); border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
 
-        /* Material Cards */
         .material-card { background: var(--sec-bg); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.02); }
         .material-info { display: flex; flex-direction: column; gap: 4px; flex: 1; margin-right: 10px; }
         .material-name { font-weight: 600; font-size: 14px; }
@@ -71,7 +68,6 @@
         .fav-btn { background: none; border: none; font-size: 18px; color: #ffb300; padding: 5px; width: auto; cursor: pointer; box-shadow: none; }
         .fav-btn.unstarred { color: var(--hint-color); opacity: 0.5; }
 
-        /* YouTube Style Video Cards */
         .yt-card { display: block; background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px; overflow: hidden; text-decoration: none; color: var(--text-color); box-shadow: 0 4px 15px rgba(0,0,0,0.06); }
         .yt-thumb { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
         .yt-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.9; }
@@ -85,6 +81,11 @@
 
         .empty-state { text-align: center; color: var(--hint-color); padding: 30px 10px; font-size: 14px; }
         .empty-state i { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+
+        /* GPA Calculator Specific Styles */
+        .course-row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .course-row input, .course-row select { padding: 12px 8px; font-size: 14px; border-radius: 8px; }
+        .remove-btn { background: #ff3b30; color: white; width: auto; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; box-shadow: none; font-size: 16px; }
 
         @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -100,6 +101,7 @@
         <button class="tab-btn active" onclick="switchTab('upload')"><i class="fa-solid fa-cloud-arrow-up"></i> Upload</button>
         <button class="tab-btn" onclick="switchTab('find')"><i class="fa-solid fa-book"></i> Materials</button>
         <button class="tab-btn" onclick="switchTab('video')"><i class="fa-brands fa-youtube"></i> Videos</button>
+        <button class="tab-btn" onclick="switchTab('gpa')"><i class="fa-solid fa-calculator"></i> GPA</button>
         <button class="tab-btn" onclick="switchTab('favs')"><i class="fa-solid fa-star"></i> Favs</button>
         <button class="tab-btn" onclick="switchTab('addVideo')"><i class="fa-solid fa-link"></i> Suggest</button>
     </div>
@@ -107,7 +109,7 @@
     <!-- UPLOAD SECTION -->
     <div id="uploadSection" class="section active card-container">
         <form id="uploadForm">
-            <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+            <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
             <div class="form-group"><label>Semester</label><select id="upSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
             <div class="form-group"><label>Course</label><select id="upCourse" required disabled><option value="">Select Course...</option></select></div>
             <div class="form-group"><label>Material Type</label><select id="upType" required disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
@@ -125,17 +127,15 @@
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" id="globalMatSearch" placeholder="Search all materials..." oninput="filterGlobalMaterials()">
         </div>
-
         <details class="filter-accordion">
             <summary><i class="fa-solid fa-filter"></i> Filter by Course & Type <i class="fa-solid fa-chevron-down" style="font-size: 12px;"></i></summary>
             <div class="filter-content">
-                <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+                <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
                 <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
                 <div class="form-group"><label>Course</label><select id="findCourse" disabled><option value="">Select Course...</option></select></div>
                 <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
             </div>
         </details>
-        
         <div id="resultsContainer"></div>
     </div>
 
@@ -145,17 +145,60 @@
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" id="globalVidSearch" placeholder="Search YouTube tutorials..." oninput="filterGlobalVideos()">
         </div>
-
         <details class="filter-accordion">
             <summary><i class="fa-solid fa-filter"></i> Filter by Course <i class="fa-solid fa-chevron-down" style="font-size: 12px;"></i></summary>
             <div class="filter-content">
-                <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+                <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
                 <div class="form-group"><label>Semester</label><select id="vidSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
                 <div class="form-group"><label>Course</label><select id="vidCourse" disabled><option value="">Select Course...</option></select></div>
             </div>
         </details>
-
         <div id="videoResultsContainer"></div>
+    </div>
+
+    <!-- GPA CALCULATOR SECTION -->
+    <div id="gpaSection" class="section">
+        <div class="card-container">
+            <h3 style="margin-top:0;">Semester GPA</h3>
+            <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Auto-loads exact ASTU ECE credit hours!</p>
+            
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <select id="gpaYear" onchange="document.getElementById('gpaSem').disabled = !this.value; document.getElementById('gpaSem').value=''; loadSemesterGPA();">
+                    <option value="">Select Year...</option>
+                    <option value="1">Year I</option>
+                    <option value="2">Year II</option>
+                    <option value="3">Year III</option>
+                    <option value="4">Year IV</option>
+                    <option value="5">Year V</option>
+                </select>
+                <select id="gpaSem" disabled onchange="loadSemesterGPA()">
+                    <option value="">Semester...</option>
+                    <option value="1">Semester I</option>
+                    <option value="2">Semester II</option>
+                </select>
+            </div>
+
+            <div id="courseRows">
+                <!-- Rows injected by JS -->
+            </div>
+            <button type="button" onclick="addCourseRow()" class="action-btn" style="margin-bottom:15px; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-plus"></i> Add Extra Course</button>
+            <button type="button" onclick="calculateGPA()" class="action-btn"><i class="fa-solid fa-calculator"></i> Calculate GPA</button>
+            <div id="gpaResult" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 18px;"></div>
+        </div>
+        
+        <div class="card-container">
+            <h3 style="margin-top:0;">Cumulative CGPA</h3>
+            <div class="form-group">
+                <label>Previous Total Credit Hours</label>
+                <input type="number" id="prevCredits" placeholder="e.g. 30" min="0">
+            </div>
+            <div class="form-group">
+                <label>Previous CGPA</label>
+                <input type="number" id="prevCGPA" placeholder="e.g. 3.5" step="0.01" min="0" max="4">
+            </div>
+            <button type="button" onclick="calculateCGPA()" class="action-btn"><i class="fa-solid fa-chart-line"></i> Calculate CGPA</button>
+            <div id="cgpaResult" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 18px;"></div>
+        </div>
     </div>
 
     <!-- FAVORITES SECTION -->
@@ -170,7 +213,7 @@
     <!-- ADD VIDEO SECTION -->
     <div id="addVideoSection" class="section card-container">
         <form id="videoForm">
-            <div class="form-group"><label>Academic Year</label><select id="subVidYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
+            <div class="form-group"><label>Academic Year</label><select id="subVidYear" required><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
             <div class="form-group"><label>Semester</label><select id="subVidSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
             <div class="form-group"><label>Course</label><select id="subVidCourse" required disabled><option value="">Select Course...</option></select></div>
             <div class="form-group"><label>Video Title</label><input type="text" id="vidTitle" placeholder="e.g. Chapter 1 Lecture" required disabled></div>
@@ -186,15 +229,30 @@
         const RENDER_URL = "https://scribed-1rqs.onrender.com";
         const BOT_USERNAME = "astuece2026_bot";
 
-        // Curriculum Database
+        // --- FULLY INTEGRATED ECE CURRICULUM FROM PDF ---
         const curriculum = {
-            "2": { "1": [{code: "Math2101", title: "Applied Mathematics III"}, {code: "ECEg2201", title: "Electronics Circuit I"}, {code: "EPCE2101", title: "Fundamentals of Electrical Eng."}, {code: "CSEg2101", title: "Data Structures & Algorithms"}, {code: "LART1004", title: "Geography of Ethiopia & the Horn"}], "2": [{code: "ECEg2202", title: "Electronic Circuit II"}, {code: "ECEg2204", title: "Signals and System Analysis"}, {code: "EPCE2202", title: "Electromagnetic Field"}, {code: "ECEg2208", title: "Eng. Application Software"}, {code: "Math2103", title: "Computational methods"}, {code: "Math2201", title: "Linear Algebra"}] },
-            "3": { "1": [{code: "ECEg3201", title: "Digital Logic Design"}, {code: "EPCE3201", title: "Network Analysis & Synthesis"}, {code: "ECEg3103", title: "Probability & Random Proc."}, {code: "ECEg3205", title: "Digital Signal Processing"}, {code: "LART2002", title: "Gen. Psychology & Life Skills"}, {code: "Phys2208", title: "Applied Modern Physics"}], "2": [{code: "ECEg3202", title: "Intro to Comm. Systems"}, {code: "Phys3202", title: "Solid State Physics"}, {code: "LART1003", title: "History of Ethiopia & the Horn"}, {code: "ECEg3306", title: "Microelectronic Devices & Circuits"}, {code: "ECEg3318", title: "Optoelectronics"}, {code: "CSEg2202", title: "Object Oriented Programming"}, {code: "SEng4208", title: "Intro to Artificial Intelligence"}, {code: "EPCE3304", title: "Intro to Control Systems"}, {code: "EPCE3302", title: "Intro to Electrical Machines"}] },
-            "4": { "1": [{code: "ECEg4201", title: "Comp. Architecture & Org."}, {code: "ECEg4203", title: "Digital Communication"}, {code: "ECEg4205", title: "EM Waves & Guide Structure"}, {code: "SOSC5003", title: "Entrepreneurship & Bus. Dev."}, {code: "ECEg4206", title: "Eng. Research & Dev Methodology"}, {code: "EPCE3206", title: "Intro to Power Systems"}, {code: "EPCE3207", title: "Electrical Measurement & Inst."}], "2": [{code: "ECEg4202", title: "Microprocessor & Interfacing"}, {code: "ECEg4204", title: "Antenna & Radio Wave Prop."}, {code: "ECEg4208", title: "Data Comm. & Computer Networks"}, {code: "SOSC2002", title: "Introduction to Economics"}, {code: "IETP4203", title: "Integrated Engineering Project"}, {code: "ECEg4310", title: "Microwave Devices & Systems"}, {code: "ECEg4312", title: "Integrated Circuit Technology"}] },
-            "5": { "1": [{code: "ECEg5201", title: "Wireless & Mobile Comm."}, {code: "ECEg5203", title: "Capstone Project"}, {code: "ECEg5207", title: "Final Year Project Phase I"}, {code: "ECEg5307", title: "VLSI Design"}, {code: "CSEg5307", title: "Advanced Network"}, {code: "ECEg5315", title: "Embedded & Real Time Systems"}, {code: "EPCE4302", title: "Prog. Logic Controllers & Robotics"}, {code: "EPCE4306", title: "Introduction to Mechatronics"}, {code: "ECEg5321", title: "Biomedical Inst. & Analysis"}, {code: "EPCE3202", title: "Power Electronics"}], "2": [{code: "SOSC5011", title: "Project Mgt. for Engineers"}, {code: "ECEg5202", title: "Final Year Project Phase II"}, {code: "ECEg5302", title: "Optics & Optical Comm."}, {code: "ECEg5304", title: "Analysis & Design of Digital IC"}, {code: "ECEg5306", title: "Telecom Networks & Switching"}, {code: "ECEg5308", title: "Intro to Computer Vision"}, {code: "ECEg5310", title: "Satellite Communication"}, {code: "ECEg5312", title: "Digital Hardware Design"}, {code: "ECEg5314", title: "Digital Image Processing"}, {code: "ECEg5316", title: "Semiconductor Devices"}] }
+            "1": { 
+                "1": [{code: "Math1101", title: "Applied Mathematics I", cr: 4}, {code: "Phys1101", title: "General Physics", cr: 3}, {code: "Chem1101", title: "General Chemistry", cr: 3}, {code: "CSEg1101", title: "Introduction to Computing", cr: 3}, {code: "EnLa1001", title: "Communicative English Skill", cr: 3}, {code: "LART1001", title: "Introduction to Civics & Citizenship", cr: 3}], 
+                "2": [{code: "Math1102", title: "Applied Mathematics II", cr: 4}, {code: "CSEg1102", title: "Intro to Emerging Technologies", cr: 3}, {code: "CSEg1104", title: "Fundamentals of Programming", cr: 3}, {code: "LART1002", title: "Logic and Critical Thinking", cr: 3}, {code: "Meng1032", title: "Engineering Drawing", cr: 3}, {code: "EnLa1002", title: "Basic Writing Skill", cr: 3}] 
+            },
+            "2": { 
+                "1": [{code: "Math2101", title: "Applied Mathematics III", cr: 4}, {code: "ECEg2201", title: "Electronics Circuit I", cr: 4}, {code: "EPCE2101", title: "Fundamentals of Electrical Eng.", cr: 4}, {code: "CSEg2101", title: "Data Structures & Algorithms", cr: 3}, {code: "LART1004", title: "Geography of Ethiopia & the Horn", cr: 3}], 
+                "2": [{code: "ECEg2202", title: "Electronic Circuit II", cr: 4}, {code: "ECEg2204", title: "Signals and System Analysis", cr: 3}, {code: "EPCE2202", title: "Electromagnetic Field", cr: 3}, {code: "ECEg2208", title: "Engineering Application Software", cr: 1}, {code: "Math2103", title: "Computational methods", cr: 3}, {code: "Math2201", title: "Linear Algebra", cr: 3}] 
+            },
+            "3": { 
+                "1": [{code: "ECEg3201", title: "Digital Logic Design", cr: 4}, {code: "EPCE3201", title: "Network Analysis & Synthesis", cr: 3}, {code: "ECEg3103", title: "Probability & Random Proc.", cr: 3}, {code: "ECEg3205", title: "Digital Signal Processing", cr: 3}, {code: "LART2002", title: "Gen. Psychology & Life Skills", cr: 3}, {code: "Phys2208", title: "Applied Modern Physics", cr: 3}], 
+                "2": [{code: "ECEg3202", title: "Intro to Comm. Systems", cr: 4}, {code: "Phys3202", title: "Solid State Physics", cr: 3}, {code: "LART1003", title: "History of Ethiopia & the Horn", cr: 3}, {code: "Elective1", title: "Major Elective I", cr: 3}, {code: "Elective2", title: "Major Elective II", cr: 3}, {code: "Elective3", title: "Major Elective III", cr: 3}] 
+            },
+            "4": { 
+                "1": [{code: "ECEg4201", title: "Comp. Architecture & Org.", cr: 3}, {code: "ECEg4203", title: "Digital Communication", cr: 3}, {code: "ECEg4205", title: "EM Waves & Guide Structure", cr: 3}, {code: "SOSC5003", title: "Entrepreneurship & Bus. Dev.", cr: 3}, {code: "ECEg4206", title: "Eng. Research & Dev Methodology", cr: 2}, {code: "Elective4", title: "Major Elective IV", cr: 3}], 
+                "2": [{code: "ECEg4202", title: "Microprocessor & Interfacing", cr: 4}, {code: "ECEg4204", title: "Antenna & Radio Wave Prop.", cr: 3}, {code: "ECEg4208", title: "Data Comm. & Computer Networks", cr: 3}, {code: "SOSC2002", title: "Introduction to Economics", cr: 3}, {code: "IETP4203", title: "Integrated Engineering Project", cr: 3}, {code: "Elective5", title: "Major Elective V", cr: 3}] 
+            },
+            "5": { 
+                "1": [{code: "ECEg5201", title: "Wireless & Mobile Comm.", cr: 3}, {code: "Elective6", title: "Major Elective VI", cr: 3}, {code: "Elective7", title: "Major Elective VII", cr: 3}, {code: "Elective8", title: "Major Elective VIII", cr: 3}, {code: "Free1", title: "Free Elective I", cr: 3}, {code: "ECEg5203", title: "Capstone Project", cr: 2}, {code: "ECEg5207", title: "Final year project Phase- I", cr: 2}], 
+                "2": [{code: "SOSC5011", title: "Project Management for Engineers", cr: 2}, {code: "Elective9", title: "Major Elective IX", cr: 3}, {code: "Elective10", title: "Major Elective X", cr: 3}, {code: "Elective11", title: "Major Elective XI", cr: 3}, {code: "Elective12", title: "Major Elective XII", cr: 3}, {code: "ECEg5202", title: "Final year project phase II", cr: 4}] 
+            }
         };
 
-        // Cache for global search
         let allMaterials = {};
         let allVideos = {};
         
@@ -248,24 +306,101 @@
             </div>`;
         }
 
-        // Tab Switcher with Smart Preload
+        // --- GPA LOGIC ---
+        const ASTU_GRADES = { "A+": 4.0, "A": 4.0, "A-": 3.75, "B+": 3.5, "B": 3.0, "B-": 2.75, "C+": 2.5, "C": 2.0, "C-": 1.75, "D": 1.0, "F": 0.0 };
+        let currentSemCr = 0, currentSemPts = 0;
+
+        function loadSemesterGPA() {
+            const y = document.getElementById('gpaYear').value;
+            const s = document.getElementById('gpaSem').value;
+            const container = document.getElementById('courseRows');
+            container.innerHTML = '';
+            
+            if(y && s && curriculum[y] && curriculum[y][s]) {
+                curriculum[y][s].forEach(course => {
+                    const row = document.createElement('div');
+                    row.className = 'course-row';
+                    row.innerHTML = `
+                        <input type="text" value="${course.title}" readonly style="flex:2; background: var(--bg-color); opacity:0.8; font-size:12px;">
+                        <input type="number" value="${course.cr}" class="gpa-cr" readonly style="flex:1; background: var(--bg-color); opacity:0.8; text-align:center;">
+                        <select class="gpa-gr" style="flex:1">
+                            <option value="">Gr</option>
+                            ${Object.keys(ASTU_GRADES).map(g => `<option value="${g}">${g}</option>`).join('')}
+                        </select>
+                        <button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
+                    `;
+                    container.appendChild(row);
+                });
+            } else {
+                for(let i=0; i<5; i++) addCourseRow();
+            }
+            document.getElementById('gpaResult').innerHTML = '';
+        }
+
+        function addCourseRow() {
+            const row = document.createElement('div');
+            row.className = 'course-row';
+            row.innerHTML = `
+                <input type="text" placeholder="Subject (Opt)" style="flex:2">
+                <input type="number" placeholder="Cr" class="gpa-cr" style="flex:1" min="1" max="10">
+                <select class="gpa-gr" style="flex:1">
+                    <option value="">Gr</option>
+                    ${Object.keys(ASTU_GRADES).map(g => `<option value="${g}">${g}</option>`).join('')}
+                </select>
+                <button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
+            `;
+            document.getElementById('courseRows').appendChild(row);
+        }
+        
+        for(let i=0; i<5; i++) addCourseRow(); // Initial empty state
+
+        function calculateGPA() {
+            let cr = 0, pts = 0;
+            let valid = false;
+            document.querySelectorAll('.course-row').forEach(row => {
+                const c = parseFloat(row.querySelector('.gpa-cr').value);
+                const g = row.querySelector('.gpa-gr').value;
+                if(!isNaN(c) && g && ASTU_GRADES[g] !== undefined) {
+                    cr += c;
+                    pts += (c * ASTU_GRADES[g]);
+                    valid = true;
+                }
+            });
+            const res = document.getElementById('gpaResult');
+            if(!valid) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Fill at least one Credit and Grade.</span>'; return; }
+            currentSemCr = cr; currentSemPts = pts;
+            const gpa = (pts / cr).toFixed(2);
+            res.innerHTML = `🌟 Semester GPA: <span style="color:var(--btn-color)">${gpa}</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ${cr}</div>`;
+        }
+
+        function calculateCGPA() {
+            const pCr = parseFloat(document.getElementById('prevCredits').value) || 0;
+            const pGPA = parseFloat(document.getElementById('prevCGPA').value) || 0;
+            const tCr = pCr + currentSemCr;
+            const tPts = (pCr * pGPA) + currentSemPts;
+            const res = document.getElementById('cgpaResult');
+            if(tCr === 0) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Please calculate a semester GPA first or enter previous data.</span>'; return; }
+            const cgpa = (tPts / tCr).toFixed(2);
+            res.innerHTML = `🎓 Cumulative CGPA: <span style="color:var(--btn-color)">${cgpa}</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ${tCr}</div>`;
+        }
+
+        // Tab Switcher
         async function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             
             if(tab === 'upload') { document.querySelectorAll('.tab-btn')[0].classList.add('active'); document.getElementById('uploadSection').classList.add('active'); }
             else if(tab === 'find') { 
-                document.querySelectorAll('.tab-btn')[1].classList.add('active'); 
-                document.getElementById('findSection').classList.add('active'); 
+                document.querySelectorAll('.tab-btn')[1].classList.add('active'); document.getElementById('findSection').classList.add('active'); 
                 if(Object.keys(allMaterials).length === 0) await fetchAllMaterials(); else renderMaterials();
             }
             else if(tab === 'video') { 
-                document.querySelectorAll('.tab-btn')[2].classList.add('active'); 
-                document.getElementById('videoSection').classList.add('active'); 
+                document.querySelectorAll('.tab-btn')[2].classList.add('active'); document.getElementById('videoSection').classList.add('active'); 
                 if(Object.keys(allVideos).length === 0) await fetchAllVideos(); else renderVideos();
             }
-            else if(tab === 'favs') { document.querySelectorAll('.tab-btn')[3].classList.add('active'); document.getElementById('favsSection').classList.add('active'); renderFavs(); }
-            else { document.querySelectorAll('.tab-btn')[4].classList.add('active'); document.getElementById('addVideoSection').classList.add('active'); }
+            else if(tab === 'gpa') { document.querySelectorAll('.tab-btn')[3].classList.add('active'); document.getElementById('gpaSection').classList.add('active'); }
+            else if(tab === 'favs') { document.querySelectorAll('.tab-btn')[4].classList.add('active'); document.getElementById('favsSection').classList.add('active'); renderFavs(); }
+            else { document.querySelectorAll('.tab-btn')[5].classList.add('active'); document.getElementById('addVideoSection').classList.add('active'); }
         }
 
         // --- GLOBAL FETCH & RENDER FOR MATERIALS ---
@@ -284,13 +419,9 @@
             const filterCourse = document.getElementById('findCourse').value;
             const filterType = document.getElementById('findType').value;
             
-            let html = "";
-            let count = 0;
-
+            let html = ""; let count = 0;
             for (const [key, items] of Object.entries(allMaterials)) {
                 const [course, type] = key.split('_');
-                
-                // Dropdown filters
                 if (filterCourse && course !== filterCourse) continue;
                 if (filterType && type !== filterType) continue;
 
@@ -336,10 +467,7 @@
             const searchQ = document.getElementById('globalVidSearch').value.toLowerCase();
             const filterCourse = document.getElementById('vidCourse').value;
             
-            let html = "";
-            let count = 0;
-
-            // Sort logic to show newest videos (assuming end of array = newest)
+            let html = ""; let count = 0;
             let allVidsFlat = [];
             for (const [courseCode, vids] of Object.entries(allVideos)) {
                 if (filterCourse && courseCode !== filterCourse) continue;
@@ -349,13 +477,8 @@
                 });
             }
             
-            // Reverse so newest show at top globally
-            allVidsFlat.reverse();
-            
-            allVidsFlat.forEach(item => {
-                html += generateVideoCard(item.v, item.courseCode, item.idx);
-                count++;
-            });
+            allVidsFlat.reverse(); // Newest first
+            allVidsFlat.forEach(item => { html += generateVideoCard(item.v, item.courseCode, item.idx); count++; });
 
             if(count === 0) container.innerHTML = `<div class="empty-state"><i class="fa-brands fa-youtube" style="font-size:50px"></i><br>No videos found.</div>`;
             else container.innerHTML = html;
