@@ -421,6 +421,9 @@
             const isStarred = isFav(favId);
             const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
             
+            // Show Date if it exists
+            const dateAdded = v.date_added ? ` • Added: ${v.date_added}` : '';
+            
             return `
             <div class="yt-card searchable-vid" data-text="${escapeHtml(v.title).toLowerCase()} ${courseCode.toLowerCase()}">
                 <a href="${watchUrl}" target="_blank" rel="noopener">
@@ -433,7 +436,7 @@
                     <div class="yt-avatar"><i class="fa-solid fa-graduation-cap"></i></div>
                     <div class="yt-info">
                         <div class="yt-title">${escapeHtml(v.title)}</div>
-                        <div class="yt-channel">${courseCode} • Tutorial</div>
+                        <div class="yt-channel">${courseCode} • Tutorial${dateAdded}</div>
                     </div>
                     <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${escapeHtml(v.title).replace(/'/g,"\\'")}', '${v.url}', 'video', '${courseCode}')">
                         <i class="${starClass}"></i>
@@ -740,11 +743,14 @@
                     const isStarred = isFav(favId);
                     const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
                     
+                    // Show Date if it exists
+                    const dateAdded = item.date_added ? ` • Added: ${item.date_added}` : '';
+                    
                     html += `
                     <div class="material-card">
                         <div class="material-info">
                             <span class="material-name">📄 ${item.name}</span>
-                            <span class="material-type">${item.course} • ${item.type}</span>
+                            <span class="material-type">${item.course} • ${item.type}${dateAdded}</span>
                         </div>
                         <div class="card-actions">
                             <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${item.name.replace(/'/g,"\\'")}', '${deepLink}', 'material', '${item.course} • ${item.type.toUpperCase()}')"><i class="${starClass}"></i></button>
