@@ -69,6 +69,7 @@
         .search-box i { position: absolute; left: 14px; top: 16px; color: var(--hint-color); }
         .search-box input { padding-left: 40px; border-radius: 20px; font-weight: 500; background: var(--sec-bg); border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
 
+        /* --- STANDARD MATERIAL CARD --- */
         .material-card { background: var(--sec-bg); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.02); }
         .material-info { display: flex; flex-direction: column; gap: 4px; flex: 1; margin-right: 10px; }
         .material-name { font-weight: 600; font-size: 14px; }
@@ -79,6 +80,18 @@
         .fav-btn { background: none; border: none; font-size: 18px; color: #ffb300; padding: 5px; width: auto; cursor: pointer; box-shadow: none; }
         .fav-btn.unstarred { color: var(--hint-color); opacity: 0.5; }
 
+        /* --- BEAUTIFUL FOLDER CARD --- */
+        .folder-card { background: var(--sec-bg); border-radius: 16px; margin-bottom: 15px; display: flex; align-items: center; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.02); cursor: pointer; transition: transform 0.15s ease; }
+        .folder-card:active { transform: scale(0.97); }
+        .folder-thumb { position: relative; width: 60px; height: 60px; border-radius: 12px; overflow: hidden; margin-right: 15px; flex-shrink: 0; background: linear-gradient(135deg, var(--btn-color), #00c6ff); box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+        .folder-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.95; transition: transform 0.3s ease; }
+        .folder-card:hover .folder-thumb img { transform: scale(1.1); }
+        .folder-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .folder-title { font-weight: 700; font-size: 15px; color: var(--text-color); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .folder-meta { font-size: 12px; color: var(--hint-color); font-weight: 600; text-transform: uppercase; }
+        .folder-actions { display: flex; align-items: center; gap: 10px; margin-left: 10px; }
+
+        /* --- YOUTUBE VIDEO CARD --- */
         .yt-card { display: block; background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px; overflow: hidden; text-decoration: none; color: var(--text-color); box-shadow: 0 4px 15px rgba(0,0,0,0.06); }
         .yt-thumb { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
         .yt-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.9; }
@@ -314,7 +327,7 @@
             },
             "4": { 
                 "1": [{code: "ECEg4201", title: "Comp. Architecture & Org.", cr: 3}, {code: "ECEg4203", title: "Digital Communication", cr: 3}, {code: "ECEg4205", title: "EM Waves & Guide Structure", cr: 3}, {code: "SOSC5003", title: "Entrepreneurship & Bus. Dev.", cr: 3}, {code: "ECEg4206", title: "Eng. Research & Dev Methodology", cr: 2}, {code: "Elective4", title: "Major Elective IV", cr: 3}], 
-                "2": [{code: "ECEg4202", title: "Microprocessor & Interfacing", cr: 4}, {code: "ECEg4204", title: "Antenna & Radio Wave Prop.", cr: 3}, {code: "ECEg4208", title: "Data Comm. & Computer Networks", cr: 3}, {code: "SOSC2002", title: "Introduction to Economics", cr: 3}, {code: "IETP4203", title: "Integrated Engineering Project", cr: 3}, {code: "Elective5", title: "Major Elective V", cr: 3}] 
+                "2": [{code: "ECEg4202", title: "Microprocessor & Interfacing", cr: 4}, {code: "ECEg4204", title: "Antenna & Radio Wave Prop.", cr: 3}, {code: "ECEg4208", title: "Data Comm. & Computer Networks", cr: 3}, {code: "SOSC2002", title: "Introduction to Economics", cr: 3}, {code: "IETP4203", title: "Integrated Engineering Project", cr: 3}, {code: "ECEg4310", title: "Microwave Devices & Systems", cr: 3}, {code: "ECEg4312", title: "Integrated Circuit Technology", cr: 3}] 
             },
             "5": { 
                 "1": [{code: "ECEg5201", title: "Wireless & Mobile Comm.", cr: 3}, {code: "Elective6", title: "Major Elective VI", cr: 3}, {code: "Elective7", title: "Major Elective VII", cr: 3}, {code: "Elective8", title: "Major Elective VIII", cr: 3}, {code: "Free1", title: "Free Elective I", cr: 3}, {code: "ECEg5203", title: "Capstone Project", cr: 2}, {code: "ECEg5207", title: "Final year project Phase- I", cr: 2}], 
@@ -379,7 +392,7 @@
 
         // --- FAVORITES LOGIC ---
         let favorites = JSON.parse(localStorage.getItem('astu_ece_favs')) || [];
-        let activeFavFolder = null; // Added tracking for favorite folders
+        let activeFavFolder = null; 
 
         function isFav(id) { return favorites.some(f => f.id === id); }
         function toggleFav(id, title, url, type, meta) {
@@ -756,13 +769,23 @@
                     const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
                     const metaData = `${course} • ${type.toUpperCase()}`;
                     
+                    // Check for custom uploaded thumbnail
+                    let customThumb = null;
+                    for (let item of items) {
+                        if (item.thumbnail_url) { customThumb = item.thumbnail_url; break; }
+                    }
+                    const finalThumb = customThumb ? customThumb : "https://images.unsplash.com/photo-1456406644174-8ddd4cd52a06?ixlib=rb-4.0.3&auto=format&fit=crop&w=200&q=80";
+
                     html += `
-                    <div class="material-card" style="cursor: pointer; border-left: 4px solid var(--btn-color);" onclick="openFolder('${key}', '${folderName.replace(/'/g,"\\'")}')">
-                        <div class="material-info">
-                            <span class="material-name" style="font-size: 15px;"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ${folderName}</span>
-                            <span class="material-type">${metaData} • ${items.length} file(s)</span>
+                    <div class="folder-card" onclick="openFolder('${key}', '${folderName.replace(/'/g,"\\'")}')">
+                        <div class="folder-thumb">
+                            <img src="${finalThumb}" alt="Folder Image">
                         </div>
-                        <div class="card-actions">
+                        <div class="folder-info">
+                            <div class="folder-title">${folderName}</div>
+                            <div class="folder-meta">${metaData} • ${items.length} file(s)</div>
+                        </div>
+                        <div class="folder-actions">
                             <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="event.stopPropagation(); toggleFav('${favId}', '${folderName.replace(/'/g,"\\'")}', '${key}', 'folder', '${metaData}')"><i class="${starClass}"></i></button>
                             <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
                         </div>
@@ -855,7 +878,6 @@
             if (activeFavFolder) {
                 const items = groupedFavs[activeFavFolder];
                 
-                // If user unfavorited everything in this folder, reset to main view
                 if (!items || items.length === 0) {
                     activeFavFolder = null;
                     renderFavs();
@@ -882,14 +904,16 @@
                     } else if(fav.type === 'video') {
                         html += generateVideoCard({title: fav.title, url: fav.url}, fav.meta, fav.id.split('_').pop());
                     } else if(fav.type === 'folder') {
-                        // Render favorited folder card
                         html += `
-                        <div class="material-card" style="cursor: pointer; border-left: 4px solid var(--btn-color);" onclick="goToFolderFromFav('${fav.url}', '${fav.title.replace(/'/g,"\\'")}')">
-                            <div class="material-info">
-                                <span class="material-name" style="font-size: 15px;"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ${fav.title}</span>
-                                <span class="material-type">${fav.meta}</span>
+                        <div class="folder-card" onclick="goToFolderFromFav('${fav.url}', '${fav.title.replace(/'/g,"\\'")}')">
+                            <div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);">
+                                <i class="fa-solid fa-star" style="font-size:24px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
                             </div>
-                            <div class="card-actions">
+                            <div class="folder-info">
+                                <div class="folder-title">${fav.title}</div>
+                                <div class="folder-meta">${fav.meta}</div>
+                            </div>
+                            <div class="folder-actions">
                                 <button class="fav-btn" onclick="event.stopPropagation(); toggleFav('${fav.id}', '${fav.title.replace(/'/g,"\\'")}', '${fav.url}', 'folder', '${fav.meta}')"><i class="${starClass}"></i></button>
                                 <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
                             </div>
@@ -905,12 +929,15 @@
             for (const [folderName, items] of Object.entries(groupedFavs)) {
                 folderCount++;
                 html += `
-                <div class="material-card" style="cursor: pointer; border-left: 4px solid #ffb300;" onclick="openFavFolder('${folderName.replace(/'/g,"\\'")}')">
-                    <div class="material-info">
-                        <span class="material-name" style="font-size: 15px;"><i class="fa-solid fa-folder" style="color:#ffb300; margin-right:6px;"></i> ${folderName}</span>
-                        <span class="material-type">${items.length} saved item(s)</span>
+                <div class="folder-card" onclick="openFavFolder('${folderName.replace(/'/g,"\\'")}')">
+                    <div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);">
+                        <i class="fa-solid fa-star" style="font-size:24px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
                     </div>
-                    <div class="card-actions">
+                    <div class="folder-info">
+                        <div class="folder-title">${folderName}</div>
+                        <div class="folder-meta">${items.length} saved item(s)</div>
+                    </div>
+                    <div class="folder-actions">
                         <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
                     </div>
                 </div>`;
