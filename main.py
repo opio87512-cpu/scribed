@@ -243,7 +243,6 @@ def main_menu_keyboard():
     markup = InlineKeyboardMarkup()
     webapp_url = "https://opio87512-cpu.github.io/scribed/"
     markup.row(InlineKeyboardButton("🚀 Open ASTU ECE Portal", web_app=WebAppInfo(url=webapp_url)))
-    markup.row(InlineKeyboardButton("📚 Find Materials (Chat)", callback_data="main_find"))
     markup.row(InlineKeyboardButton("📤 Upload Material (Chat)", callback_data="main_upload"))
     return markup
 
