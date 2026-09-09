@@ -371,6 +371,12 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
+        // Helper to jump from a favorited folder directly into the 'Find' section
+        async function goToFolderFromFav(key, folderName) {
+            await switchSection('find');
+            openFolder(key, folderName);
+        }
+
         // --- FAVORITES LOGIC ---
         let favorites = JSON.parse(localStorage.getItem('astu_ece_favs')) || [];
         let activeFavFolder = null; // Added tracking for favorite folders
@@ -743,13 +749,21 @@
                 const [course, type] = key.split('_');
                 for (const [folderName, items] of Object.entries(folders)) {
                     folderCount++;
+                    
+                    // Folder-level Favorite Logic
+                    const favId = `folder_${key}_${folderName}`;
+                    const isStarred = isFav(favId);
+                    const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
+                    const metaData = `${course} • ${type.toUpperCase()}`;
+                    
                     html += `
                     <div class="material-card" style="cursor: pointer; border-left: 4px solid var(--btn-color);" onclick="openFolder('${key}', '${folderName.replace(/'/g,"\\'")}')">
                         <div class="material-info">
                             <span class="material-name" style="font-size: 15px;"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ${folderName}</span>
-                            <span class="material-type">${course} • ${type.toUpperCase()} • ${items.length} file(s)</span>
+                            <span class="material-type">${metaData} • ${items.length} file(s)</span>
                         </div>
                         <div class="card-actions">
+                            <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="event.stopPropagation(); toggleFav('${favId}', '${folderName.replace(/'/g,"\\'")}', '${key}', 'folder', '${metaData}')"><i class="${starClass}"></i></button>
                             <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
                         </div>
                     </div>`;
@@ -811,7 +825,7 @@
             container.innerHTML = "";
 
             if(favorites.length === 0) {
-                container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-star"></i><br>No favorites yet.<br>Click the star on any material or video to save it here!</div>`;
+                container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-star"></i><br>No favorites yet.<br>Click the star on any folder, material or video to save it here!</div>`;
                 document.getElementById('favSearchBox').style.display = 'none';
                 activeFavFolder = null;
                 return;
@@ -867,6 +881,19 @@
                         </div>`;
                     } else if(fav.type === 'video') {
                         html += generateVideoCard({title: fav.title, url: fav.url}, fav.meta, fav.id.split('_').pop());
+                    } else if(fav.type === 'folder') {
+                        // Render favorited folder card
+                        html += `
+                        <div class="material-card" style="cursor: pointer; border-left: 4px solid var(--btn-color);" onclick="goToFolderFromFav('${fav.url}', '${fav.title.replace(/'/g,"\\'")}')">
+                            <div class="material-info">
+                                <span class="material-name" style="font-size: 15px;"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ${fav.title}</span>
+                                <span class="material-type">${fav.meta}</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="fav-btn" onclick="event.stopPropagation(); toggleFav('${fav.id}', '${fav.title.replace(/'/g,"\\'")}', '${fav.url}', 'folder', '${fav.meta}')"><i class="${starClass}"></i></button>
+                                <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                            </div>
+                        </div>`;
                     }
                 });
                 container.innerHTML = html;
