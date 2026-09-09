@@ -648,7 +648,9 @@
             res.innerHTML = `🎓 Cumulative CGPA: <span style="color:var(--btn-color)">${cgpa}</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ${tCr}</div>`;
         }
 
-        // --- GLOBAL FETCH & RENDER FOR MATERIALS ---
+        // --- FOLDER / PLAYLIST LOGIC FOR MATERIALS ---
+        let activeFolderContext = null;
+
         async function fetchAllMaterials() {
             document.getElementById('resultsContainer').innerHTML = `<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><br>Loading all materials...</div>`;
             try {
@@ -664,17 +666,53 @@
             const filterCourse = document.getElementById('findCourse').value;
             const filterType = document.getElementById('findType').value;
             
-            let html = ""; let count = 0;
+            let html = ""; 
+            let totalFiles = 0;
+            
+            // 1. Group the materials by Course_Type -> Title (Folder Name)
+            let grouped = {};
+            
             for (const [key, items] of Object.entries(allMaterials)) {
                 const [course, type] = key.split('_');
                 if (filterCourse && course !== filterCourse) continue;
                 if (filterType && type !== filterType) continue;
 
                 items.forEach((item, idx) => {
-                    if (searchQ && !item.name.toLowerCase().includes(searchQ) && !course.toLowerCase().includes(searchQ)) return;
+                    const folderName = item.title || "Other Files"; 
                     
-                    const deepLink = `https://t.me/${BOT_USERNAME}?start=g_${course}_${type}_${idx}`;
-                    const favId = `mat_${course}_${type}_${idx}`;
+                    // Search logic: check item name, folder name, or course code
+                    if (searchQ && !item.name.toLowerCase().includes(searchQ) && !course.toLowerCase().includes(searchQ) && !folderName.toLowerCase().includes(searchQ)) return;
+                    
+                    if (!grouped[key]) grouped[key] = {};
+                    if (!grouped[key][folderName]) grouped[key][folderName] = [];
+                    
+                    grouped[key][folderName].push({ ...item, originalIdx: idx, course, type });
+                    totalFiles++;
+                });
+            }
+
+            if (totalFiles === 0) {
+                container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-folder-open"></i><br>No materials found.</div>`;
+                return;
+            }
+
+            // 2. Are we viewing the inside of a specific folder?
+            if (activeFolderContext) {
+                const { key, folderName } = activeFolderContext;
+                const items = grouped[key]?.[folderName];
+                
+                if (!items) { // If search/filter hides the current folder, reset to view all
+                    activeFolderContext = null;
+                    renderMaterials();
+                    return;
+                }
+
+                html += `<button class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="activeFolderContext=null; renderMaterials();"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>`;
+                html += `<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px;">📁 ${folderName} <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(${items.length} files)</span></div>`;
+
+                items.forEach(item => {
+                    const deepLink = `https://t.me/${BOT_USERNAME}?start=g_${item.course}_${item.type}_${item.originalIdx}`;
+                    const favId = `mat_${item.course}_${item.type}_${item.originalIdx}`;
                     const isStarred = isFav(favId);
                     const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
                     
@@ -682,20 +720,49 @@
                     <div class="material-card">
                         <div class="material-info">
                             <span class="material-name">📄 ${item.name}</span>
-                            <span class="material-type">${course} • ${type}</span>
+                            <span class="material-type">${item.course} • ${item.type}</span>
                         </div>
                         <div class="card-actions">
-                            <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${item.name.replace(/'/g,"\\'")}', '${deepLink}', 'material', '${course} • ${type.toUpperCase()}')"><i class="${starClass}"></i></button>
+                            <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${item.name.replace(/'/g,"\\'")}', '${deepLink}', 'material', '${item.course} • ${item.type.toUpperCase()}')"><i class="${starClass}"></i></button>
                             <a class="dl-btn" href="${deepLink}" target="_blank">Open</a>
                         </div>
                     </div>`;
-                    count++;
                 });
+                container.innerHTML = html;
+                return;
             }
-            if(count === 0) container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-folder-open"></i><br>No materials found.</div>`;
-            else container.innerHTML = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${count} result(s)</div>` + html;
+
+            // 3. Render the Playlist/Folder View (Default)
+            let folderCount = 0;
+            for (const [key, folders] of Object.entries(grouped)) {
+                const [course, type] = key.split('_');
+                for (const [folderName, items] of Object.entries(folders)) {
+                    folderCount++;
+                    html += `
+                    <div class="material-card" style="cursor: pointer; border-left: 4px solid var(--btn-color);" onclick="openFolder('${key}', '${folderName.replace(/'/g,"\\'")}')">
+                        <div class="material-info">
+                            <span class="material-name" style="font-size: 15px;"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ${folderName}</span>
+                            <span class="material-type">${course} • ${type.toUpperCase()} • ${items.length} file(s)</span>
+                        </div>
+                        <div class="card-actions">
+                            <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                        </div>
+                    </div>`;
+                }
+            }
+
+            container.innerHTML = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${folderCount} folder(s)</div>` + html;
         }
-        function filterGlobalMaterials() { renderMaterials(); }
+
+        // Opens the specific folder
+        function openFolder(key, folderName) {
+            activeFolderContext = { key, folderName };
+            renderMaterials();
+        }
+
+        // Automatically leave the folder view if someone searches
+        function filterGlobalMaterials() { activeFolderContext = null; renderMaterials(); }
+
 
         // --- GLOBAL FETCH & RENDER FOR VIDEOS ---
         async function fetchAllVideos() {
@@ -767,7 +834,7 @@
             container.innerHTML = html || "<p style='text-align:center'>No matches found.</p>";
         }
 
-        // Dropdown Cascading Listeners
+        // Dropdown Cascading Listeners (Reset active folders when filters change)
         const upYear = document.getElementById('upYear'), upSem = document.getElementById('upSem'), upCourse = document.getElementById('upCourse'), upType = document.getElementById('upType'), fileInput = document.getElementById('fileInput'), submitBtn = document.getElementById('submitBtn');
         upYear.onchange = () => { upSem.disabled = !upYear.value; upSem.value=""; upCourse.innerHTML='<option value="">Select Course...</option>'; upCourse.disabled=true; upType.disabled=true; fileInput.disabled=true; submitBtn.disabled=true; };
         upSem.onchange = () => { upCourse.innerHTML='<option value="">Select Course...</option>'; if(upYear.value && upSem.value){ curriculum[upYear.value][upSem.value].forEach(c => upCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); upCourse.disabled = false; } else { upCourse.disabled = true; } upType.disabled = true; fileInput.disabled = true; submitBtn.disabled = true; };
@@ -776,10 +843,10 @@
         fileInput.onchange = () => { submitBtn.disabled = !fileInput.files.length; };
 
         const findYear = document.getElementById('findYear'), findSem = document.getElementById('findSem'), findCourse = document.getElementById('findCourse'), findType = document.getElementById('findType');
-        findYear.onchange = () => { findSem.disabled = !findYear.value; findSem.value=""; findCourse.innerHTML='<option value="">Select Course...</option>'; findCourse.disabled=true; findType.disabled=true; renderMaterials(); };
-        findSem.onchange = () => { findCourse.innerHTML='<option value="">Select Course...</option>'; if(findYear.value && findSem.value){ curriculum[findYear.value][findSem.value].forEach(c => findCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); findCourse.disabled = false; } else { findCourse.disabled = true; } findType.disabled = true; renderMaterials(); };
-        findCourse.onchange = () => { findType.disabled = !findCourse.value; renderMaterials(); };
-        findType.onchange = renderMaterials;
+        findYear.onchange = () => { activeFolderContext = null; findSem.disabled = !findYear.value; findSem.value=""; findCourse.innerHTML='<option value="">Select Course...</option>'; findCourse.disabled=true; findType.disabled=true; renderMaterials(); };
+        findSem.onchange = () => { activeFolderContext = null; findCourse.innerHTML='<option value="">Select Course...</option>'; if(findYear.value && findSem.value){ curriculum[findYear.value][findSem.value].forEach(c => findCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); findCourse.disabled = false; } else { findCourse.disabled = true; } findType.disabled = true; renderMaterials(); };
+        findCourse.onchange = () => { activeFolderContext = null; findType.disabled = !findCourse.value; renderMaterials(); };
+        findType.onchange = () => { activeFolderContext = null; renderMaterials(); };
 
         const vidYear = document.getElementById('vidYear'), vidSem = document.getElementById('vidSem'), vidCourse = document.getElementById('vidCourse');
         vidYear.onchange = () => { vidSem.disabled = !vidYear.value; vidSem.value=""; vidCourse.innerHTML='<option value="">Select Course...</option>'; vidCourse.disabled=true; renderVideos(); };
