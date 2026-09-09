@@ -80,10 +80,10 @@
         .fav-btn { background: none; border: none; font-size: 18px; color: #ffb300; padding: 5px; width: auto; cursor: pointer; box-shadow: none; }
         .fav-btn.unstarred { color: var(--hint-color); opacity: 0.5; }
 
-        /* --- BEAUTIFUL FOLDER CARD --- */
+        /* --- BEAUTIFUL FOLDER CARD (LARGER SIZE) --- */
         .folder-card { background: var(--sec-bg); border-radius: 16px; margin-bottom: 15px; display: flex; align-items: center; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.02); cursor: pointer; transition: transform 0.15s ease; }
         .folder-card:active { transform: scale(0.97); }
-        .folder-thumb { position: relative; width: 60px; height: 60px; border-radius: 12px; overflow: hidden; margin-right: 15px; flex-shrink: 0; background: linear-gradient(135deg, var(--btn-color), #00c6ff); box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+        .folder-thumb { position: relative; width: 120px; height: 80px; border-radius: 8px; overflow: hidden; margin-right: 15px; flex-shrink: 0; background: linear-gradient(135deg, var(--btn-color), #00c6ff); box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
         .folder-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.95; transition: transform 0.3s ease; }
         .folder-card:hover .folder-thumb img { transform: scale(1.1); }
         .folder-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
@@ -913,7 +913,7 @@
                         html += `
                         <div class="folder-card" onclick="goToFolderFromFav('${fav.url}', '${fav.title.replace(/'/g,"\\'")}')">
                             <div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);">
-                                <i class="fa-solid fa-star" style="font-size:24px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
+                                <i class="fa-solid fa-star" style="font-size:30px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
                             </div>
                             <div class="folder-info">
                                 <div class="folder-title">${fav.title}</div>
@@ -937,7 +937,7 @@
                 html += `
                 <div class="folder-card" onclick="openFavFolder('${folderName.replace(/'/g,"\\'")}')">
                     <div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);">
-                        <i class="fa-solid fa-star" style="font-size:24px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
+                        <i class="fa-solid fa-star" style="font-size:30px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
                     </div>
                     <div class="folder-info">
                         <div class="folder-title">${folderName}</div>
