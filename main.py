@@ -3,6 +3,7 @@ import json
 import base64
 import requests
 import telebot
+from datetime import datetime
 from telebot.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
@@ -128,12 +129,17 @@ def save_material_batch(course_code, mat_type, files, title, thumbnail_url=None)
     key = f"{course_code}_{mat_type}"
     if key not in data:
         data[key] = []
+        
+    # Get current date (e.g., Sep 09, 2026)
+    date_str = datetime.now().strftime("%b %d, %Y")
+    
     for f in files:
         item = {
             "file_id": f["file_id"],
             "name": title if len(files) == 1 else f"{title} - {f['file_name']}",
             "content_type": f["content_type"],
             "title": title,
+            "date_added": date_str  # ADDED DATE HERE
         }
         if thumbnail_url:
             item["thumbnail_url"] = thumbnail_url
@@ -164,7 +170,9 @@ def add_approved_video(course_code, title, url):
     data = load_json(VIDEOS_FILE)
     if course_code not in data:
         data[course_code] = []
-    data[course_code].append({"title": title, "url": url})
+        
+    date_str = datetime.now().strftime("%b %d, %Y")
+    data[course_code].append({"title": title, "url": url, "date_added": date_str})  # ADDED DATE HERE
     return save_json(VIDEOS_FILE, data)
 
 
