@@ -39,6 +39,31 @@ def _github_headers():
     }
 
 
+def save_image_to_github(file_bytes, ext="jpg"):
+    """Saves a raw image file to GitHub and returns the direct image URL"""
+    filename = f"thumbnails/{os.urandom(4).hex()}.{ext}"
+    try:
+        encoded = base64.b64encode(file_bytes).decode("utf-8")
+        payload = {
+            "message": "Upload folder thumbnail",
+            "content": encoded,
+            "branch": GITHUB_BRANCH,
+        }
+        put_resp = requests.put(
+            f"{GITHUB_API_BASE}/{filename}",
+            headers=_github_headers(),
+            json=payload,
+            timeout=10,
+        )
+        if put_resp.status_code in (200, 201):
+            return f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/{filename}"
+        print(f"GitHub image save failed: {put_resp.status_code} {put_resp.text}")
+        return None
+    except Exception as e:
+        print(f"GitHub image save error: {e}")
+        return None
+
+
 def load_json(filename):
     try:
         resp = requests.get(
@@ -97,28 +122,22 @@ def save_json(filename, data):
         return False
 
 
-def save_material(course_code, mat_type, file_id, file_name, content_type="document"):
-    data = load_json(DATA_FILE)
-    key = f"{course_code}_{mat_type}"
-    if key not in data:
-        data[key] = []
-    data[key].append({"file_id": file_id, "name": file_name, "content_type": content_type})
-    return save_json(DATA_FILE, data)
-
-
-def save_material_batch(course_code, mat_type, files, title):
+def save_material_batch(course_code, mat_type, files, title, thumbnail_url=None):
     """Save multiple files as one titled batch in a single GitHub write."""
     data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
     if key not in data:
         data[key] = []
     for f in files:
-        data[key].append({
+        item = {
             "file_id": f["file_id"],
             "name": title if len(files) == 1 else f"{title} - {f['file_name']}",
             "content_type": f["content_type"],
             "title": title,
-        })
+        }
+        if thumbnail_url:
+            item["thumbnail_url"] = thumbnail_url
+        data[key].append(item)
     return save_json(DATA_FILE, data)
 
 
@@ -516,7 +535,7 @@ def handle_query(call):
         if state["action"] == "admin":
             state["awaiting_title"] = True
             bot.edit_message_text(
-                f"✏️ Got {len(files)} file(s). Please type a *title* for this material.",
+                f"✏️ Got {len(files)} file(s). Please type a *title* for this folder.",
                 chat_id=chat_id,
                 message_id=call.message.message_id,
                 parse_mode="Markdown"
@@ -617,7 +636,8 @@ def handle_media(message):
     
     state = UPLOAD_STATES[chat_id]
     
-    if state.get("awaiting_title"):
+    # Do not process media if we are waiting for the title or thumbnail
+    if state.get("awaiting_title") or state.get("awaiting_thumbnail"):
         return
 
     file_id = None
@@ -703,9 +723,48 @@ def handle_title_input(message):
         bot.send_message(chat_id, "Please send a non-empty title.")
         return
 
+    # Move to thumbnail upload state
+    state["title"] = title
+    state["awaiting_title"] = False
+    state["awaiting_thumbnail"] = True
+
+    bot.send_message(
+        chat_id,
+        f"✅ Title saved as **{title}**.\n\n"
+        f"🖼️ **Now, please send a PHOTO to use as the Folder Thumbnail.**\n"
+        f"(Or type /skip to just use the default notebook image)",
+        parse_mode="Markdown"
+    )
+
+
+@bot.message_handler(
+    content_types=['photo', 'text'],
+    func=lambda m: UPLOAD_STATES.get(m.chat.id, {}).get("awaiting_thumbnail")
+)
+def handle_thumbnail_input(message):
+    chat_id = message.chat.id
+    state = UPLOAD_STATES[chat_id]
+    title = state.get("title", "Untitled")
     files = state["files"]
-    bot.send_message(chat_id, f"🔄 Saving \"{title}\" ({len(files)} file(s))...")
-    process_files(chat_id, files, state, message.from_user, title=title)
+    
+    thumbnail_url = None
+
+    if message.content_type == 'text':
+        if message.text.strip().lower() == '/skip':
+            bot.send_message(chat_id, "⏭️ Skipped thumbnail. Using default image.")
+        else:
+            bot.send_message(chat_id, "⚠️ Please send a valid photo, or type /skip.")
+            return
+    elif message.content_type == 'photo':
+        bot.send_message(chat_id, "🔄 Uploading thumbnail securely to your GitHub database...")
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        thumbnail_url = save_image_to_github(downloaded_file)
+        if not thumbnail_url:
+            bot.send_message(chat_id, "⚠️ Failed to save image to GitHub. Will use the default image instead.")
+    
+    bot.send_message(chat_id, f"🔄 Saving \"{title}\" folder ({len(files)} file(s))...")
+    process_files(chat_id, files, state, message.from_user, title=title, thumbnail_url=thumbnail_url)
     UPLOAD_STATES.pop(chat_id, None)
 
 
@@ -738,13 +797,13 @@ def send_as_album(chat_id, files, caption=None):
             bot.send_media_group(chat_id, media)
 
 
-def process_files(chat_id, files, state, user, title=None):
+def process_files(chat_id, files, state, user, title=None, thumbnail_url=None):
     course_code = state["course_code"]
     material_type = state["material_type"]
     action = state["action"]
 
     if action == "admin":
-        ok = save_material_batch(course_code, material_type, files, title or "Untitled")
+        ok = save_material_batch(course_code, material_type, files, title or "Untitled", thumbnail_url)
         if ok:
             bot.send_message(chat_id, f"✅ Saved \"{title}\" ({len(files)} file(s)) under {course_code} ({material_type.upper()})!")
             send_as_album(chat_id, files, caption=title)
