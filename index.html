@@ -274,7 +274,7 @@
     <div id="favsSection" class="section">
         <div class="search-box" id="favSearchBox" style="display: block;">
             <i class="fa-solid fa-magnifying-glass"></i>
-            <input type="text" id="favSearchInput" placeholder="Search your favorites..." oninput="renderFavs()">
+            <input type="text" id="favSearchInput" placeholder="Search your favorites..." oninput="activeFavFolder=null; renderFavs();">
         </div>
         <div id="favsContainer"></div>
     </div>
@@ -360,7 +360,11 @@
                 document.getElementById('gameSection').classList.add('active');
                 if(xoBoard.length === 0) setGridSize(4);
             }
-            else if(sec === 'favs') { document.getElementById('favsSection').classList.add('active'); renderFavs(); }
+            else if(sec === 'favs') { 
+                document.getElementById('favsSection').classList.add('active'); 
+                activeFavFolder = null; // Reset folder view when opening favs
+                renderFavs(); 
+            }
             else if(sec === 'addVideo') document.getElementById('addVideoSection').classList.add('active');
             
             document.getElementById('navTitle').innerHTML = sectionTitles[sec] || sectionTitles['menu'];
@@ -369,6 +373,8 @@
 
         // --- FAVORITES LOGIC ---
         let favorites = JSON.parse(localStorage.getItem('astu_ece_favs')) || [];
+        let activeFavFolder = null; // Added tracking for favorite folders
+
         function isFav(id) { return favorites.some(f => f.id === id); }
         function toggleFav(id, title, url, type, meta) {
             const index = favorites.findIndex(f => f.id === id);
@@ -680,7 +686,6 @@
                 items.forEach((item, idx) => {
                     const folderName = item.title || "Other Files"; 
                     
-                    // Search logic: check item name, folder name, or course code
                     if (searchQ && !item.name.toLowerCase().includes(searchQ) && !course.toLowerCase().includes(searchQ) && !folderName.toLowerCase().includes(searchQ)) return;
                     
                     if (!grouped[key]) grouped[key] = {};
@@ -701,7 +706,7 @@
                 const { key, folderName } = activeFolderContext;
                 const items = grouped[key]?.[folderName];
                 
-                if (!items) { // If search/filter hides the current folder, reset to view all
+                if (!items) { 
                     activeFolderContext = null;
                     renderMaterials();
                     return;
@@ -754,13 +759,10 @@
             container.innerHTML = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${folderCount} folder(s)</div>` + html;
         }
 
-        // Opens the specific folder
         function openFolder(key, folderName) {
             activeFolderContext = { key, folderName };
             renderMaterials();
         }
-
-        // Automatically leave the folder view if someone searches
         function filterGlobalMaterials() { activeFolderContext = null; renderMaterials(); }
 
 
@@ -797,7 +799,12 @@
         }
         function filterGlobalVideos() { renderVideos(); }
 
-        // --- Render Favorites ---
+        // --- Render Favorites (WITH FOLDERS) ---
+        function openFavFolder(folderName) {
+            activeFavFolder = folderName;
+            renderFavs();
+        }
+
         function renderFavs() {
             const container = document.getElementById('favsContainer');
             const searchInput = document.getElementById('favSearchInput').value.toLowerCase();
@@ -806,35 +813,86 @@
             if(favorites.length === 0) {
                 container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-star"></i><br>No favorites yet.<br>Click the star on any material or video to save it here!</div>`;
                 document.getElementById('favSearchBox').style.display = 'none';
+                activeFavFolder = null;
                 return;
             }
 
             document.getElementById('favSearchBox').style.display = 'block';
             let html = "";
+            let totalMatches = 0;
+
+            // 1. Group the Favorites by their Course (meta) tag
+            let groupedFavs = {};
             favorites.forEach(fav => {
                 if(searchInput && !fav.title.toLowerCase().includes(searchInput) && !fav.meta.toLowerCase().includes(searchInput)) return;
                 
-                const starClass = "fa-solid fa-star";
-                if(fav.type === 'material') {
-                    html += `
-                    <div class="material-card">
-                        <div class="material-info">
-                            <span class="material-name">📄 ${fav.title}</span>
-                            <span class="material-type">${fav.meta}</span>
-                        </div>
-                        <div class="card-actions">
-                            <button class="fav-btn" onclick="toggleFav('${fav.id}', '${fav.title.replace(/'/g,"\\'")}', '${fav.url}', 'material', '${fav.meta}')"><i class="${starClass}"></i></button>
-                            <a class="dl-btn" href="${fav.url}" target="_blank">Open</a>
-                        </div>
-                    </div>`;
-                } else if(fav.type === 'video') {
-                    html += generateVideoCard({title: fav.title, url: fav.url}, fav.meta, fav.id.split('_').pop());
-                }
+                let folderName = fav.meta || "Other Saved Items";
+                if (!groupedFavs[folderName]) groupedFavs[folderName] = [];
+                groupedFavs[folderName].push(fav);
+                totalMatches++;
             });
-            container.innerHTML = html || "<p style='text-align:center'>No matches found.</p>";
+
+            if (totalMatches === 0) {
+                container.innerHTML = "<p style='text-align:center'>No matches found.</p>";
+                return;
+            }
+
+            // 2. Are we viewing the inside of a specific favorite folder?
+            if (activeFavFolder) {
+                const items = groupedFavs[activeFavFolder];
+                
+                // If user unfavorited everything in this folder, reset to main view
+                if (!items || items.length === 0) {
+                    activeFavFolder = null;
+                    renderFavs();
+                    return;
+                }
+
+                html += `<button class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="activeFavFolder=null; renderFavs();"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>`;
+                html += `<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px;">📁 ${activeFavFolder} <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(${items.length} saved)</span></div>`;
+
+                items.forEach(fav => {
+                    const starClass = "fa-solid fa-star";
+                    if(fav.type === 'material') {
+                        html += `
+                        <div class="material-card">
+                            <div class="material-info">
+                                <span class="material-name">📄 ${fav.title}</span>
+                                <span class="material-type">${fav.meta}</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="fav-btn" onclick="toggleFav('${fav.id}', '${fav.title.replace(/'/g,"\\'")}', '${fav.url}', 'material', '${fav.meta}')"><i class="${starClass}"></i></button>
+                                <a class="dl-btn" href="${fav.url}" target="_blank">Open</a>
+                            </div>
+                        </div>`;
+                    } else if(fav.type === 'video') {
+                        html += generateVideoCard({title: fav.title, url: fav.url}, fav.meta, fav.id.split('_').pop());
+                    }
+                });
+                container.innerHTML = html;
+                return;
+            }
+
+            // 3. Render the Favorites Folder View
+            let folderCount = 0;
+            for (const [folderName, items] of Object.entries(groupedFavs)) {
+                folderCount++;
+                html += `
+                <div class="material-card" style="cursor: pointer; border-left: 4px solid #ffb300;" onclick="openFavFolder('${folderName.replace(/'/g,"\\'")}')">
+                    <div class="material-info">
+                        <span class="material-name" style="font-size: 15px;"><i class="fa-solid fa-folder" style="color:#ffb300; margin-right:6px;"></i> ${folderName}</span>
+                        <span class="material-type">${items.length} saved item(s)</span>
+                    </div>
+                    <div class="card-actions">
+                        <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                    </div>
+                </div>`;
+            }
+
+            container.innerHTML = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${folderCount} saved folder(s)</div>` + html;
         }
 
-        // Dropdown Cascading Listeners (Reset active folders when filters change)
+        // Dropdown Cascading Listeners
         const upYear = document.getElementById('upYear'), upSem = document.getElementById('upSem'), upCourse = document.getElementById('upCourse'), upType = document.getElementById('upType'), fileInput = document.getElementById('fileInput'), submitBtn = document.getElementById('submitBtn');
         upYear.onchange = () => { upSem.disabled = !upYear.value; upSem.value=""; upCourse.innerHTML='<option value="">Select Course...</option>'; upCourse.disabled=true; upType.disabled=true; fileInput.disabled=true; submitBtn.disabled=true; };
         upSem.onchange = () => { upCourse.innerHTML='<option value="">Select Course...</option>'; if(upYear.value && upSem.value){ curriculum[upYear.value][upSem.value].forEach(c => upCourse.innerHTML += `<option value="${c.code}">${c.title}</option>`); upCourse.disabled = false; } else { upCourse.disabled = true; } upType.disabled = true; fileInput.disabled = true; submitBtn.disabled = true; };
