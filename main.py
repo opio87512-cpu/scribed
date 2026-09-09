@@ -710,6 +710,42 @@ def process_admin_add_video(message, course_code):
         bot.reply_to(message, f"⚠️ Failed to save video to GitHub. Please check your token or server logs.")
 
 
+def handle_thumbnail_input(message):
+    chat_id = message.chat.id
+    state = UPLOAD_STATES.get(chat_id)
+    
+    if not state:
+        return
+        
+    title = state.get("title", "Untitled")
+    files = state["files"]
+    
+    thumbnail_url = None
+
+    if message.content_type == 'text':
+        if message.text.strip().lower() == '/skip':
+            bot.send_message(chat_id, "⏭️ Skipped thumbnail. Using default image.")
+        else:
+            msg = bot.send_message(chat_id, "⚠️ Please send a valid photo, or type /skip.")
+            bot.register_next_step_handler(msg, handle_thumbnail_input)
+            return
+    elif message.content_type == 'photo':
+        bot.send_message(chat_id, "🔄 Uploading thumbnail securely to your GitHub database...")
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        thumbnail_url = save_image_to_github(downloaded_file)
+        if not thumbnail_url:
+            bot.send_message(chat_id, "⚠️ Failed to save image to GitHub. Will use the default image instead.")
+    else:
+        msg = bot.send_message(chat_id, "⚠️ Please send a PHOTO as a compressed image, or type /skip.")
+        bot.register_next_step_handler(msg, handle_thumbnail_input)
+        return
+    
+    bot.send_message(chat_id, f"🔄 Saving \"{title}\" folder ({len(files)} file(s))...")
+    process_files(chat_id, files, state, message.from_user, title=title, thumbnail_url=thumbnail_url)
+    UPLOAD_STATES.pop(chat_id, None)
+
+
 @bot.message_handler(
     content_types=['text'],
     func=lambda m: UPLOAD_STATES.get(m.chat.id, {}).get("awaiting_title") and not m.text.startswith('/')
@@ -728,44 +764,14 @@ def handle_title_input(message):
     state["awaiting_title"] = False
     state["awaiting_thumbnail"] = True
 
-    bot.send_message(
+    msg = bot.send_message(
         chat_id,
         f"✅ Title saved as **{title}**.\n\n"
         f"🖼️ **Now, please send a PHOTO to use as the Folder Thumbnail.**\n"
         f"(Or type /skip to just use the default notebook image)",
         parse_mode="Markdown"
     )
-
-
-@bot.message_handler(
-    content_types=['photo', 'text'],
-    func=lambda m: UPLOAD_STATES.get(m.chat.id, {}).get("awaiting_thumbnail")
-)
-def handle_thumbnail_input(message):
-    chat_id = message.chat.id
-    state = UPLOAD_STATES[chat_id]
-    title = state.get("title", "Untitled")
-    files = state["files"]
-    
-    thumbnail_url = None
-
-    if message.content_type == 'text':
-        if message.text.strip().lower() == '/skip':
-            bot.send_message(chat_id, "⏭️ Skipped thumbnail. Using default image.")
-        else:
-            bot.send_message(chat_id, "⚠️ Please send a valid photo, or type /skip.")
-            return
-    elif message.content_type == 'photo':
-        bot.send_message(chat_id, "🔄 Uploading thumbnail securely to your GitHub database...")
-        file_info = bot.get_file(message.photo[-1].file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        thumbnail_url = save_image_to_github(downloaded_file)
-        if not thumbnail_url:
-            bot.send_message(chat_id, "⚠️ Failed to save image to GitHub. Will use the default image instead.")
-    
-    bot.send_message(chat_id, f"🔄 Saving \"{title}\" folder ({len(files)} file(s))...")
-    process_files(chat_id, files, state, message.from_user, title=title, thumbnail_url=thumbnail_url)
-    UPLOAD_STATES.pop(chat_id, None)
+    bot.register_next_step_handler(msg, handle_thumbnail_input)
 
 
 def send_as_album(chat_id, files, caption=None):
