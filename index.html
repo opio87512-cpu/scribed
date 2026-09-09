@@ -80,16 +80,18 @@
         .fav-btn { background: none; border: none; font-size: 18px; color: #ffb300; padding: 5px; width: auto; cursor: pointer; box-shadow: none; }
         .fav-btn.unstarred { color: var(--hint-color); opacity: 0.5; }
 
-        /* --- BEAUTIFUL FOLDER CARD (LARGER SIZE) --- */
-        .folder-card { background: var(--sec-bg); border-radius: 16px; margin-bottom: 15px; display: flex; align-items: center; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.02); cursor: pointer; transition: transform 0.15s ease; }
-        .folder-card:active { transform: scale(0.97); }
-        .folder-thumb { position: relative; width: 120px; height: 80px; border-radius: 8px; overflow: hidden; margin-right: 15px; flex-shrink: 0; background: linear-gradient(135deg, var(--btn-color), #00c6ff); box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+        /* --- BEAUTIFUL FOLDER CARD (YOUTUBE SIZE) --- */
+        .folder-card { background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px; display: block; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.02); cursor: pointer; transition: transform 0.15s ease; }
+        .folder-card:active { transform: scale(0.98); }
+        .folder-thumb { position: relative; width: 100%; aspect-ratio: 16 / 9; background: linear-gradient(135deg, var(--btn-color), #00c6ff); }
         .folder-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.95; transition: transform 0.3s ease; }
-        .folder-card:hover .folder-thumb img { transform: scale(1.1); }
-        .folder-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-        .folder-title { font-weight: 700; font-size: 15px; color: var(--text-color); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .folder-card:hover .folder-thumb img { transform: scale(1.05); }
+
+        .folder-bottom { display: flex; padding: 12px 15px; align-items: flex-start; justify-content: space-between; }
+        .folder-info { flex: 1; display: flex; flex-direction: column; gap: 4px; padding-right: 10px;}
+        .folder-title { font-weight: 700; font-size: 16px; color: var(--text-color); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .folder-meta { font-size: 12px; color: var(--hint-color); font-weight: 600; text-transform: uppercase; }
-        .folder-actions { display: flex; align-items: center; gap: 10px; margin-left: 10px; }
+        .folder-actions { display: flex; align-items: center; gap: 12px; padding-top: 2px;}
 
         /* --- YOUTUBE VIDEO CARD --- */
         .yt-card { display: block; background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px; overflow: hidden; text-decoration: none; color: var(--text-color); box-shadow: 0 4px 15px rgba(0,0,0,0.06); }
@@ -338,6 +340,8 @@
         let allMaterials = {};
         let allVideos = {};
         
+        const defaultThumb = "https://images.unsplash.com/photo-1456406644174-8ddd4cd52a06?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80";
+
         // --- UNIFIED MENU CONTROLLER ---
         const sectionTitles = {
             'menu': '<i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal',
@@ -780,20 +784,22 @@
                     for (let item of items) {
                         if (item.thumbnail_url) { customThumb = item.thumbnail_url; break; }
                     }
-                    const finalThumb = customThumb ? customThumb : "https://images.unsplash.com/photo-1456406644174-8ddd4cd52a06?ixlib=rb-4.0.3&auto=format&fit=crop&w=200&q=80";
+                    const finalThumb = customThumb ? customThumb : defaultThumb;
 
                     html += `
                     <div class="folder-card" onclick="openFolder('${key}', '${folderName.replace(/'/g,"\\'")}')">
                         <div class="folder-thumb">
-                            <img src="${finalThumb}" alt="Folder Image">
+                            <img src="${finalThumb}" alt="Folder Image" onerror="this.onerror=null; this.src='${defaultThumb}';">
                         </div>
-                        <div class="folder-info">
-                            <div class="folder-title">${folderName}</div>
-                            <div class="folder-meta">${metaData} • ${items.length} file(s)</div>
-                        </div>
-                        <div class="folder-actions">
-                            <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="event.stopPropagation(); toggleFav('${favId}', '${folderName.replace(/'/g,"\\'")}', '${key}', 'folder', '${metaData}')"><i class="${starClass}"></i></button>
-                            <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                        <div class="folder-bottom">
+                            <div class="folder-info">
+                                <div class="folder-title"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ${folderName}</div>
+                                <div class="folder-meta">${metaData} • ${items.length} file(s)</div>
+                            </div>
+                            <div class="folder-actions">
+                                <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="event.stopPropagation(); toggleFav('${favId}', '${folderName.replace(/'/g,"\\'")}', '${key}', 'folder', '${metaData}')"><i class="${starClass}"></i></button>
+                                <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                            </div>
                         </div>
                     </div>`;
                 }
@@ -913,15 +919,17 @@
                         html += `
                         <div class="folder-card" onclick="goToFolderFromFav('${fav.url}', '${fav.title.replace(/'/g,"\\'")}')">
                             <div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);">
-                                <i class="fa-solid fa-star" style="font-size:30px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
+                                <i class="fa-solid fa-star" style="font-size:45px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
                             </div>
-                            <div class="folder-info">
-                                <div class="folder-title">${fav.title}</div>
-                                <div class="folder-meta">${fav.meta}</div>
-                            </div>
-                            <div class="folder-actions">
-                                <button class="fav-btn" onclick="event.stopPropagation(); toggleFav('${fav.id}', '${fav.title.replace(/'/g,"\\'")}', '${fav.url}', 'folder', '${fav.meta}')"><i class="${starClass}"></i></button>
-                                <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                            <div class="folder-bottom">
+                                <div class="folder-info">
+                                    <div class="folder-title"><i class="fa-solid fa-folder" style="color:#ffb300; margin-right:6px;"></i> ${fav.title}</div>
+                                    <div class="folder-meta">${fav.meta}</div>
+                                </div>
+                                <div class="folder-actions">
+                                    <button class="fav-btn" onclick="event.stopPropagation(); toggleFav('${fav.id}', '${fav.title.replace(/'/g,"\\'")}', '${fav.url}', 'folder', '${fav.meta}')"><i class="${starClass}"></i></button>
+                                    <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                                </div>
                             </div>
                         </div>`;
                     }
@@ -937,14 +945,16 @@
                 html += `
                 <div class="folder-card" onclick="openFavFolder('${folderName.replace(/'/g,"\\'")}')">
                     <div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);">
-                        <i class="fa-solid fa-star" style="font-size:30px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
+                        <i class="fa-solid fa-star" style="font-size:45px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
                     </div>
-                    <div class="folder-info">
-                        <div class="folder-title">${folderName}</div>
-                        <div class="folder-meta">${items.length} saved item(s)</div>
-                    </div>
-                    <div class="folder-actions">
-                        <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                    <div class="folder-bottom">
+                        <div class="folder-info">
+                            <div class="folder-title"><i class="fa-solid fa-folder" style="color:#ffb300; margin-right:6px;"></i> ${folderName}</div>
+                            <div class="folder-meta">${items.length} saved item(s)</div>
+                        </div>
+                        <div class="folder-actions">
+                            <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                        </div>
                     </div>
                 </div>`;
             }
