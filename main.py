@@ -31,6 +31,8 @@ GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
 
 DATA_FILE = "materials.json"
 VIDEOS_FILE = "videos.json"
+SUBS_FILE = "subs.json"
+EXAMS_FILE = "exams.json"
 
 
 def _github_headers():
@@ -504,6 +506,22 @@ def send_welcome(message):
     bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu_keyboard())
 
 
+@bot.message_handler(commands=['setexam'])
+def admin_set_exam(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split(maxsplit=3)
+    if len(parts) < 4:
+        bot.reply_to(message, "Usage: /setexam [CourseCode] [YYYY-MM-DD] [Exam Title]")
+        return
+    code, date_str, title = parts[1], parts[2], parts[3]
+    
+    data = load_json(EXAMS_FILE)
+    data[code] = {"date": date_str, "title": title}
+    save_json(EXAMS_FILE, data)
+    bot.reply_to(message, f"✅ Countdown for '{title}' ({code}) set to {date_str}.")
+
+
 @bot.message_handler(commands=['addfile'])
 def admin_add_file_start(message):
     if message.from_user.id not in ADMIN_IDS:
@@ -889,19 +907,24 @@ def process_admin_add_video(message, course_code):
     ok = add_approved_video(course_code, title, url)
     if ok:
         bot.reply_to(message, f"✅ Successfully added video '{title}' to {course_code}!")
-        try:
-            CHANNEL_USERNAME = "@astuece_updates"  # <-- Change to your channel username
+        
+        # --- BOT DIRECT MESSAGE NOTIFICATIONS ---
+        subs = load_json(SUBS_FILE).get(course_code, [])
+        if subs:
             alert = (
-                f"📺 **New Video Added!**\n\n"
+                f"📺 **New Tutorial Video!**\n\n"
                 f"📚 **Course:** {course_code}\n"
                 f"📝 **Title:** {title}\n\n"
-                f"Open the Web App to watch it!"
+                f"Open the Portal to watch it."
             )
             markup = InlineKeyboardMarkup()
             markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
-            bot.send_message(CHANNEL_USERNAME, alert, parse_mode="Markdown", reply_markup=markup)
-        except Exception:
-            pass
+            
+            for uid in subs:
+                try:
+                    bot.send_message(uid, alert, parse_mode="Markdown", reply_markup=markup)
+                except Exception:
+                    pass
     else:
         bot.reply_to(message, f"⚠️ Failed to save video to GitHub. Please check your token or server logs.")
 
@@ -968,20 +991,24 @@ def process_files(chat_id, files, state, user, title=None):
             bot.send_message(chat_id, f"✅ Saved \"{title}\" ({len(files)} file(s)) under {course_code} ({material_type.upper()})!")
             send_as_album(chat_id, files, caption=title)
 
-            try:
-                CHANNEL_USERNAME = "@astuece_updates"  # <-- Change to your channel username
+            # --- BOT DIRECT MESSAGE NOTIFICATIONS ---
+            subs = load_json(SUBS_FILE).get(course_code, [])
+            if subs:
                 alert = (
-                    f"🆕 **New Material Uploaded!**\n\n"
+                    f"🔔 **New Material Added!**\n\n"
                     f"📚 **Course:** {course_code}\n"
                     f"📂 **Type:** {material_type.upper()}\n"
                     f"📝 **Title:** {title or 'Untitled'}\n\n"
-                    f"Open the Web App to download it!"
+                    f"Open the Portal to download it."
                 )
                 markup = InlineKeyboardMarkup()
                 markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
-                bot.send_message(CHANNEL_USERNAME, alert, parse_mode="Markdown", reply_markup=markup)
-            except Exception:
-                pass
+                
+                for uid in subs:
+                    try:
+                        bot.send_message(uid, alert, parse_mode="Markdown", reply_markup=markup)
+                    except Exception:
+                        pass 
 
         else:
             bot.send_message(chat_id, "⚠️ Failed to save to GitHub. Please try again.")
@@ -1026,19 +1053,39 @@ def getMessage():
 def handle_webapp_upload():
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
+    
     file = request.files['file']
     course = request.form.get('course', 'Unknown')
     mat_type = request.form.get('type', 'Unknown')
     username = request.form.get('username', 'Student')
-
-    admin_text = f"🌐 WEB APP File Upload from {username}\n\nCourse: {course}\nType: {mat_type.upper()}"
-    file_data = file.read()
-
-    for admin in ADMIN_IDS:
-        try:
-            bot.send_document(admin, file_data, caption=admin_text, visible_file_name=file.filename)
-        except Exception:
-            pass
+    chat_id_str = request.form.get('chat_id', '') 
+    
+    admin_text = f"🌐 WEB APP Upload from {username}\nCourse: {course}\nType: {mat_type.upper()}"
+    try:
+        # 1. Send to primary admin to generate Telegram file_id
+        msg = bot.send_document(ADMIN_IDS[0], file.read(), caption=admin_text, visible_file_name=file.filename)
+        file_id = msg.document.file_id
+        
+        # 2. Add to standard approval queue
+        req_id = os.urandom(4).hex()
+        PENDING_UPLOADS[req_id] = {
+            "course_code": course,
+            "material_type": mat_type,
+            "files": [{"file_id": file_id, "file_name": file.filename, "content_type": "document"}],
+            "chat_id": int(chat_id_str) if chat_id_str.isdigit() else ADMIN_IDS[0],
+            "username": username,
+        }
+        
+        # 3. Trigger approval keyboard
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("✅ Approve", callback_data=f"approve_upload_{req_id}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"reject_upload_{req_id}"),
+        )
+        bot.send_message(ADMIN_IDS[0], "Review the above web upload:", reply_markup=markup)
+                
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
     return jsonify({"status": "success"}), 200
 
@@ -1081,6 +1128,35 @@ def get_materials():
 @app.route('/api/videos', methods=['GET'])
 def get_videos():
     return jsonify(load_json(VIDEOS_FILE)), 200
+
+@app.route('/api/subscribe', methods=['POST'])
+def handle_subscribe():
+    data = request.json
+    chat_id = str(data.get('chat_id'))
+    course = data.get('course')
+    is_subbing = data.get('subscribe', True)
+    
+    subs = load_json(SUBS_FILE)
+    if course not in subs: subs[course] = []
+    
+    if is_subbing and chat_id not in subs[course]:
+        subs[course].append(chat_id)
+    elif not is_subbing and chat_id in subs[course]:
+        subs[course].remove(chat_id)
+        
+    save_json(SUBS_FILE, subs)
+    return jsonify({"status": "success"}), 200
+
+@app.route('/api/subscriptions', methods=['GET'])
+def get_subs():
+    chat_id = request.args.get('chat_id')
+    subs = load_json(SUBS_FILE)
+    user_subs = [course for course, users in subs.items() if str(chat_id) in users]
+    return jsonify(user_subs), 200
+
+@app.route('/api/exams', methods=['GET'])
+def get_exams():
+    return jsonify(load_json(EXAMS_FILE)), 200
 
 @app.route("/")
 def webhook():
