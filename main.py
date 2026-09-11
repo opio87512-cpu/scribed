@@ -156,6 +156,40 @@ def add_approved_video(course_code, title, url):
     return save_json(VIDEOS_FILE, data)
 
 
+def _notify_all_subscribers(title, date_str, link):
+    """Send a DM alert to every unique user who is subscribed to at least one course."""
+    try:
+        all_subs = load_json(SUBS_FILE)
+        notified = set()
+        markup = InlineKeyboardMarkup()
+        markup.row(InlineKeyboardButton("📰 Read Post", url=link))
+        markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
+
+        alert = (
+            f"📢 *New Announcement*\n\n"
+            f"📌 *{title}*\n"
+            f"🗓 {date_str}"
+        )
+
+        for course, uids in all_subs.items():
+            for uid in uids:
+                if uid in notified:
+                    continue
+                notified.add(uid)
+                try:
+                    bot.send_message(
+                        uid,
+                        alert,
+                        parse_mode="Markdown",
+                        reply_markup=markup,
+                        disable_web_page_preview=True,
+                    )
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"News notify error: {e}")
+
+
 # --- CURRICULUM DATABASE ---
 CURRICULUM = {
     "2": {
@@ -546,20 +580,108 @@ def admin_delete_exam(message):
 
 @bot.message_handler(commands=['setnews'])
 def admin_set_news(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    text = message.text.replace("/setnews", "").strip()
-    if not text:
-        bot.reply_to(message, "Usage: /setnews [Your announcement message]\nExample: /setnews Registration for Year II starts tomorrow!")
+    if message.from_user.id not in ADMIN_IDS:
         return
-    save_json(NEWS_FILE, {"text": text})
-    bot.reply_to(message, "✅ News banner updated on the main menu!")
+    # New format: /setnews Title | https://t.me/channel/123
+    # Or reply to a forwarded channel post with /setnews Title
+    raw = message.text.replace("/setnews", "").strip()
+
+    link = None
+    title = raw
+
+    # Option 1: reply to a forwarded channel post
+    if message.reply_to_message and getattr(message.reply_to_message, "forward_from_chat", None):
+        chat = message.reply_to_message.forward_from_chat
+        msg_id = message.reply_to_message.forward_from_message_id
+        if chat.username:
+            link = f"https://t.me/{chat.username}/{msg_id}"
+        else:
+            # Private channel — build c/ link using internal id
+            internal = str(chat.id)
+            if internal.startswith("-100"):
+                internal = internal[4:]
+            else:
+                internal = internal.lstrip("-")
+            link = f"https://t.me/c/{internal}/{msg_id}"
+        if not raw:
+            title = "Announcement"
+    elif "|" in raw:
+        parts = raw.split("|", 1)
+        title = parts[0].strip()
+        link = parts[1].strip()
+
+    if not title or not link:
+        bot.reply_to(
+            message,
+            "⚠️ *Invalid format.*\n\n"
+            "Usage Option 1 (fast):\n"
+            "`/setnews Your Title | https://t.me/channel/123`\n\n"
+            "Usage Option 2 (reply to a forwarded post):\n"
+            "1. Forward a post from your channel here\n"
+            "2. Reply to it with `/setnews Your Title`",
+            parse_mode="Markdown",
+            disable_web_page_preview=True,
+        )
+        return
+
+    news_list = load_json(NEWS_FILE)
+    if not isinstance(news_list, list):
+        news_list = []
+
+    item = {
+        "id": os.urandom(4).hex(),
+        "title": title,
+        "link": link,
+        "date": datetime.now().strftime("%b %d, %Y - %H:%M"),
+    }
+    news_list.insert(0, item)      # newest first
+    news_list = news_list[:20]     # keep last 20 entries
+    save_json(NEWS_FILE, news_list)
+
+    bot.reply_to(
+        message,
+        f"✅ News published:\n*{title}*\n🔗 {link}",
+        parse_mode="Markdown",
+        disable_web_page_preview=True,
+    )
+
+    # Notify all subscribers
+    _notify_all_subscribers(title, item["date"], link)
+
+
+@bot.message_handler(commands=['deletenews'])
+def admin_delete_news(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split(maxsplit=1)
+    news_list = load_json(NEWS_FILE)
+    if not isinstance(news_list, list) or not news_list:
+        bot.reply_to(message, "ℹ️ No news to delete.")
+        return
+
+    if len(parts) < 2:
+        # Show list with delete buttons
+        markup = InlineKeyboardMarkup()
+        for item in news_list:
+            t = item.get("title", "Untitled")
+            label = t if len(t) <= 40 else t[:37] + "..."
+            markup.row(InlineKeyboardButton(f"❌ {label}", callback_data=f"delnews_{item['id']}"))
+        bot.reply_to(message, "Select the news item you want to delete:", reply_markup=markup)
+        return
+
+    # Delete by id
+    nid = parts[1].strip()
+    new_list = [n for n in news_list if n.get("id") != nid]
+    save_json(NEWS_FILE, new_list)
+    bot.reply_to(message, "✅ News item removed.")
 
 
 @bot.message_handler(commands=['clearnews'])
 def admin_clear_news(message):
-    if message.from_user.id not in ADMIN_IDS: return
-    save_json(NEWS_FILE, {})
-    bot.reply_to(message, "✅ News banner cleared.")
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    save_json(NEWS_FILE, [])
+    bot.reply_to(message, "✅ All news items cleared.")
 
 
 @bot.message_handler(commands=['setevent'])
@@ -849,6 +971,21 @@ def handle_query(call):
                 bot.edit_message_text("⚠️ Error: Could not save the deletion.", chat_id=call.message.chat.id, message_id=call.message.message_id)
         else:
             bot.edit_message_text("⚠️ Error: Video not found.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+
+    elif call.data.startswith("delnews_"):
+        if call.from_user.id not in ADMIN_IDS:
+            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            return
+        nid = call.data.split('_', 1)[1]
+        news_list = load_json(NEWS_FILE)
+        if not isinstance(news_list, list):
+            news_list = []
+        news_list = [n for n in news_list if n.get("id") != nid]
+        save_json(NEWS_FILE, news_list)
+        try:
+            bot.edit_message_text("✅ News item deleted.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+        except Exception:
+            bot.answer_callback_query(call.id, "✅ News item deleted.")
 
     elif call.data.startswith("approve_vid_"):
         req_id = call.data.split('_')[2]
@@ -1231,8 +1368,23 @@ def get_exams():
 @app.route('/api/dashboard', methods=['GET'])
 def get_dashboard():
     news = load_json(NEWS_FILE)
+    # Backward compatibility: old format stored a single dict {text, image}
+    if isinstance(news, dict):
+        if news.get("text") or news.get("image"):
+            news = [{
+                "id": "legacy",
+                "title": news.get("text", "Announcement"),
+                "link": "#",
+                "date": "",
+            }]
+        else:
+            news = []
+    if not isinstance(news, list):
+        news = []
+
     events = load_json(EVENTS_FILE)
-    if isinstance(events, dict): events = [] 
+    if isinstance(events, dict):
+        events = []
     return jsonify({"news": news, "events": events}), 200
 
 @app.route('/api/post_news', methods=['POST'])
@@ -1240,26 +1392,51 @@ def api_post_news():
     chat_id = request.form.get('chat_id', type=int)
     if chat_id not in ADMIN_IDS:
         return jsonify({"error": "Unauthorized"}), 403
-        
-    text = request.form.get('text', '')
-    img_url = ""
-    
-    if 'image' in request.files and request.files['image'].filename:
-        file = request.files['image']
-        encoded = base64.b64encode(file.read()).decode('utf-8')
-        filename = "news_image.jpg"
-        
-        get_resp = requests.get(f"{GITHUB_API_BASE}/{filename}", headers=_github_headers(), params={"ref": GITHUB_BRANCH})
-        sha = get_resp.json().get("sha") if get_resp.status_code == 200 else None
-        
-        payload = {"message": "Update university news image", "content": encoded, "branch": GITHUB_BRANCH}
-        if sha: payload["sha"] = sha
-        put_resp = requests.put(f"{GITHUB_API_BASE}/{filename}", headers=_github_headers(), json=payload)
-        
-        if put_resp.status_code in (200, 201):
-            img_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/main/{filename}?t={int(datetime.now().timestamp())}"
 
-    save_json(NEWS_FILE, {"text": text, "image": img_url})
+    title = (request.form.get('title') or '').strip()
+    link = (request.form.get('link') or '').strip()
+
+    if not title or not link:
+        return jsonify({"error": "Title and link are required"}), 400
+
+    if not (link.startswith("https://t.me/") or link.startswith("http://t.me/")):
+        return jsonify({"error": "Link must be a valid Telegram post URL (t.me/...)"}), 400
+
+    news_list = load_json(NEWS_FILE)
+    if not isinstance(news_list, list):
+        news_list = []
+
+    item = {
+        "id": os.urandom(4).hex(),
+        "title": title,
+        "link": link,
+        "date": datetime.now().strftime("%b %d, %Y - %H:%M"),
+    }
+    news_list.insert(0, item)
+    news_list = news_list[:20]
+    save_json(NEWS_FILE, news_list)
+
+    # Notify all subscribers
+    _notify_all_subscribers(title, item["date"], link)
+
+    return jsonify({"status": "success", "item": item}), 200
+
+@app.route('/api/delete_news', methods=['POST'])
+def api_delete_news():
+    data = request.json or {}
+    chat_id = data.get('chat_id')
+    try:
+        if int(chat_id) not in ADMIN_IDS:
+            return jsonify({"error": "Unauthorized"}), 403
+    except Exception:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    nid = data.get('id')
+    news_list = load_json(NEWS_FILE)
+    if not isinstance(news_list, list):
+        news_list = []
+    news_list = [n for n in news_list if n.get("id") != nid]
+    save_json(NEWS_FILE, news_list)
     return jsonify({"status": "success"}), 200
 
 @app.route('/api/clear_news', methods=['POST'])
@@ -1267,7 +1444,7 @@ def api_clear_news():
     chat_id = request.json.get('chat_id')
     if int(chat_id) not in ADMIN_IDS:
         return jsonify({"error": "Unauthorized"}), 403
-    save_json(NEWS_FILE, {})
+    save_json(NEWS_FILE, [])
     return jsonify({"status": "success"}), 200
 
 @app.route('/api/submit_feedback', methods=['POST'])
