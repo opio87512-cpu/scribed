@@ -140,6 +140,9 @@
 
     <!-- ONE UNIFIED MENU (HUB DASHBOARD) -->
     <div id="menuHubSection" class="section active">
+        <!-- GLOBAL WIDGETS (News & Countdowns) -->
+        <div id="dashboardWidgets"></div>
+
         <div class="menu-grid">
             <div class="menu-card" onclick="switchSection('find')">
                 <i class="fa-solid fa-book menu-icon"></i>
@@ -348,6 +351,59 @@
             } catch(e) {}
         }
         
+        async function loadDashboardWidgets() {
+            try {
+                const res = await fetch(`${RENDER_URL}/api/dashboard`);
+                const data = await res.json();
+                const container = document.getElementById('dashboardWidgets');
+                let html = "";
+                
+                // 1. Render News Banner
+                if (data.news) {
+                    html += `
+                    <div style="background: linear-gradient(135deg, #007aff, #00c6ff); color: white; padding: 14px 16px; border-radius: 16px; margin-bottom: 15px; font-weight: 500; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2); line-height: 1.4; display: flex; gap: 12px; align-items: flex-start; animation: slideUp 0.4s ease;">
+                        <i class="fa-solid fa-bullhorn" style="font-size: 18px; margin-top: 2px;"></i>
+                        <div>${escapeHtml(data.news)}</div>
+                    </div>`;
+                }
+
+                // 2. Render Global Event Countdowns
+                if (data.events && data.events.length > 0) {
+                    data.events.forEach(ev => {
+                        // Use end date for the countdown math
+                        const targetDate = ev.end || ev.date; 
+                        const daysLeft = Math.ceil((new Date(targetDate) - new Date()) / (1000 * 60 * 60 * 24));
+                        
+                        if (daysLeft >= 0) {
+                            let color1 = daysLeft <= 3 ? '#ff3b30' : '#ffb300';
+                            let color2 = daysLeft <= 3 ? '#ff7a7a' : '#ffcc00';
+                            let shadow = daysLeft <= 3 ? 'rgba(255, 59, 48, 0.2)' : 'rgba(255, 179, 0, 0.2)';
+                            
+                            // Format the date text (e.g. "2026-10-15 to 2026-10-20")
+                            let dateDisplay = "";
+                            if (ev.start && ev.end) {
+                                dateDisplay = ev.start === ev.end ? ev.end : `${ev.start} to ${ev.end}`;
+                            } else {
+                                dateDisplay = targetDate;
+                            }
+
+                            html += `
+                            <div style="background: linear-gradient(135deg, ${color1}, ${color2}); color: white; padding: 12px 16px; border-radius: 16px; margin-bottom: 15px; font-weight: 600; box-shadow: 0 4px 12px ${shadow}; display: flex; justify-content: space-between; align-items: center; animation: slideUp 0.4s ease;">
+                                <div>
+                                    <div style="font-size: 15px;"><i class="fa-solid fa-calendar-day"></i> ${escapeHtml(ev.title)}</div>
+                                    <div style="font-size: 12px; margin-top: 4px; opacity: 0.95;"><i class="fa-regular fa-calendar"></i> ${escapeHtml(dateDisplay)}</div>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.25); padding: 6px 12px; border-radius: 8px; font-size: 13px; text-align: center;">
+                                    ${daysLeft === 0 ? 'Ends Today!' : daysLeft + ' days left'}
+                                </div>
+                            </div>`;
+                        }
+                    });
+                }
+                container.innerHTML = html;
+            } catch(e) {}
+        }
+
         async function toggleSubscription(course) {
             const uid = tg.initDataUnsafe?.user?.id;
             if(!uid) return;
@@ -371,6 +427,7 @@
         
         loadSubscriptions();
         fetchExams();
+        loadDashboardWidgets();
 
         // --- FULLY INTEGRATED ECE CURRICULUM FROM PDF ---
         const curriculum = {
@@ -415,6 +472,7 @@
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.getElementById('menuHubSection').classList.add('active');
             document.getElementById('navTitle').innerHTML = sectionTitles['menu'];
+            loadDashboardWidgets();
         }
 
         async function switchSection(sec) {
@@ -806,12 +864,10 @@
             const searchQ = document.getElementById('globalMatSearch').value.toLowerCase();
             const filterCourse = document.getElementById('findCourse').value;
             const filterType = document.getElementById('findType').value;
-            const sortOrder = document.getElementById('matSortOrder').value; // 'new' or 'old'
+            const sortOrder = document.getElementById('matSortOrder').value; 
             
             let html = ""; 
             let totalFiles = 0;
-            
-            // 1. Group the materials by Course_Type -> Title (Folder Name)
             let grouped = {};
             
             for (const [key, items] of Object.entries(allMaterials)) {
@@ -821,7 +877,6 @@
 
                 items.forEach((item, idx) => {
                     const folderName = item.title || "Other Files"; 
-                    
                     if (searchQ && !item.name.toLowerCase().includes(searchQ) && !course.toLowerCase().includes(searchQ) && !folderName.toLowerCase().includes(searchQ)) return;
                     
                     if (!grouped[key]) grouped[key] = {};
@@ -832,13 +887,23 @@
                 });
             }
 
+            // --- INJECT NOTIFICATION & EXAM BANNER ---
             let bannerHtml = "";
             if (filterCourse) {
                 if (activeExams[filterCourse]) {
                     const exam = activeExams[filterCourse];
                     const daysLeft = Math.ceil((new Date(exam.date) - new Date()) / (1000 * 60 * 60 * 24));
                     if (daysLeft >= 0) {
-                        bannerHtml += `<div style="background: linear-gradient(135deg, #ff3b30, #ff7a7a); color: white; padding: 12px 16px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; box-shadow: 0 4px 10px rgba(255, 59, 48, 0.2); display: flex; justify-content: space-between; align-items: center;"><div><i class="fa-solid fa-clock"></i> ${exam.title}</div><div style="background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 8px;">${daysLeft} days left</div></div>`;
+                        bannerHtml += `
+                        <div style="background: linear-gradient(135deg, #ff3b30, #ff7a7a); color: white; padding: 12px 16px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; box-shadow: 0 4px 10px rgba(255, 59, 48, 0.2); display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-size: 15px;"><i class="fa-solid fa-clock"></i> ${escapeHtml(exam.title)}</div>
+                                <div style="font-size: 12px; margin-top: 4px; opacity: 0.95;"><i class="fa-regular fa-calendar"></i> Date: ${escapeHtml(exam.date)}</div>
+                            </div>
+                            <div style="background: rgba(255,255,255,0.25); padding: 6px 12px; border-radius: 8px; font-size: 13px;">
+                                ${daysLeft === 0 ? 'Today!' : daysLeft + ' days left'}
+                            </div>
+                        </div>`;
                     }
                 }
                 const isSubbed = userSubs.includes(filterCourse);
@@ -852,7 +917,6 @@
                 return;
             }
 
-            // 2. Are we viewing the inside of a specific folder?
             if (activeFolderContext) {
                 const { key, folderName } = activeFolderContext;
                 const items = grouped[key]?.[folderName];
@@ -871,7 +935,6 @@
                     const favId = `mat_${item.course}_${item.type}_${item.originalIdx}`;
                     const isStarred = isFav(favId);
                     const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
-                    
                     const dateAdded = item.date_added ? ` • Added: ${item.date_added}` : '';
                     
                     html += `
@@ -890,12 +953,10 @@
                 return;
             }
 
-            // 3. Build the flat list of folders (so we can sort them by date)
             let folderList = [];
             for (const [key, folders] of Object.entries(grouped)) {
                 const [course, type] = key.split('_');
                 for (const [folderName, items] of Object.entries(folders)) {
-                    // Folder date = date of the first file uploaded into it
                     const folderDate = items[0]?.date_added || '';
                     folderList.push({ key, course, type, folderName, items, folderDate, sortKey: parseDateAdded(folderDate) });
                 }
@@ -903,11 +964,8 @@
 
             folderList.sort((a, b) => sortOrder === 'old' ? (a.sortKey - b.sortKey) : (b.sortKey - a.sortKey));
 
-            // 4. Render the Playlist/Folder View (Default)
             folderList.forEach(folder => {
                 const { key, course, type, folderName, items, folderDate } = folder;
-
-                // Folder-level Favorite Logic
                 const favId = `folder_${key}_${folderName}`;
                 const isStarred = isFav(favId);
                 const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
@@ -957,7 +1015,7 @@
             const container = document.getElementById('videoResultsContainer');
             const searchQ = document.getElementById('globalVidSearch').value.toLowerCase();
             const filterCourse = document.getElementById('vidCourse').value;
-            const sortOrder = document.getElementById('vidSortOrder').value; // 'new' or 'old'
+            const sortOrder = document.getElementById('vidSortOrder').value;
             
             let html = ""; let count = 0;
             let allVidsFlat = [];
@@ -1010,12 +1068,10 @@
             document.getElementById('favSearchBox').style.display = 'block';
             let html = "";
             let totalMatches = 0;
-
-            // 1. Group the Favorites by their Course (meta) tag
             let groupedFavs = {};
+            
             favorites.forEach(fav => {
                 if(searchInput && !fav.title.toLowerCase().includes(searchInput) && !fav.meta.toLowerCase().includes(searchInput)) return;
-                
                 let folderName = fav.meta || "Other Saved Items";
                 if (!groupedFavs[folderName]) groupedFavs[folderName] = [];
                 groupedFavs[folderName].push(fav);
@@ -1027,10 +1083,8 @@
                 return;
             }
 
-            // 2. Are we viewing the inside of a specific favorite folder?
             if (activeFavFolder) {
                 const items = groupedFavs[activeFavFolder];
-                
                 if (!items || items.length === 0) {
                     activeFavFolder = null;
                     renderFavs();
@@ -1081,7 +1135,6 @@
                 return;
             }
 
-            // 3. Render the Favorites Folder View
             let folderCount = 0;
             for (const [folderName, items] of Object.entries(groupedFavs)) {
                 folderCount++;
@@ -1101,7 +1154,6 @@
                     </div>
                 </div>`;
             }
-
             container.innerHTML = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${folderCount} saved folder(s)</div>` + html;
         }
 
