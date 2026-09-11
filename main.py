@@ -40,31 +40,6 @@ def _github_headers():
     }
 
 
-def save_image_to_github(file_bytes, ext="jpg"):
-    """Saves a raw image file to GitHub and returns the direct image URL"""
-    filename = f"thumbnails/{os.urandom(4).hex()}.{ext}"
-    try:
-        encoded = base64.b64encode(file_bytes).decode("utf-8")
-        payload = {
-            "message": "Upload folder thumbnail",
-            "content": encoded,
-            "branch": GITHUB_BRANCH,
-        }
-        put_resp = requests.put(
-            f"{GITHUB_API_BASE}/{filename}",
-            headers=_github_headers(),
-            json=payload,
-            timeout=10,
-        )
-        if put_resp.status_code in (200, 201):
-            return f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/{filename}"
-        print(f"GitHub image save failed: {put_resp.status_code} {put_resp.text}")
-        return None
-    except Exception as e:
-        print(f"GitHub image save error: {e}")
-        return None
-
-
 def load_json(filename):
     try:
         resp = requests.get(
@@ -123,26 +98,25 @@ def save_json(filename, data):
         return False
 
 
-def save_material_batch(course_code, mat_type, files, title, thumbnail_url=None):
+def save_material_batch(course_code, mat_type, files, title):
     """Save multiple files as one titled batch in a single GitHub write."""
     data = load_json(DATA_FILE)
     key = f"{course_code}_{mat_type}"
     if key not in data:
         data[key] = []
-        
-    # Get current date (e.g., Sep 09, 2026)
-    date_str = datetime.now().strftime("%b %d, %Y")
-    
+
+    # Get current date/time (e.g., Sep 09, 2026 - 14:32)
+    now = datetime.now()
+    date_str = now.strftime("%b %d, %Y - %H:%M")
+
     for f in files:
         item = {
             "file_id": f["file_id"],
             "name": title if len(files) == 1 else f"{title} - {f['file_name']}",
             "content_type": f["content_type"],
             "title": title,
-            "date_added": date_str  # ADDED DATE HERE
+            "date_added": date_str,
         }
-        if thumbnail_url:
-            item["thumbnail_url"] = thumbnail_url
         data[key].append(item)
     return save_json(DATA_FILE, data)
 
@@ -164,15 +138,16 @@ def delete_material_by_index(course_code, mat_type, index):
 PENDING_VIDEOS = {}
 PENDING_UPLOADS = {}
 UPLOAD_STATES = {}
+UPDATE_SESSIONS = {}
 
 
 def add_approved_video(course_code, title, url):
     data = load_json(VIDEOS_FILE)
     if course_code not in data:
         data[course_code] = []
-        
-    date_str = datetime.now().strftime("%b %d, %Y")
-    data[course_code].append({"title": title, "url": url, "date_added": date_str})  # ADDED DATE HERE
+
+    date_str = datetime.now().strftime("%b %d, %Y - %H:%M")
+    data[course_code].append({"title": title, "url": url, "date_added": date_str})
     return save_json(VIDEOS_FILE, data)
 
 
@@ -344,6 +319,158 @@ def build_delete_list(course_code, material_type):
     return text, markup
 
 
+def group_by_title(course_code, material_type):
+    """Group the stored items of a course/type by their folder title.
+    Returns a dict: title -> list of absolute indices into data[key]."""
+    materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
+    groups = {}
+    for idx, item in enumerate(materials):
+        title = item.get("title") or item.get("name") or "Untitled"
+        groups.setdefault(title, []).append(idx)
+    return groups, materials
+
+
+def build_update_folder_list(course_code, material_type):
+    """Builds the list of folders (grouped by title) available to update,
+    creating a short-lived UPDATE_SESSIONS entry for each folder."""
+    groups, materials = group_by_title(course_code, material_type)
+    markup = InlineKeyboardMarkup()
+    if groups:
+        for title, indices in groups.items():
+            sess_id = os.urandom(4).hex()
+            UPDATE_SESSIONS[sess_id] = {
+                "course_code": course_code,
+                "material_type": material_type,
+                "title": title,
+                "indices": indices,
+            }
+            markup.row(InlineKeyboardButton(f"📁 {title} ({len(indices)} file(s))", callback_data=f"updfolder_{sess_id}"))
+        text = f"Select the folder you want to UPDATE for {course_code} ({material_type.upper()}):"
+    else:
+        text = f"✅ No files found for {course_code} ({material_type.upper()}) to update."
+    markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
+    return text, markup
+
+
+def build_update_folder_detail(sess_id):
+    sess = UPDATE_SESSIONS.get(sess_id)
+    if not sess:
+        return "⚠️ This update session has expired. Please run /updatefile again.", None
+
+    data = load_json(DATA_FILE)
+    key = f"{sess['course_code']}_{sess['material_type']}"
+    materials = data.get(key, [])
+
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("🔁 Replace Entire Folder", callback_data=f"updwhole_{sess_id}"))
+
+    valid_indices = [i for i in sess["indices"] if i < len(materials)]
+    for pos, abs_idx in enumerate(valid_indices):
+        item = materials[abs_idx]
+        markup.row(InlineKeyboardButton(f"✏️ Update: {item.get('name', 'File')}", callback_data=f"upditem_{sess_id}_{pos}"))
+
+    markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
+    text = (
+        f"📁 **{sess['title']}**\n"
+        f"Course: {sess['course_code']} • Type: {sess['material_type'].upper()}\n\n"
+        f"Choose to replace the whole folder's files at once, or update a single file inside it."
+    )
+    return text, markup
+
+
+def process_update_whole(chat_id, files, state):
+    sess_id = state.get("sess_id")
+    sess = UPDATE_SESSIONS.get(sess_id)
+    if not sess:
+        bot.send_message(chat_id, "⚠️ This update session expired. Please run /updatefile again.")
+        return
+
+    data = load_json(DATA_FILE)
+    key = f"{sess['course_code']}_{sess['material_type']}"
+    materials = data.get(key, [])
+
+    # Remove the old items belonging to this folder (highest index first, so
+    # popping doesn't shift the remaining indices we still need to remove).
+    for idx in sorted(sess["indices"], reverse=True):
+        if idx < len(materials):
+            materials.pop(idx)
+
+    title = sess["title"]
+    now = datetime.now().strftime("%b %d, %Y - %H:%M")
+    for f in files:
+        item = {
+            "file_id": f["file_id"],
+            "name": title if len(files) == 1 else f"{title} - {f['file_name']}",
+            "content_type": f["content_type"],
+            "title": title,
+            "date_added": now,
+        }
+        materials.append(item)
+
+    data[key] = materials
+    if save_json(DATA_FILE, data):
+        bot.send_message(chat_id, f"✅ Folder \"{title}\" was fully replaced with {len(files)} new file(s)!")
+    else:
+        bot.send_message(chat_id, "⚠️ Failed to save the update to GitHub. Please try again.")
+
+    UPDATE_SESSIONS.pop(sess_id, None)
+
+
+def process_update_single_file(message, sess_id, abs_index):
+    chat_id = message.chat.id
+
+    if message.content_type == 'document':
+        file_id = message.document.file_id
+        file_name = message.document.file_name or "document.pdf"
+        content_type = "document"
+    elif message.content_type == 'photo':
+        file_id = message.photo[-1].file_id
+        file_name = "photo.jpg"
+        content_type = "photo"
+    else:
+        msg = bot.send_message(chat_id, "⚠️ Please send a file or photo to replace this item. Try again:")
+        bot.register_next_step_handler(msg, process_update_single_file, sess_id, abs_index)
+        return
+
+    sess = UPDATE_SESSIONS.get(sess_id)
+    if not sess:
+        bot.send_message(chat_id, "⚠️ This update session expired. Please run /updatefile again.")
+        return
+
+    data = load_json(DATA_FILE)
+    key = f"{sess['course_code']}_{sess['material_type']}"
+    materials = data.get(key, [])
+
+    if abs_index >= len(materials):
+        bot.send_message(chat_id, "⚠️ That file no longer exists.")
+        UPDATE_SESSIONS.pop(sess_id, None)
+        return
+
+    item = materials[abs_index]
+    old_name = item.get("name", "")
+    title = item.get("title", sess["title"])
+
+    item["file_id"] = file_id
+    item["content_type"] = content_type
+    item["date_added"] = datetime.now().strftime("%b %d, %Y - %H:%M")
+    # Keep a consistent name: "<title> - <filename>" when it was part of a
+    # multi-file folder, otherwise just the title.
+    if " - " in old_name:
+        item["name"] = f"{title} - {file_name}"
+    else:
+        item["name"] = title
+
+    materials[abs_index] = item
+    data[key] = materials
+
+    if save_json(DATA_FILE, data):
+        bot.send_message(chat_id, f"✅ Successfully updated \"{item['name']}\"!")
+    else:
+        bot.send_message(chat_id, "⚠️ Failed to save the update to GitHub. Please try again.")
+
+    UPDATE_SESSIONS.pop(sess_id, None)
+
+
 # --- COMMAND HANDLERS ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -382,6 +509,13 @@ def admin_add_file_start(message):
     if message.from_user.id not in ADMIN_IDS:
         return
     bot.send_message(message.chat.id, "Select the Year to ADD official material:", reply_markup=year_keyboard('a'))
+
+
+@bot.message_handler(commands=['updatefile'])
+def admin_update_file_start(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    bot.send_message(message.chat.id, "Select the Year of the material you want to UPDATE:", reply_markup=year_keyboard('p'))
 
 
 @bot.message_handler(commands=['addvideo'])
@@ -425,38 +559,38 @@ def admin_delete_video_start(message):
 def handle_query(call):
     if call.data == "main_find":
         bot.edit_message_text("Select your academic year to FIND materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('f'))
-    
+
     elif call.data == "main_upload":
         bot.edit_message_text("Select your academic year to UPLOAD materials:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=year_keyboard('u'))
-    
+
     elif call.data == "back_main":
         bot.edit_message_text("Welcome to the ASTU ECE Community Bot! 🚀\n\nTap 'Open Portal' for the best experience, or use the chat menus below.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=main_menu_keyboard())
 
-    elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_") or call.data.startswith("dy_") or call.data.startswith("vy_"):
+    elif call.data.startswith("fy_") or call.data.startswith("uy_") or call.data.startswith("ay_") or call.data.startswith("dy_") or call.data.startswith("vy_") or call.data.startswith("py_"):
         action = call.data[0]
         year = call.data.split('_')[1]
         roman_years = {"2": "II", "3": "III", "4": "IV", "5": "V"}
         bot.edit_message_text(f"Year {roman_years[year]} Selected.\nChoose your semester:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=semester_keyboard(year, action))
 
-    elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_") or call.data.startswith("ds_") or call.data.startswith("vs_"):
+    elif call.data.startswith("fs_") or call.data.startswith("us_") or call.data.startswith("as_") or call.data.startswith("ds_") or call.data.startswith("vs_") or call.data.startswith("ps_"):
         parts = call.data.split('_')
         action = parts[0][0]
         year, semester = parts[1], parts[2]
         bot.edit_message_text("Select the subject:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=subject_keyboard(year, semester, action))
 
-    elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_") or call.data.startswith("dc_") or call.data.startswith("vc_"):
+    elif call.data.startswith("fc_") or call.data.startswith("uc_") or call.data.startswith("ac_") or call.data.startswith("dc_") or call.data.startswith("vc_") or call.data.startswith("pc_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
-        
+
         if action == 'v':
             msg = bot.edit_message_text(
                 f"Course: {course_code}\n\n"
                 f"Please reply to this message with the **Video Title** and **URL** separated by a new line.\n\n"
                 f"Example:\n"
                 f"Lecture 1 Introduction\n"
-                f"https://youtube.com/watch?v=...", 
-                chat_id=call.message.chat.id, 
+                f"https://youtube.com/watch?v=...",
+                chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 parse_mode="Markdown"
             )
@@ -464,7 +598,7 @@ def handle_query(call):
         else:
             bot.edit_message_text(f"Course: {course_code}\nSelect the type of material:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=material_type_keyboard(course_code, action))
 
-    elif call.data.startswith("fm_") or call.data.startswith("um_") or call.data.startswith("am_") or call.data.startswith("dm_"):
+    elif call.data.startswith("fm_") or call.data.startswith("um_") or call.data.startswith("am_") or call.data.startswith("dm_") or call.data.startswith("pm_"):
         parts = call.data.split('_')
         action = parts[0][0]
         course_code = parts[1]
@@ -481,11 +615,11 @@ def handle_query(call):
                         bot.send_photo(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
                     else:
                         bot.send_document(call.message.chat.id, item["file_id"], caption=item.get("name", ""))
-                        
+
         elif action == 'u':
             bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
             msg = bot.send_message(
-                call.message.chat.id, 
+                call.message.chat.id,
                 f"📤 **Upload mode started for {course_code} ({material_type.upper()})**\n\n"
                 "Please send your file(s) now. You can send as many as you want.\n\n"
                 "👇 **When you are done sending, click the button below!**",
@@ -493,17 +627,17 @@ def handle_query(call):
                 reply_markup=finish_upload_keyboard()
             )
             UPLOAD_STATES[call.message.chat.id] = {
-                "course_code": course_code, 
-                "material_type": material_type, 
+                "course_code": course_code,
+                "material_type": material_type,
                 "action": "user",
                 "files": [],
                 "status_msg_id": msg.message_id
             }
-            
+
         elif action == 'a':
             bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
             msg = bot.send_message(
-                call.message.chat.id, 
+                call.message.chat.id,
                 f"📥 **Admin save mode started for {course_code} ({material_type.upper()})**\n\n"
                 "Please send your file(s) now. You can send as many as you want.\n\n"
                 "👇 **When you are done sending, click the button below!**",
@@ -511,13 +645,13 @@ def handle_query(call):
                 reply_markup=finish_upload_keyboard()
             )
             UPLOAD_STATES[call.message.chat.id] = {
-                "course_code": course_code, 
-                "material_type": material_type, 
+                "course_code": course_code,
+                "material_type": material_type,
                 "action": "admin",
                 "files": [],
                 "status_msg_id": msg.message_id
             }
-            
+
         elif action == 'd':
             materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
             if not materials:
@@ -525,6 +659,10 @@ def handle_query(call):
             else:
                 text, markup = build_delete_list(course_code, material_type)
                 bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+
+        elif action == 'p':
+            text, markup = build_update_folder_list(course_code, material_type)
+            bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
 
     elif call.data == "finish_upload":
         chat_id = call.message.chat.id
@@ -550,6 +688,12 @@ def handle_query(call):
             )
             return
 
+        if state["action"] == "update_whole":
+            bot.edit_message_text(f"🔄 Replacing the folder with {len(files)} new file(s)...", chat_id=chat_id, message_id=call.message.message_id)
+            process_update_whole(chat_id, files, state)
+            UPLOAD_STATES.pop(chat_id, None)
+            return
+
         bot.edit_message_text(f"🔄 Processing your {len(files)} file(s)...", chat_id=chat_id, message_id=call.message.message_id)
         process_files(chat_id, files, state, call.from_user)
         UPLOAD_STATES.pop(chat_id, None)
@@ -564,6 +708,50 @@ def handle_query(call):
             bot.answer_callback_query(call.id, "⚠️ Could not delete.", show_alert=True)
         text, markup = build_delete_list(course_code, material_type)
         bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+
+    elif call.data.startswith("updfolder_"):
+        sess_id = call.data.split('_', 1)[1]
+        text, markup = build_update_folder_detail(sess_id)
+        if markup is None:
+            bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id)
+        else:
+            bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+    elif call.data.startswith("updwhole_"):
+        sess_id = call.data.split('_', 1)[1]
+        sess = UPDATE_SESSIONS.get(sess_id)
+        if not sess:
+            bot.answer_callback_query(call.id, "This update session expired. Run /updatefile again.", show_alert=True)
+            return
+        bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+        msg = bot.send_message(
+            call.message.chat.id,
+            f"🔁 **Replacing folder \"{sess['title']}\"**\n\n"
+            "Please send the new file(s) now. You can send as many as you want.\n\n"
+            "👇 **When you are done sending, click the button below!**",
+            parse_mode="Markdown",
+            reply_markup=finish_upload_keyboard()
+        )
+        UPLOAD_STATES[call.message.chat.id] = {
+            "course_code": sess["course_code"],
+            "material_type": sess["material_type"],
+            "action": "update_whole",
+            "sess_id": sess_id,
+            "files": [],
+            "status_msg_id": msg.message_id
+        }
+
+    elif call.data.startswith("upditem_"):
+        parts = call.data.split('_')
+        sess_id, pos = parts[1], int(parts[2])
+        sess = UPDATE_SESSIONS.get(sess_id)
+        if not sess or pos >= len(sess["indices"]):
+            bot.answer_callback_query(call.id, "This update session expired. Run /updatefile again.", show_alert=True)
+            return
+        abs_index = sess["indices"][pos]
+        bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)
+        msg = bot.send_message(call.message.chat.id, "📥 Please send the new file (or photo) to replace this item:")
+        bot.register_next_step_handler(msg, process_update_single_file, sess_id, abs_index)
 
     elif call.data.startswith("delvid_"):
         parts = call.data.split('_')
@@ -593,7 +781,7 @@ def handle_query(call):
             del PENDING_VIDEOS[req_id]
         else:
             bot.answer_callback_query(call.id, "Request expired or already handled.")
-            
+
     elif call.data == "reject_vid":
         for admin in ADMIN_IDS:
             try:
@@ -619,7 +807,7 @@ def handle_query(call):
             del PENDING_UPLOADS[req_id]
         else:
             bot.answer_callback_query(call.id, "Request expired or already handled.")
-            
+
     elif call.data.startswith("reject_upload_"):
         req_id = call.data.split('_', 2)[2]
         up = PENDING_UPLOADS.pop(req_id, None)
@@ -640,12 +828,12 @@ def handle_query(call):
 def handle_media(message):
     chat_id = message.chat.id
     if chat_id not in UPLOAD_STATES:
-        return 
-    
+        return
+
     state = UPLOAD_STATES[chat_id]
-    
-    # Do not process media if we are waiting for the title or thumbnail
-    if state.get("awaiting_title") or state.get("awaiting_thumbnail"):
+
+    # Do not process media if we are waiting for the title
+    if state.get("awaiting_title"):
         return
 
     file_id = None
@@ -670,7 +858,7 @@ def handle_media(message):
         "content_type": content_type,
         "message_id": message.message_id
     })
-    
+
     try:
         count = len(state["files"])
         bot.edit_message_text(
@@ -689,20 +877,20 @@ def process_admin_add_video(message, course_code):
     if not message.text:
         bot.reply_to(message, "⚠️ Error: Please send text only. Start over with /addvideo")
         return
-        
+
     parts = message.text.strip().split('\n', 1)
     if len(parts) != 2:
         bot.reply_to(message, "⚠️ Invalid format. You must put the **Title** on the first line and the **URL** on the second line.\n\nStart over with /addvideo", parse_mode="Markdown")
         return
-        
+
     title = parts[0].strip()
     url = parts[1].strip()
-    
+
     ok = add_approved_video(course_code, title, url)
     if ok:
         bot.reply_to(message, f"✅ Successfully added video '{title}' to {course_code}!")
         try:
-            CHANNEL_USERNAME = "@astuece_updates" # <-- Change to your channel username
+            CHANNEL_USERNAME = "@astuece_updates"  # <-- Change to your channel username
             alert = (
                 f"📺 **New Video Added!**\n\n"
                 f"📚 **Course:** {course_code}\n"
@@ -718,42 +906,6 @@ def process_admin_add_video(message, course_code):
         bot.reply_to(message, f"⚠️ Failed to save video to GitHub. Please check your token or server logs.")
 
 
-def handle_thumbnail_input(message):
-    chat_id = message.chat.id
-    state = UPLOAD_STATES.get(chat_id)
-    
-    if not state:
-        return
-        
-    title = state.get("title", "Untitled")
-    files = state["files"]
-    
-    thumbnail_url = None
-
-    if message.content_type == 'text':
-        if message.text.strip().lower() == '/skip':
-            bot.send_message(chat_id, "⏭️ Skipped thumbnail. Using default image.")
-        else:
-            msg = bot.send_message(chat_id, "⚠️ Please send a valid photo, or type /skip.")
-            bot.register_next_step_handler(msg, handle_thumbnail_input)
-            return
-    elif message.content_type == 'photo':
-        bot.send_message(chat_id, "🔄 Uploading thumbnail securely to your GitHub database...")
-        file_info = bot.get_file(message.photo[-1].file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        thumbnail_url = save_image_to_github(downloaded_file)
-        if not thumbnail_url:
-            bot.send_message(chat_id, "⚠️ Failed to save image to GitHub. Will use the default image instead.")
-    else:
-        msg = bot.send_message(chat_id, "⚠️ Please send a PHOTO as a compressed image, or type /skip.")
-        bot.register_next_step_handler(msg, handle_thumbnail_input)
-        return
-    
-    bot.send_message(chat_id, f"🔄 Saving \"{title}\" folder ({len(files)} file(s))...")
-    process_files(chat_id, files, state, message.from_user, title=title, thumbnail_url=thumbnail_url)
-    UPLOAD_STATES.pop(chat_id, None)
-
-
 @bot.message_handler(
     content_types=['text'],
     func=lambda m: UPLOAD_STATES.get(m.chat.id, {}).get("awaiting_title") and not m.text.startswith('/')
@@ -767,63 +919,57 @@ def handle_title_input(message):
         bot.send_message(chat_id, "Please send a non-empty title.")
         return
 
-    # Move to thumbnail upload state
     state["title"] = title
     state["awaiting_title"] = False
-    state["awaiting_thumbnail"] = True
 
-    msg = bot.send_message(
-        chat_id,
-        f"✅ Title saved as **{title}**.\n\n"
-        f"🖼️ **Now, please send a PHOTO to use as the Folder Thumbnail.**\n"
-        f"(Or type /skip to just use the default notebook image)",
-        parse_mode="Markdown"
-    )
-    bot.register_next_step_handler(msg, handle_thumbnail_input)
+    files = state["files"]
+    bot.send_message(chat_id, f"🔄 Saving \"{title}\" folder ({len(files)} file(s))...")
+    process_files(chat_id, files, state, message.from_user, title=title)
+    UPLOAD_STATES.pop(chat_id, None)
 
 
 def send_as_album(chat_id, files, caption=None):
     docs = [f for f in files if f["content_type"] == "document"]
     photos = [f for f in files if f["content_type"] == "photo"]
-    
+
     def chunks(lst, n=10):
         for i in range(0, len(lst), n):
             yield lst[i:i + n]
-            
+
     for group in chunks(docs):
         if len(group) == 1:
             bot.send_document(chat_id, group[0]["file_id"], caption=caption)
         else:
             media = [
-                InputMediaDocument(f["file_id"], caption=caption if i == 0 else None) 
+                InputMediaDocument(f["file_id"], caption=caption if i == 0 else None)
                 for i, f in enumerate(group)
             ]
             bot.send_media_group(chat_id, media)
-            
+
     for group in chunks(photos):
         if len(group) == 1:
             bot.send_photo(chat_id, group[0]["file_id"], caption=caption)
         else:
             media = [
-                InputMediaPhoto(f["file_id"], caption=caption if i == 0 else None) 
+                InputMediaPhoto(f["file_id"], caption=caption if i == 0 else None)
                 for i, f in enumerate(group)
             ]
             bot.send_media_group(chat_id, media)
 
 
-def process_files(chat_id, files, state, user, title=None, thumbnail_url=None):
+def process_files(chat_id, files, state, user, title=None):
     course_code = state["course_code"]
     material_type = state["material_type"]
     action = state["action"]
 
     if action == "admin":
-        ok = save_material_batch(course_code, material_type, files, title or "Untitled", thumbnail_url)
+        ok = save_material_batch(course_code, material_type, files, title or "Untitled")
         if ok:
             bot.send_message(chat_id, f"✅ Saved \"{title}\" ({len(files)} file(s)) under {course_code} ({material_type.upper()})!")
             send_as_album(chat_id, files, caption=title)
-            
+
             try:
-                CHANNEL_USERNAME = "@astuece_updates" # <-- Change to your channel username
+                CHANNEL_USERNAME = "@astuece_updates"  # <-- Change to your channel username
                 alert = (
                     f"🆕 **New Material Uploaded!**\n\n"
                     f"📚 **Course:** {course_code}\n"
@@ -836,7 +982,7 @@ def process_files(chat_id, files, state, user, title=None, thumbnail_url=None):
                 bot.send_message(CHANNEL_USERNAME, alert, parse_mode="Markdown", reply_markup=markup)
             except Exception:
                 pass
-                
+
         else:
             bot.send_message(chat_id, "⚠️ Failed to save to GitHub. Please try again.")
 
@@ -850,11 +996,11 @@ def process_files(chat_id, files, state, user, title=None, thumbnail_url=None):
             "username": user.username or "Student",
         }
         admin_text = f"📥 New Chat Upload (Batch of {len(files)} files)\nFrom: @{user.username or 'Student'}\n\nCourse: {course_code}\nType: {material_type.upper()}"
-        
+
         for admin in ADMIN_IDS:
             try:
                 bot.send_message(admin, admin_text)
-                for f in files: 
+                for f in files:
                     bot.forward_message(admin, chat_id, f["message_id"])
                 markup = InlineKeyboardMarkup()
                 markup.row(
@@ -864,7 +1010,7 @@ def process_files(chat_id, files, state, user, title=None, thumbnail_url=None):
                 bot.send_message(admin, f"Review this batch upload:", reply_markup=markup)
             except Exception:
                 pass
-        
+
         bot.send_message(chat_id, f"✅ Thank you! Your batch of {len(files)} file(s) has been sent for review.")
 
 
@@ -887,13 +1033,13 @@ def handle_webapp_upload():
 
     admin_text = f"🌐 WEB APP File Upload from {username}\n\nCourse: {course}\nType: {mat_type.upper()}"
     file_data = file.read()
-    
+
     for admin in ADMIN_IDS:
         try:
             bot.send_document(admin, file_data, caption=admin_text, visible_file_name=file.filename)
         except Exception:
             pass
-            
+
     return jsonify({"status": "success"}), 200
 
 @app.route('/api/upload_video', methods=['POST'])
@@ -923,7 +1069,7 @@ def handle_video_upload():
                 bot.send_message(admin, admin_text, reply_markup=markup)
             except Exception:
                 pass
-                
+
         return jsonify({"status": "pending_approval"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
