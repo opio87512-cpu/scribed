@@ -37,7 +37,7 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
         .top-navbar .nav-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-        .nav-menu-btn { width: auto; padding: 8px 16px; border-radius: 12px; border: none; background: var(--btn-color); color: var(--btn-text); font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25); }
+        .nav-menu-btn { width: auto; padding: 8px 16px; border-radius: 12px; border: none; background: var(--btn-color); color: var(--btn-text); font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25); position: relative; }
 
         .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; animation: fadeIn 0.4s ease; }
         .menu-card { background: var(--sec-bg); padding: 18px 14px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: center; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease; border: 1px solid rgba(0,0,0,0.02); user-select: none; }
@@ -149,7 +149,8 @@
             <h3><i class="fa-solid fa-gift" style="color:var(--btn-color)"></i> What's New!</h3>
             <p>Welcome to the updated ASTU ECE Portal. We've added a few things to make your life easier:</p>
             <ul>
-                <li><b>🔔 Course Notifications:</b> Subscribe to specific courses to get a DM when new notes drop.</li>
+                <li><b>🔔 News Bell:</b> Tap the bell icon to read all announcements. A red badge shows when there's something new.</li>
+                <li><b>📢 Telegram Announcements:</b> Full news posts stay on Telegram — we just link you straight to them.</li>
                 <li><b>⏰ Live Countdowns:</b> See exactly how many days are left until exams on your dashboard.</li>
                 <li><b>⚠️ Report Issues:</b> Found a broken PDF? Flag it with the red warning icon.</li>
             </ul>
@@ -162,9 +163,15 @@
         <div class="nav-title" id="navTitle">
             <i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal
         </div>
-        <button class="nav-menu-btn" onclick="openMenuHub()">
-            <i class="fa-solid fa-bars"></i> Menu
-        </button>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <button class="nav-menu-btn" id="newsBellBtn" onclick="switchSection('news')" style="padding:8px 12px;">
+                <i class="fa-solid fa-bell"></i>
+                <span id="newsBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3b30; color:#fff; font-size:10px; font-weight:700; padding:2px 5px; border-radius:10px; min-width:16px; text-align:center; line-height:1.2;">0</span>
+            </button>
+            <button class="nav-menu-btn" onclick="openMenuHub()">
+                <i class="fa-solid fa-bars"></i> Menu
+            </button>
+        </div>
     </div>
 
     <!-- ONE UNIFIED MENU (HUB DASHBOARD) -->
@@ -400,6 +407,11 @@
         </details>
         
         <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary>What is the bell icon at the top? <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">The bell shows all official announcements. A red badge means there's a new post you haven't read. Tap it to see the list, and tap "Open Post" to read the full announcement on Telegram.</div>
+        </details>
+
+        <details class="filter-accordion" style="margin-bottom:10px;">
             <summary>I found a broken file. What do I do? <i class="fa-solid fa-chevron-down"></i></summary>
             <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Click the red ⚠️ icon next to any material or video. It will automatically send a report with your comment to the admins so they can fix it.</div>
         </details>
@@ -410,22 +422,34 @@
         </details>
     </div>
 
+    <!-- NEWS LIST SECTION -->
+    <div id="newsSection" class="section">
+        <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="newsSearchInput" placeholder="Search announcements..." oninput="renderNewsList()">
+        </div>
+        <div id="newsListContainer"></div>
+    </div>
+
     <!-- ADMIN NEWS POSTING SECTION -->
     <div id="adminNewsSection" class="section card-container">
         <h3 style="margin-top:0; color: #d32f2f;"><i class="fa-solid fa-shield-halved"></i> Admin News Portal</h3>
-        <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Broadcast a message and an image to the home dashboard.</p>
+        <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">
+            Post a link to your Telegram channel announcement. Only the title &amp; link are stored here — the full post stays on Telegram.
+        </p>
         <form id="adminNewsForm">
             <div class="form-group">
-                <label>Announcement Text</label>
-                <textarea id="adminNewsText" rows="4" placeholder="Type the university news here..."></textarea>
+                <label>News Title</label>
+                <input type="text" id="adminNewsTitle" placeholder="e.g., Midterm Exam Schedule Released" required>
             </div>
             <div class="form-group">
-                <label>Attach Image (Optional)</label>
-                <input type="file" id="adminNewsImage" accept="image/*">
+                <label>Telegram Post Link</label>
+                <input type="url" id="adminNewsLink" placeholder="https://t.me/yourchannel/123" required>
             </div>
             <button type="submit" id="submitNewsBtn" style="background: #d32f2f;"><i class="fa-solid fa-bullhorn"></i> Publish to Dashboard</button>
-            <button type="button" onclick="clearDashboardNews()" class="action-btn" style="margin-top: 10px; background: var(--bg-color); color: #d32f2f; border: 1px solid #d32f2f; box-shadow: none;"><i class="fa-solid fa-trash-can"></i> Remove Current News</button>
+            <button type="button" onclick="clearAllNews()" class="action-btn" style="margin-top: 10px; background: var(--bg-color); color: #d32f2f; border: 1px solid #d32f2f; box-shadow: none;"><i class="fa-solid fa-trash-can"></i> Remove All News</button>
         </form>
+        <div id="adminNewsList" style="margin-top:20px;"></div>
     </div>
 
     <script>
@@ -442,6 +466,8 @@
 
         let userSubs = [];
         let activeExams = {};
+        let allNews = [];
+        let lastSeenNewsId = localStorage.getItem('astu_ece_last_seen_news') || null;
         
         async function loadSubscriptions() {
             const uid = tg.initDataUnsafe?.user?.id;
@@ -465,18 +491,27 @@
                 const data = await res.json();
                 const container = document.getElementById('dashboardWidgets');
                 let html = "";
+
+                // Store news globally & update UI
+                allNews = Array.isArray(data.news) ? data.news : [];
+                updateNewsBadge();
+                renderNewsList();
+                renderAdminNewsList();
                 
-                // 1. Render News Banner with Optional Image
-                if (data.news && (data.news.text || data.news.image)) {
-                    let imgHtml = data.news.image ? `<img src="${data.news.image}" style="width: 100%; border-radius: 12px; margin-bottom: 12px; object-fit: cover; max-height: 250px;" alt="News Image">` : '';
-                    let textHtml = data.news.text ? `<div>${escapeHtml(data.news.text).replace(/\n/g, '<br>')}</div>` : '';
-                    
+                // 1. Render Latest News Banner (top item) with Telegram link
+                if (allNews.length > 0) {
+                    const latest = allNews[0];
                     html += `
-                    <div style="background: linear-gradient(135deg, #007aff, #00c6ff); color: white; padding: 16px; border-radius: 16px; margin-bottom: 15px; font-weight: 500; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2); line-height: 1.4; animation: slideUp 0.4s ease;">
-                        ${imgHtml}
+                    <div style="background: linear-gradient(135deg, #007aff, #00c6ff); color: white; padding: 16px; border-radius: 16px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2); line-height: 1.4; animation: slideUp 0.4s ease;">
                         <div style="display: flex; gap: 12px; align-items: flex-start;">
-                            ${textHtml ? '<i class="fa-solid fa-bullhorn" style="font-size: 18px; margin-top: 2px;"></i>' : ''}
-                            ${textHtml}
+                            <i class="fa-solid fa-bullhorn" style="font-size: 18px; margin-top: 2px;"></i>
+                            <div style="flex:1;">
+                                <div style="font-weight: 700; font-size: 15px; margin-bottom: 4px;">${escapeHtml(latest.title)}</div>
+                                <div style="font-size: 12px; opacity: 0.9; margin-bottom: 10px;"><i class="fa-regular fa-clock"></i> ${escapeHtml(latest.date || '')}</div>
+                                <a href="${escapeHtml(latest.link || '#')}" target="_blank" rel="noopener" style="display:inline-block; background: rgba(255,255,255,0.25); color:#fff; text-decoration:none; padding:6px 14px; border-radius:8px; font-size:13px; font-weight:600;">
+                                    <i class="fa-brands fa-telegram"></i> Open Post
+                                </a>
+                            </div>
                         </div>
                     </div>`;
                 }
@@ -513,6 +548,124 @@
                     });
                 }
                 container.innerHTML = html;
+            } catch(e) {}
+        }
+
+        function updateNewsBadge() {
+            const badge = document.getElementById('newsBadge');
+            if (!badge) return;
+            if (!allNews.length) {
+                badge.style.display = 'none';
+                return;
+            }
+            const latestId = allNews[0].id;
+            if (lastSeenNewsId === latestId) {
+                badge.style.display = 'none';
+            } else {
+                badge.style.display = 'inline-block';
+                badge.textContent = allNews.length > 9 ? '9+' : String(allNews.length);
+            }
+        }
+
+        function markNewsSeen() {
+            if (allNews.length > 0) {
+                lastSeenNewsId = allNews[0].id;
+                localStorage.setItem('astu_ece_last_seen_news', lastSeenNewsId);
+                updateNewsBadge();
+            }
+        }
+
+        function renderNewsList() {
+            const container = document.getElementById('newsListContainer');
+            if (!container) return;
+            const q = (document.getElementById('newsSearchInput')?.value || '').toLowerCase();
+            
+            const filtered = allNews.filter(n => 
+                !q || (n.title || '').toLowerCase().includes(q) || (n.date || '').toLowerCase().includes(q)
+            );
+            
+            if (!filtered.length) {
+                container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-bell-slash"></i><br>No announcements found.</div>`;
+                return;
+            }
+            
+            let html = "";
+            filtered.forEach(item => {
+                html += `
+                <div class="material-card" style="align-items:flex-start; flex-direction:column; gap:8px;">
+                    <div style="width:100%;">
+                        <div style="font-weight:600; font-size:15px; margin-bottom:4px;">
+                            <i class="fa-solid fa-bullhorn" style="color:var(--btn-color); margin-right:6px;"></i>${escapeHtml(item.title)}
+                        </div>
+                        <div style="font-size:12px; color:var(--hint-color);">
+                            <i class="fa-regular fa-calendar"></i> ${escapeHtml(item.date || '')}
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:8px; width:100%; justify-content:flex-end;">
+                        <a class="dl-btn" href="${escapeHtml(item.link || '#')}" target="_blank" rel="noopener">
+                            <i class="fa-brands fa-telegram"></i> Open Post
+                        </a>
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = html;
+        }
+
+        function renderAdminNewsList() {
+            const container = document.getElementById('adminNewsList');
+            if (!container) return;
+            if (!allNews.length) {
+                container.innerHTML = `<p style="color:var(--hint-color); font-size:13px; text-align:center;">No news items yet.</p>`;
+                return;
+            }
+            let html = `<h4 style="margin-bottom:10px;">Existing News (${allNews.length})</h4>`;
+            allNews.forEach(item => {
+                html += `
+                <div class="material-card">
+                    <div class="material-info">
+                        <span class="material-name">📢 ${escapeHtml(item.title)}</span>
+                        <span class="material-type">${escapeHtml(item.date || '')}</span>
+                    </div>
+                    <div class="card-actions">
+                        <a class="dl-btn" href="${escapeHtml(item.link || '#')}" target="_blank"><i class="fa-brands fa-telegram"></i></a>
+                        <button class="fav-btn" style="color:#ff3b30; font-size:16px;" onclick="deleteNewsItem('${item.id}')"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = html;
+        }
+
+        async function deleteNewsItem(id) {
+            if (!confirm("Delete this news item?")) return;
+            const uid = tg.initDataUnsafe?.user?.id;
+            try {
+                const res = await fetch(`${RENDER_URL}/api/delete_news`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ chat_id: uid, id: id })
+                });
+                if (res.ok) {
+                    tg.showAlert("✅ News item deleted.");
+                    await loadDashboardWidgets();
+                } else {
+                    tg.showAlert("⚠️ Delete failed.");
+                }
+            } catch(e) { tg.showAlert("⚠️ Network error."); }
+        }
+
+        async function clearAllNews() {
+            if (!confirm("Remove ALL news items? This cannot be undone.")) return;
+            const uid = tg.initDataUnsafe?.user?.id;
+            try {
+                const res = await fetch(`${RENDER_URL}/api/clear_news`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ chat_id: uid })
+                });
+                if (res.ok) {
+                    tg.showAlert("✅ All news removed.");
+                    await loadDashboardWidgets();
+                }
             } catch(e) {}
         }
 
@@ -580,7 +733,8 @@
             'addVideo': '<i class="fa-solid fa-link" style="color:var(--btn-color)"></i> Suggest Video',
             'feedback': '<i class="fa-solid fa-star-half-stroke" style="color:var(--btn-color)"></i> Rate & Feedback',
             'help': '<i class="fa-solid fa-circle-question" style="color:var(--btn-color)"></i> Help & FAQ',
-            'adminNews': '<i class="fa-solid fa-shield-halved" style="color:#d32f2f"></i> Admin Portal'
+            'adminNews': '<i class="fa-solid fa-shield-halved" style="color:#d32f2f"></i> Admin Portal',
+            'news': '<i class="fa-solid fa-bell" style="color:var(--btn-color)"></i> Announcements'
         };
 
         function openMenuHub() {
@@ -616,6 +770,11 @@
             else if(sec === 'feedback') document.getElementById('feedbackSection').classList.add('active');
             else if(sec === 'help') document.getElementById('helpSection').classList.add('active');
             else if(sec === 'adminNews') document.getElementById('adminNewsSection').classList.add('active');
+            else if(sec === 'news') {
+                document.getElementById('newsSection').classList.add('active');
+                renderNewsList();
+                markNewsSeen();
+            }
             
             document.getElementById('navTitle').innerHTML = sectionTitles[sec] || sectionTitles['menu'];
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1228,53 +1387,45 @@
             subVidBtn.disabled = false;
         });
 
-        // Submit Admin News
+        // Submit Admin News (NEW — title + Telegram link only)
         document.getElementById('adminNewsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitNewsBtn');
+            const title = document.getElementById('adminNewsTitle').value.trim();
+            const link = document.getElementById('adminNewsLink').value.trim();
+            
+            if (!title || !link) {
+                tg.showAlert("⚠️ Please fill in both title and link.");
+                return;
+            }
+            if (!link.startsWith("https://t.me/") && !link.startsWith("http://t.me/")) {
+                tg.showAlert("⚠️ Link must be a valid Telegram post URL (https://t.me/...)");
+                return;
+            }
+            
             btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Publishing...`;
             btn.disabled = true;
 
             const formData = new FormData();
             formData.append('chat_id', tg.initDataUnsafe?.user?.id || '');
-            formData.append('text', document.getElementById('adminNewsText').value);
-            
-            const fileInput = document.getElementById('adminNewsImage');
-            if (fileInput.files.length > 0) {
-                formData.append('image', fileInput.files[0]);
-            }
+            formData.append('title', title);
+            formData.append('link', link);
 
             try {
                 const res = await fetch(`${RENDER_URL}/api/post_news`, { method: 'POST', body: formData });
                 if (res.ok) {
-                    tg.showAlert("✅ News published to dashboard!");
+                    tg.showAlert("✅ News published! Subscribers have been notified.");
                     document.getElementById('adminNewsForm').reset();
-                    loadDashboardWidgets();
-                    openMenuHub();
+                    await loadDashboardWidgets();
                 } else {
-                    tg.showAlert("⚠️ Failed to publish. Are you logged in as Admin?");
+                    const err = await res.json().catch(() => ({}));
+                    tg.showAlert("⚠️ Failed: " + (err.error || "Unknown error"));
                 }
             } catch(e) { tg.showAlert("⚠️ Network error."); }
 
             btn.innerHTML = `<i class="fa-solid fa-bullhorn"></i> Publish to Dashboard`;
             btn.disabled = false;
         });
-
-        async function clearDashboardNews() {
-            const uid = tg.initDataUnsafe?.user?.id;
-            try {
-                const res = await fetch(`${RENDER_URL}/api/clear_news`, { 
-                    method: 'POST', 
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ chat_id: uid })
-                });
-                if (res.ok) {
-                    tg.showAlert("✅ News banner removed.");
-                    loadDashboardWidgets();
-                    openMenuHub();
-                }
-            } catch(e) {}
-        }
 
         // Submit Feedback Form
         document.getElementById('feedbackForm').addEventListener('submit', async (e) => {
@@ -1341,14 +1492,14 @@
 
         // What's New Popup Logic
         function checkWhatsNew() {
-            const currentVersion = "v2.0"; 
+            const currentVersion = "v2.1"; 
             const userVersion = localStorage.getItem('astu_ece_version');
             if (userVersion !== currentVersion) {
                 document.getElementById('whatsNewModal').style.display = 'flex';
             }
         }
         function closeWhatsNew() {
-            localStorage.setItem('astu_ece_version', "v2.0");
+            localStorage.setItem('astu_ece_version', "v2.1");
             document.getElementById('whatsNewModal').style.display = 'none';
         }
         setTimeout(checkWhatsNew, 500);
