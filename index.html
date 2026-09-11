@@ -69,6 +69,9 @@
         .search-box i { position: absolute; left: 14px; top: 16px; color: var(--hint-color); }
         .search-box input { padding-left: 40px; border-radius: 20px; font-weight: 500; background: var(--sec-bg); border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
 
+        .toolbar-row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
+        .toolbar-row .sort-select { width: auto; flex: 1; padding: 10px 12px; font-size: 13px; border-radius: 20px; background: var(--sec-bg); border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 2px 8px rgba(0,0,0,0.04); font-weight: 600; color: var(--btn-color); }
+
         /* --- STANDARD MATERIAL CARD --- */
         .material-card { background: var(--sec-bg); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.02); }
         .material-info { display: flex; flex-direction: column; gap: 4px; flex: 1; margin-right: 10px; }
@@ -80,23 +83,24 @@
         .fav-btn { background: none; border: none; font-size: 18px; color: #ffb300; padding: 5px; width: auto; cursor: pointer; box-shadow: none; }
         .fav-btn.unstarred { color: var(--hint-color); opacity: 0.5; }
 
-        /* --- BEAUTIFUL FOLDER CARD (MOBILE FIX APPLIED) --- */
+        /* --- FOLDER CARD (icon-based, no thumbnail images) --- */
         .folder-card { background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px; display: block; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.02); cursor: pointer; transition: transform 0.15s ease; }
         .folder-card:active { transform: scale(0.98); }
-        .folder-thumb { position: relative; width: 100%; padding-top: 56.25%; background: linear-gradient(135deg, var(--btn-color), #00c6ff); display: block; overflow: hidden; }
-        .folder-thumb img { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.95; transition: transform 0.3s ease; display: block; }
-        .folder-card:hover .folder-thumb img { transform: scale(1.05); }
+        .folder-thumb { position: relative; width: 100%; padding-top: 38%; background: linear-gradient(135deg, var(--btn-color), #00c6ff); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .folder-thumb i.folder-big-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 42px; color: rgba(255,255,255,0.9); }
 
         .folder-bottom { display: flex; padding: 12px 15px; align-items: flex-start; justify-content: space-between; }
         .folder-info { flex: 1; display: flex; flex-direction: column; gap: 4px; padding-right: 10px;}
         .folder-title { font-weight: 700; font-size: 16px; color: var(--text-color); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .folder-meta { font-size: 12px; color: var(--hint-color); font-weight: 600; text-transform: uppercase; }
+        .folder-date { font-size: 11px; color: var(--hint-color); font-weight: 500; text-transform: none; margin-top: 1px; }
         .folder-actions { display: flex; align-items: center; gap: 12px; padding-top: 2px;}
 
         /* --- YOUTUBE VIDEO CARD (MOBILE FIX APPLIED) --- */
         .yt-card { display: block; background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px; overflow: hidden; text-decoration: none; color: var(--text-color); box-shadow: 0 4px 15px rgba(0,0,0,0.06); }
         .yt-thumb { position: relative; width: 100%; padding-top: 56.25%; background: #000; display: block; overflow: hidden; }
         .yt-thumb img { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.9; display: block; }
+        .yt-thumb.playlist-placeholder { background: linear-gradient(135deg, #ff0000, #ff7a7a); }
         .yt-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.15); transition: 0.2s;}
         .yt-overlay i { font-size: 45px; color: #fff; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.4)); }
         .yt-details { display: flex; padding: 12px 15px; gap: 12px; align-items: flex-start; }
@@ -196,6 +200,12 @@
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" id="globalMatSearch" placeholder="Search all materials..." oninput="filterGlobalMaterials()">
         </div>
+        <div class="toolbar-row">
+            <select class="sort-select" id="matSortOrder" onchange="activeFolderContext=null; renderMaterials();">
+                <option value="new">🕒 Newest First</option>
+                <option value="old">⏳ Oldest First</option>
+            </select>
+        </div>
         <details class="filter-accordion">
             <summary><i class="fa-solid fa-filter"></i> Filter by Course & Type <i class="fa-solid fa-chevron-down" style="font-size: 12px;"></i></summary>
             <div class="filter-content">
@@ -213,6 +223,12 @@
         <div class="search-box">
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" id="globalVidSearch" placeholder="Search YouTube tutorials..." oninput="filterGlobalVideos()">
+        </div>
+        <div class="toolbar-row">
+            <select class="sort-select" id="vidSortOrder" onchange="renderVideos()">
+                <option value="new">🕒 Newest First</option>
+                <option value="old">⏳ Oldest First</option>
+            </select>
         </div>
         <details class="filter-accordion">
             <summary><i class="fa-solid fa-filter"></i> Filter by Course <i class="fa-solid fa-chevron-down" style="font-size: 12px;"></i></summary>
@@ -301,7 +317,7 @@
             <div class="form-group"><label>Semester</label><select id="subVidSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
             <div class="form-group"><label>Course</label><select id="subVidCourse" required disabled><option value="">Select Course...</option></select></div>
             <div class="form-group"><label>Video Title</label><input type="text" id="vidTitle" placeholder="e.g. Chapter 1 Lecture" required disabled></div>
-            <div class="form-group"><label>YouTube Link</label><input type="url" id="vidUrl" placeholder="https://youtube.com/watch?v=..." required disabled></div>
+            <div class="form-group"><label>YouTube Link</label><input type="url" id="vidUrl" placeholder="https://youtube.com/watch?v=... or a playlist link" required disabled></div>
             <button type="submit" id="subVidBtn" disabled><i class="fa-solid fa-paper-plane"></i> Submit for Review</button>
         </form>
     </div>
@@ -339,8 +355,6 @@
 
         let allMaterials = {};
         let allVideos = {};
-        
-        const defaultThumb = "https://images.unsplash.com/photo-1456406644174-8ddd4cd52a06?ixlib=rb-4.0.3&auto=format&fit=crop&w=600&q=80";
 
         // --- UNIFIED MENU CONTROLLER ---
         const sectionTitles = {
@@ -409,32 +423,75 @@
             if(document.getElementById('favsSection').classList.contains('active')) renderFavs();
         }
 
+        // --- DATE HELPERS (for sorting old/new) ---
+        function parseDateAdded(dateStr) {
+            if (!dateStr) return 0;
+            const t = Date.parse(dateStr);
+            return isNaN(t) ? 0 : t;
+        }
+
         function getYouTubeId(url) {
             if (!url) return null;
             const patterns = [ /youtube\.com\/watch\?(?:.*&)?v=([\w-]{11})/, /youtu\.be\/([\w-]{11})/, /youtube\.com\/embed\/([\w-]{11})/, /youtube\.com\/shorts\/([\w-]{11})/ ];
             for (const p of patterns) { const m = url.match(p); if (m) return m[1]; }
             return null;
         }
+        function getPlaylistId(url) {
+            if (!url) return null;
+            const m = url.match(/[?&]list=([\w-]+)/);
+            return m ? m[1] : null;
+        }
         function escapeHtml(str) { const div = document.createElement('div'); div.textContent = str ?? ''; return div.innerHTML; }
+
+        // Fetches a real thumbnail for links that don't have a direct video ID
+        // (e.g. bare playlist links) using YouTube's public oEmbed endpoint,
+        // and swaps it into the placeholder once it's ready.
+        async function loadRemoteThumb(url, elId) {
+            try {
+                const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const el = document.getElementById(elId);
+                if (el && data.thumbnail_url) {
+                    el.classList.remove('playlist-placeholder');
+                    el.innerHTML = `<img src="${data.thumbnail_url}" alt="Thumbnail" loading="lazy">` + el.querySelector('.yt-overlay').outerHTML;
+                }
+            } catch (e) { /* keep the placeholder if this fails */ }
+        }
 
         function generateVideoCard(v, courseCode, idx) {
             const ytId = getYouTubeId(v.url);
-            const thumbUrl = ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : '';
+            const listId = !ytId ? getPlaylistId(v.url) : null;
+            const thumbId = `ytthumb_${courseCode}_${idx}`;
             const watchUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : v.url;
             const favId = `vid_${courseCode}_${idx}`;
             const isStarred = isFav(favId);
             const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
-            
-            // Show Date if it exists
+
             const dateAdded = v.date_added ? ` • Added: ${v.date_added}` : '';
-            
+
+            let thumbHtml;
+            if (ytId) {
+                const thumbUrl = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+                thumbHtml = `
+                    <div class="yt-thumb" id="${thumbId}">
+                        <img src="${thumbUrl}" alt="Thumbnail" loading="lazy">
+                        <div class="yt-overlay"><i class="fa-solid fa-play"></i></div>
+                    </div>`;
+            } else {
+                // No direct video ID (likely a bare playlist link) — show a
+                // placeholder immediately, then fetch the real thumbnail.
+                thumbHtml = `
+                    <div class="yt-thumb playlist-placeholder" id="${thumbId}">
+                        <div class="yt-overlay" style="background:rgba(0,0,0,0.1)"><i class="fa-solid ${listId ? 'fa-list' : 'fa-play'}"></i></div>
+                    </div>`;
+                queueRemoteThumb(v.url, thumbId);
+            }
+
             return `
             <div class="yt-card searchable-vid" data-text="${escapeHtml(v.title).toLowerCase()} ${courseCode.toLowerCase()}">
                 <a href="${watchUrl}" target="_blank" rel="noopener">
-                    <div class="yt-thumb">
-                        ${thumbUrl ? `<img src="${thumbUrl}" alt="Thumbnail" loading="lazy">` : ''}
-                        <div class="yt-overlay"><i class="fa-solid fa-play"></i></div>
-                    </div>
+                    ${thumbHtml}
                 </a>
                 <div class="yt-details">
                     <div class="yt-avatar"><i class="fa-solid fa-graduation-cap"></i></div>
@@ -447,6 +504,15 @@
                     </button>
                 </div>
             </div>`;
+        }
+
+        // Collected during a render pass, then resolved once the HTML is in the DOM.
+        let pendingRemoteThumbs = [];
+        function queueRemoteThumb(url, elId) { pendingRemoteThumbs.push({ url, elId }); }
+        function flushRemoteThumbs() {
+            const batch = pendingRemoteThumbs;
+            pendingRemoteThumbs = [];
+            batch.forEach(({ url, elId }) => loadRemoteThumb(url, elId));
         }
 
         // --- ADVANCED TIC-TAC-TOE LOGIC ---
@@ -697,6 +763,7 @@
             const searchQ = document.getElementById('globalMatSearch').value.toLowerCase();
             const filterCourse = document.getElementById('findCourse').value;
             const filterType = document.getElementById('findType').value;
+            const sortOrder = document.getElementById('matSortOrder').value; // 'new' or 'old'
             
             let html = ""; 
             let totalFiles = 0;
@@ -747,7 +814,6 @@
                     const isStarred = isFav(favId);
                     const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
                     
-                    // Show Date if it exists
                     const dateAdded = item.date_added ? ` • Added: ${item.date_added}` : '';
                     
                     html += `
@@ -766,46 +832,50 @@
                 return;
             }
 
-            // 3. Render the Playlist/Folder View (Default)
-            let folderCount = 0;
+            // 3. Build the flat list of folders (so we can sort them by date)
+            let folderList = [];
             for (const [key, folders] of Object.entries(grouped)) {
                 const [course, type] = key.split('_');
                 for (const [folderName, items] of Object.entries(folders)) {
-                    folderCount++;
-                    
-                    // Folder-level Favorite Logic
-                    const favId = `folder_${key}_${folderName}`;
-                    const isStarred = isFav(favId);
-                    const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
-                    const metaData = `${course} • ${type.toUpperCase()}`;
-                    
-                    // Check for custom uploaded thumbnail
-                    let customThumb = null;
-                    for (let item of items) {
-                        if (item.thumbnail_url) { customThumb = item.thumbnail_url; break; }
-                    }
-                    const finalThumb = customThumb ? customThumb : defaultThumb;
-
-                    html += `
-                    <div class="folder-card" onclick="openFolder('${key}', '${folderName.replace(/'/g,"\\'")}')">
-                        <div class="folder-thumb">
-                            <img src="${finalThumb}" alt="Folder Image" onerror="this.onerror=null; this.src='${defaultThumb}';">
-                        </div>
-                        <div class="folder-bottom">
-                            <div class="folder-info">
-                                <div class="folder-title"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ${folderName}</div>
-                                <div class="folder-meta">${metaData} • ${items.length} file(s)</div>
-                            </div>
-                            <div class="folder-actions">
-                                <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="event.stopPropagation(); toggleFav('${favId}', '${folderName.replace(/'/g,"\\'")}', '${key}', 'folder', '${metaData}')"><i class="${starClass}"></i></button>
-                                <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
-                            </div>
-                        </div>
-                    </div>`;
+                    // Folder date = date of the first file uploaded into it
+                    const folderDate = items[0]?.date_added || '';
+                    folderList.push({ key, course, type, folderName, items, folderDate, sortKey: parseDateAdded(folderDate) });
                 }
             }
 
-            container.innerHTML = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${folderCount} folder(s)</div>` + html;
+            folderList.sort((a, b) => sortOrder === 'old' ? (a.sortKey - b.sortKey) : (b.sortKey - a.sortKey));
+
+            // 4. Render the Playlist/Folder View (Default)
+            folderList.forEach(folder => {
+                const { key, course, type, folderName, items, folderDate } = folder;
+
+                // Folder-level Favorite Logic
+                const favId = `folder_${key}_${folderName}`;
+                const isStarred = isFav(favId);
+                const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
+                const metaData = `${course} • ${type.toUpperCase()}`;
+                const dateLine = folderDate ? `<div class="folder-date"><i class="fa-regular fa-clock"></i> Uploaded: ${folderDate}</div>` : '';
+
+                html += `
+                <div class="folder-card" onclick="openFolder('${key}', '${folderName.replace(/'/g,"\\'")}')">
+                    <div class="folder-thumb">
+                        <i class="fa-solid fa-folder folder-big-icon"></i>
+                    </div>
+                    <div class="folder-bottom">
+                        <div class="folder-info">
+                            <div class="folder-title"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ${folderName}</div>
+                            <div class="folder-meta">${metaData} • ${items.length} file(s)</div>
+                            ${dateLine}
+                        </div>
+                        <div class="folder-actions">
+                            <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="event.stopPropagation(); toggleFav('${favId}', '${folderName.replace(/'/g,"\\'")}', '${key}', 'folder', '${metaData}')"><i class="${starClass}"></i></button>
+                            <i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>
+                        </div>
+                    </div>
+                </div>`;
+            });
+
+            container.innerHTML = `<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ${folderList.length} folder(s)</div>` + html;
         }
 
         function openFolder(key, folderName) {
@@ -829,6 +899,7 @@
             const container = document.getElementById('videoResultsContainer');
             const searchQ = document.getElementById('globalVidSearch').value.toLowerCase();
             const filterCourse = document.getElementById('vidCourse').value;
+            const sortOrder = document.getElementById('vidSortOrder').value; // 'new' or 'old'
             
             let html = ""; let count = 0;
             let allVidsFlat = [];
@@ -836,15 +907,19 @@
                 if (filterCourse && courseCode !== filterCourse) continue;
                 vids.forEach((v, idx) => {
                     if (searchQ && !v.title.toLowerCase().includes(searchQ) && !courseCode.toLowerCase().includes(searchQ)) return;
-                    allVidsFlat.push({ v, courseCode, idx });
+                    allVidsFlat.push({ v, courseCode, idx, sortKey: parseDateAdded(v.date_added) });
                 });
             }
             
-            allVidsFlat.reverse(); 
+            allVidsFlat.sort((a, b) => sortOrder === 'old' ? (a.sortKey - b.sortKey) : (b.sortKey - a.sortKey));
+
+            pendingRemoteThumbs = [];
             allVidsFlat.forEach(item => { html += generateVideoCard(item.v, item.courseCode, item.idx); count++; });
 
             if(count === 0) container.innerHTML = `<div class="empty-state"><i class="fa-brands fa-youtube" style="font-size:50px"></i><br>No videos found.</div>`;
             else container.innerHTML = html;
+
+            flushRemoteThumbs();
         }
         function filterGlobalVideos() { renderVideos(); }
 
@@ -899,6 +974,7 @@
                 html += `<button class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="activeFavFolder=null; renderFavs();"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>`;
                 html += `<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px;">📁 ${activeFavFolder} <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(${items.length} saved)</span></div>`;
 
+                pendingRemoteThumbs = [];
                 items.forEach(fav => {
                     const starClass = "fa-solid fa-star";
                     if(fav.type === 'material') {
@@ -919,7 +995,7 @@
                         html += `
                         <div class="folder-card" onclick="goToFolderFromFav('${fav.url}', '${fav.title.replace(/'/g,"\\'")}')">
                             <div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);">
-                                <i class="fa-solid fa-star" style="font-size:45px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
+                                <i class="fa-solid fa-star folder-big-icon"></i>
                             </div>
                             <div class="folder-bottom">
                                 <div class="folder-info">
@@ -935,6 +1011,7 @@
                     }
                 });
                 container.innerHTML = html;
+                flushRemoteThumbs();
                 return;
             }
 
@@ -945,7 +1022,7 @@
                 html += `
                 <div class="folder-card" onclick="openFavFolder('${folderName.replace(/'/g,"\\'")}')">
                     <div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);">
-                        <i class="fa-solid fa-star" style="font-size:45px; color:#fff; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%);"></i>
+                        <i class="fa-solid fa-star folder-big-icon"></i>
                     </div>
                     <div class="folder-bottom">
                         <div class="folder-info">
