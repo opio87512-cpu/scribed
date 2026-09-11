@@ -582,21 +582,20 @@ def admin_delete_exam(message):
 def admin_set_news(message):
     if message.from_user.id not in ADMIN_IDS:
         return
-    # New format: /setnews Title | https://t.me/channel/123
-    # Or reply to a forwarded channel post with /setnews Title
+    # Two supported formats:
+    #   1) /setnews Title | https://t.me/channel/123
+    #   2) Reply to a forwarded channel post with:  /setnews Title
     raw = message.text.replace("/setnews", "").strip()
 
     link = None
     title = raw
 
-    # Option 1: reply to a forwarded channel post
     if message.reply_to_message and getattr(message.reply_to_message, "forward_from_chat", None):
         chat = message.reply_to_message.forward_from_chat
         msg_id = message.reply_to_message.forward_from_message_id
         if chat.username:
             link = f"https://t.me/{chat.username}/{msg_id}"
         else:
-            # Private channel — build c/ link using internal id
             internal = str(chat.id)
             if internal.startswith("-100"):
                 internal = internal[4:]
@@ -614,9 +613,9 @@ def admin_set_news(message):
         bot.reply_to(
             message,
             "⚠️ *Invalid format.*\n\n"
-            "Usage Option 1 (fast):\n"
+            "Usage Option 1:\n"
             "`/setnews Your Title | https://t.me/channel/123`\n\n"
-            "Usage Option 2 (reply to a forwarded post):\n"
+            "Usage Option 2:\n"
             "1. Forward a post from your channel here\n"
             "2. Reply to it with `/setnews Your Title`",
             parse_mode="Markdown",
@@ -635,7 +634,7 @@ def admin_set_news(message):
         "date": datetime.now().strftime("%b %d, %Y - %H:%M"),
     }
     news_list.insert(0, item)      # newest first
-    news_list = news_list[:20]     # keep last 20 entries
+    news_list = news_list[:20]     # keep last 20
     save_json(NEWS_FILE, news_list)
 
     bot.reply_to(
@@ -645,7 +644,6 @@ def admin_set_news(message):
         disable_web_page_preview=True,
     )
 
-    # Notify all subscribers
     _notify_all_subscribers(title, item["date"], link)
 
 
@@ -660,7 +658,6 @@ def admin_delete_news(message):
         return
 
     if len(parts) < 2:
-        # Show list with delete buttons
         markup = InlineKeyboardMarkup()
         for item in news_list:
             t = item.get("title", "Untitled")
@@ -669,7 +666,6 @@ def admin_delete_news(message):
         bot.reply_to(message, "Select the news item you want to delete:", reply_markup=markup)
         return
 
-    # Delete by id
     nid = parts[1].strip()
     new_list = [n for n in news_list if n.get("id") != nid]
     save_json(NEWS_FILE, new_list)
@@ -1416,7 +1412,6 @@ def api_post_news():
     news_list = news_list[:20]
     save_json(NEWS_FILE, news_list)
 
-    # Notify all subscribers
     _notify_all_subscribers(title, item["date"], link)
 
     return jsonify({"status": "success", "item": item}), 200
