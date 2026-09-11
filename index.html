@@ -58,9 +58,15 @@
 
         .form-group { margin-bottom: 16px; }
         label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; color: var(--text-color); }
-        select, input, button { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid rgba(142, 142, 147, 0.2); font-size: 15px; box-sizing: border-box; background: var(--bg-color); color: var(--text-color); outline: none; transition: 0.2s; }
-        select:focus, input:focus { border-color: var(--btn-color); background: var(--sec-bg); }
-        select:disabled, input:disabled { opacity: 0.5; }
+        select, input, textarea, button { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid rgba(142, 142, 147, 0.2); font-size: 15px; box-sizing: border-box; background: var(--bg-color); color: var(--text-color); outline: none; transition: 0.2s; font-family: inherit;}
+        select:focus, input:focus, textarea:focus { border-color: var(--btn-color); background: var(--sec-bg); }
+        select:disabled, input:disabled, textarea:disabled { opacity: 0.5; }
+
+        .star-rating { display: flex; flex-direction: row-reverse; justify-content: center; margin-bottom: 20px; }
+        .star-rating input { display: none; }
+        .star-rating label { font-size: 35px; color: rgba(142, 142, 147, 0.3); cursor: pointer; padding: 0 5px; transition: color 0.2s; }
+        .star-rating input:checked ~ label { color: #ffb300; }
+        .star-rating label:hover, .star-rating label:hover ~ label { color: #ffcc00; }
         
         button[type="submit"], .action-btn { background: var(--btn-color); color: var(--btn-text); border: none; font-weight: 600; font-size: 16px; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; box-shadow: 0 4px 10px rgba(0, 122, 255, 0.2); width: 100%; padding: 14px; border-radius: 12px;}
         button:disabled { opacity: 0.6; box-shadow: none; }
@@ -125,9 +131,32 @@
 
         @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Modal Popup Styles */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999; display: none; justify-content: center; align-items: center; padding: 20px; animation: fadeIn 0.3s ease; }
+        .modal-content { background: var(--sec-bg); padding: 24px; border-radius: 20px; width: 100%; max-width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); }
+        .modal-content h3 { margin-top: 0; margin-bottom: 12px; color: var(--text-color); display: flex; align-items: center; gap: 8px; font-size: 18px; }
+        .modal-content p { color: var(--hint-color); font-size: 14px; margin-bottom: 15px; line-height: 1.4; }
+        .modal-content ul { padding-left: 20px; margin-bottom: 20px; font-size: 14px; color: var(--text-color); line-height: 1.5;}
+        .modal-content li { margin-bottom: 10px; }
+        .admin-only { display: none; }
     </style>
 </head>
 <body>
+    <!-- WHAT'S NEW WELCOME POPUP -->
+    <div id="whatsNewModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3><i class="fa-solid fa-gift" style="color:var(--btn-color)"></i> What's New!</h3>
+            <p>Welcome to the updated ASTU ECE Portal. We've added a few things to make your life easier:</p>
+            <ul>
+                <li><b>🔔 Course Notifications:</b> Subscribe to specific courses to get a DM when new notes drop.</li>
+                <li><b>⏰ Live Countdowns:</b> See exactly how many days are left until exams on your dashboard.</li>
+                <li><b>⚠️ Report Issues:</b> Found a broken PDF? Flag it with the red warning icon.</li>
+            </ul>
+            <button class="action-btn" onclick="closeWhatsNew()"><i class="fa-solid fa-check"></i> Got it, thanks!</button>
+        </div>
+    </div>
+
     <!-- TOP NAVIGATION BAR -->
     <div class="top-navbar">
         <div class="nav-title" id="navTitle">
@@ -144,6 +173,12 @@
         <div id="dashboardWidgets"></div>
 
         <div class="menu-grid">
+            <div class="menu-card admin-only" onclick="switchSection('adminNews')" style="background: #ffebee; border: 1px solid #ffcdd2;">
+                <i class="fa-solid fa-bullhorn menu-icon" style="color: #d32f2f;"></i>
+                <div class="menu-label" style="color: #d32f2f;">Post News</div>
+                <div class="menu-sub" style="color: #d32f2f; opacity: 0.8;">Admin Only</div>
+            </div>
+            
             <div class="menu-card" onclick="switchSection('find')">
                 <i class="fa-solid fa-book menu-icon"></i>
                 <div class="menu-label">Find Materials</div>
@@ -173,6 +208,16 @@
                 <i class="fa-solid fa-star menu-icon"></i>
                 <div class="menu-label">Saved Favorites</div>
                 <div class="menu-sub">Quick-access bookmarks</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('help')">
+                <i class="fa-solid fa-circle-question menu-icon"></i>
+                <div class="menu-label">Help & FAQ</div>
+                <div class="menu-sub">How to use this portal</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('feedback')">
+                <i class="fa-solid fa-star-half-stroke menu-icon"></i>
+                <div class="menu-label">Rate & Feedback</div>
+                <div class="menu-sub">Tell us what you think</div>
             </div>
             <div class="menu-card" style="grid-column: span 2;" onclick="switchSection('addVideo')">
                 <i class="fa-solid fa-link menu-icon"></i>
@@ -325,6 +370,64 @@
         </form>
     </div>
 
+    <!-- FEEDBACK SECTION -->
+    <div id="feedbackSection" class="section card-container">
+        <h3 style="margin-top:0; text-align:center;">Rate the Bot</h3>
+        <p style="font-size:13px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px; text-align:center;">Your feedback helps us improve!</p>
+        <form id="feedbackForm">
+            <div class="star-rating">
+                <input type="radio" id="star5" name="rating" value="5" required><label for="star5" class="fa-solid fa-star"></label>
+                <input type="radio" id="star4" name="rating" value="4"><label for="star4" class="fa-solid fa-star"></label>
+                <input type="radio" id="star3" name="rating" value="3"><label for="star3" class="fa-solid fa-star"></label>
+                <input type="radio" id="star2" name="rating" value="2"><label for="star2" class="fa-solid fa-star"></label>
+                <input type="radio" id="star1" name="rating" value="1"><label for="star1" class="fa-solid fa-star"></label>
+            </div>
+            <div class="form-group">
+                <label>Feedback / Suggestions</label>
+                <textarea id="feedbackText" rows="4" placeholder="Report a bug, request a feature, or tell us what you love..." required style="resize: vertical;"></textarea>
+            </div>
+            <button type="submit" id="submitFeedbackBtn"><i class="fa-solid fa-paper-plane"></i> Send Feedback</button>
+        </form>
+    </div>
+
+    <!-- HELP & FAQ SECTION -->
+    <div id="helpSection" class="section card-container">
+        <h3 style="margin-top:0; text-align:center;"><i class="fa-solid fa-circle-question" style="color:var(--btn-color)"></i> Help & FAQ</h3>
+        
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary>How do I get notifications? <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Go to Find Materials or Video Tutorials, select your course, and click the "Notify Me" button. You'll get a direct message when new files are added!</div>
+        </details>
+        
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary>I found a broken file. What do I do? <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Click the red ⚠️ icon next to any material or video. It will automatically send a report with your comment to the admins so they can fix it.</div>
+        </details>
+        
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary>Is my GPA data saved online? <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">No! The GPA calculator runs entirely on your phone. We do not save or monitor your grades.</div>
+        </details>
+    </div>
+
+    <!-- ADMIN NEWS POSTING SECTION -->
+    <div id="adminNewsSection" class="section card-container">
+        <h3 style="margin-top:0; color: #d32f2f;"><i class="fa-solid fa-shield-halved"></i> Admin News Portal</h3>
+        <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Broadcast a message and an image to the home dashboard.</p>
+        <form id="adminNewsForm">
+            <div class="form-group">
+                <label>Announcement Text</label>
+                <textarea id="adminNewsText" rows="4" placeholder="Type the university news here..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Attach Image (Optional)</label>
+                <input type="file" id="adminNewsImage" accept="image/*">
+            </div>
+            <button type="submit" id="submitNewsBtn" style="background: #d32f2f;"><i class="fa-solid fa-bullhorn"></i> Publish to Dashboard</button>
+            <button type="button" onclick="clearDashboardNews()" class="action-btn" style="margin-top: 10px; background: var(--bg-color); color: #d32f2f; border: 1px solid #d32f2f; box-shadow: none;"><i class="fa-solid fa-trash-can"></i> Remove Current News</button>
+        </form>
+    </div>
+
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
@@ -332,6 +435,11 @@
         const RENDER_URL = "https://scribed-1rqs.onrender.com";
         const BOT_USERNAME = "astuece2026_bot";
         
+        const ADMIN_IDS = [8429521561, 8244142809];
+        if (ADMIN_IDS.includes(tg.initDataUnsafe?.user?.id)) {
+            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
+        }
+
         let userSubs = [];
         let activeExams = {};
         
@@ -358,19 +466,24 @@
                 const container = document.getElementById('dashboardWidgets');
                 let html = "";
                 
-                // 1. Render News Banner
-                if (data.news) {
+                // 1. Render News Banner with Optional Image
+                if (data.news && (data.news.text || data.news.image)) {
+                    let imgHtml = data.news.image ? `<img src="${data.news.image}" style="width: 100%; border-radius: 12px; margin-bottom: 12px; object-fit: cover; max-height: 250px;" alt="News Image">` : '';
+                    let textHtml = data.news.text ? `<div>${escapeHtml(data.news.text).replace(/\n/g, '<br>')}</div>` : '';
+                    
                     html += `
-                    <div style="background: linear-gradient(135deg, #007aff, #00c6ff); color: white; padding: 14px 16px; border-radius: 16px; margin-bottom: 15px; font-weight: 500; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2); line-height: 1.4; display: flex; gap: 12px; align-items: flex-start; animation: slideUp 0.4s ease;">
-                        <i class="fa-solid fa-bullhorn" style="font-size: 18px; margin-top: 2px;"></i>
-                        <div>${escapeHtml(data.news)}</div>
+                    <div style="background: linear-gradient(135deg, #007aff, #00c6ff); color: white; padding: 16px; border-radius: 16px; margin-bottom: 15px; font-weight: 500; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2); line-height: 1.4; animation: slideUp 0.4s ease;">
+                        ${imgHtml}
+                        <div style="display: flex; gap: 12px; align-items: flex-start;">
+                            ${textHtml ? '<i class="fa-solid fa-bullhorn" style="font-size: 18px; margin-top: 2px;"></i>' : ''}
+                            ${textHtml}
+                        </div>
                     </div>`;
                 }
 
                 // 2. Render Global Event Countdowns
                 if (data.events && data.events.length > 0) {
                     data.events.forEach(ev => {
-                        // Use end date for the countdown math
                         const targetDate = ev.end || ev.date; 
                         const daysLeft = Math.ceil((new Date(targetDate) - new Date()) / (1000 * 60 * 60 * 24));
                         
@@ -379,7 +492,6 @@
                             let color2 = daysLeft <= 3 ? '#ff7a7a' : '#ffcc00';
                             let shadow = daysLeft <= 3 ? 'rgba(255, 59, 48, 0.2)' : 'rgba(255, 179, 0, 0.2)';
                             
-                            // Format the date text (e.g. "2026-10-15 to 2026-10-20")
                             let dateDisplay = "";
                             if (ev.start && ev.end) {
                                 dateDisplay = ev.start === ev.end ? ev.end : `${ev.start} to ${ev.end}`;
@@ -465,7 +577,10 @@
             'gpa': '<i class="fa-solid fa-calculator" style="color:var(--btn-color)"></i> GPA Calculator',
             'game': '<i class="fa-solid fa-gamepad" style="color:var(--btn-color)"></i> Advanced XO',
             'favs': '<i class="fa-solid fa-star" style="color:var(--btn-color)"></i> Saved Favorites',
-            'addVideo': '<i class="fa-solid fa-link" style="color:var(--btn-color)"></i> Suggest Video'
+            'addVideo': '<i class="fa-solid fa-link" style="color:var(--btn-color)"></i> Suggest Video',
+            'feedback': '<i class="fa-solid fa-star-half-stroke" style="color:var(--btn-color)"></i> Rate & Feedback',
+            'help': '<i class="fa-solid fa-circle-question" style="color:var(--btn-color)"></i> Help & FAQ',
+            'adminNews': '<i class="fa-solid fa-shield-halved" style="color:#d32f2f"></i> Admin Portal'
         };
 
         function openMenuHub() {
@@ -494,16 +609,18 @@
             }
             else if(sec === 'favs') { 
                 document.getElementById('favsSection').classList.add('active'); 
-                activeFavFolder = null; // Reset folder view when opening favs
+                activeFavFolder = null; 
                 renderFavs(); 
             }
             else if(sec === 'addVideo') document.getElementById('addVideoSection').classList.add('active');
+            else if(sec === 'feedback') document.getElementById('feedbackSection').classList.add('active');
+            else if(sec === 'help') document.getElementById('helpSection').classList.add('active');
+            else if(sec === 'adminNews') document.getElementById('adminNewsSection').classList.add('active');
             
             document.getElementById('navTitle').innerHTML = sectionTitles[sec] || sectionTitles['menu'];
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        // Helper to jump from a favorited folder directly into the 'Find' section
         async function goToFolderFromFav(key, folderName) {
             await switchSection('find');
             openFolder(key, folderName);
@@ -524,7 +641,6 @@
             if(document.getElementById('favsSection').classList.contains('active')) renderFavs();
         }
 
-        // --- DATE HELPERS (for sorting old/new) ---
         function parseDateAdded(dateStr) {
             if (!dateStr) return 0;
             const t = Date.parse(dateStr);
@@ -544,9 +660,6 @@
         }
         function escapeHtml(str) { const div = document.createElement('div'); div.textContent = str ?? ''; return div.innerHTML; }
 
-        // Fetches a real thumbnail for links that don't have a direct video ID
-        // (e.g. bare playlist links) using YouTube's public oEmbed endpoint,
-        // and swaps it into the placeholder once it's ready.
         async function loadRemoteThumb(url, elId) {
             try {
                 const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
@@ -557,7 +670,7 @@
                     el.classList.remove('playlist-placeholder');
                     el.innerHTML = `<img src="${data.thumbnail_url}" alt="Thumbnail" loading="lazy">` + el.querySelector('.yt-overlay').outerHTML;
                 }
-            } catch (e) { /* keep the placeholder if this fails */ }
+            } catch (e) { }
         }
 
         function generateVideoCard(v, courseCode, idx) {
@@ -570,7 +683,6 @@
             const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
 
             const dateAdded = v.date_added ? ` • Added: ${v.date_added}` : '';
-
             let thumbHtml;
             if (ytId) {
                 const thumbUrl = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
@@ -580,8 +692,6 @@
                         <div class="yt-overlay"><i class="fa-solid fa-play"></i></div>
                     </div>`;
             } else {
-                // No direct video ID (likely a bare playlist link) — show a
-                // placeholder immediately, then fetch the real thumbnail.
                 thumbHtml = `
                     <div class="yt-thumb playlist-placeholder" id="${thumbId}">
                         <div class="yt-overlay" style="background:rgba(0,0,0,0.1)"><i class="fa-solid ${listId ? 'fa-list' : 'fa-play'}"></i></div>
@@ -600,14 +710,14 @@
                         <div class="yt-title">${escapeHtml(v.title)}</div>
                         <div class="yt-channel">${courseCode} • Tutorial${dateAdded}</div>
                     </div>
-                    <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${escapeHtml(v.title).replace(/'/g,"\\'")}', '${v.url}', 'video', '${courseCode}')">
-                        <i class="${starClass}"></i>
-                    </button>
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                        <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${escapeHtml(v.title).replace(/'/g,"\\'")}', '${v.url}', 'video', '${courseCode}')"><i class="${starClass}"></i></button>
+                        <button class="fav-btn" style="color:#ff3b30; opacity: 0.6; font-size:16px;" onclick="event.stopPropagation(); reportIssue('Video', '${courseCode}', '${escapeHtml(v.title).replace(/'/g,"\\'")}')"><i class="fa-solid fa-triangle-exclamation"></i></button>
+                    </div>
                 </div>
             </div>`;
         }
 
-        // Collected during a render pass, then resolved once the HTML is in the DOM.
         let pendingRemoteThumbs = [];
         function queueRemoteThumb(url, elId) { pendingRemoteThumbs.push({ url, elId }); }
         function flushRemoteThumbs() {
@@ -617,186 +727,69 @@
         }
 
         // --- ADVANCED TIC-TAC-TOE LOGIC ---
-        let xoBoard = [];
-        let xoActive = true;
-        let xoSize = 4;
-        let xoWinStreak = 4;
-
+        let xoBoard = []; let xoActive = true; let xoSize = 4; let xoWinStreak = 4;
         function setGridSize(size) {
-            xoSize = size;
-            xoWinStreak = size === 8 ? 5 : 4; 
-            
+            xoSize = size; xoWinStreak = size === 8 ? 5 : 4; 
             document.getElementById('btnSz4').style.background = size === 4 ? 'var(--btn-color)' : 'var(--bg-color)';
             document.getElementById('btnSz4').style.color = size === 4 ? 'var(--btn-text)' : 'var(--btn-color)';
             document.getElementById('btnSz4').style.border = size === 4 ? 'none' : '1px solid var(--btn-color)';
             document.getElementById('btnSz4').style.boxShadow = size === 4 ? '0 4px 10px rgba(0, 122, 255, 0.2)' : 'none';
-
             document.getElementById('btnSz6').style.background = size === 6 ? 'var(--btn-color)' : 'var(--bg-color)';
             document.getElementById('btnSz6').style.color = size === 6 ? 'var(--btn-text)' : 'var(--btn-color)';
             document.getElementById('btnSz6').style.border = size === 6 ? 'none' : '1px solid var(--btn-color)';
             document.getElementById('btnSz6').style.boxShadow = size === 6 ? '0 4px 10px rgba(0, 122, 255, 0.2)' : 'none';
-
             document.getElementById('btnSz8').style.background = size === 8 ? 'var(--btn-color)' : 'var(--bg-color)';
             document.getElementById('btnSz8').style.color = size === 8 ? 'var(--btn-text)' : 'var(--btn-color)';
             document.getElementById('btnSz8').style.border = size === 8 ? 'none' : '1px solid var(--btn-color)';
             document.getElementById('btnSz8').style.boxShadow = size === 8 ? '0 4px 10px rgba(0, 122, 255, 0.2)' : 'none';
-            
             renderXOBoard();
         }
-
         function renderXOBoard() {
-            const board = document.getElementById('xoBoard');
-            board.style.gridTemplateColumns = `repeat(${xoSize}, 1fr)`;
-            board.innerHTML = '';
-            xoBoard = Array(xoSize * xoSize).fill('');
-            
+            const board = document.getElementById('xoBoard'); board.style.gridTemplateColumns = `repeat(${xoSize}, 1fr)`; board.innerHTML = ''; xoBoard = Array(xoSize * xoSize).fill('');
             for(let i=0; i<xoSize * xoSize; i++) {
-                const cell = document.createElement('div');
-                cell.className = 'tic-tac-toe-cell';
+                const cell = document.createElement('div'); cell.className = 'tic-tac-toe-cell';
                 if(xoSize === 6) { cell.style.fontSize = '26px'; cell.style.borderRadius = '8px'; }
                 if(xoSize === 8) { cell.style.fontSize = '20px'; cell.style.borderRadius = '6px'; cell.style.borderWidth = '1px'; }
-                cell.onclick = () => makeMove(i);
-                board.appendChild(cell);
+                cell.onclick = () => makeMove(i); board.appendChild(cell);
             }
-            xoActive = true;
-            document.getElementById('xoStatus').innerHTML = `Your Turn <span style="color:var(--btn-color)">(X)</span><br><span style="font-size:12px;color:var(--hint-color);font-weight:normal;">Connect ${xoWinStreak} to win!</span>`;
+            xoActive = true; document.getElementById('xoStatus').innerHTML = `Your Turn <span style="color:var(--btn-color)">(X)</span><br><span style="font-size:12px;color:var(--hint-color);font-weight:normal;">Connect ${xoWinStreak} to win!</span>`;
         }
-
         function makeMove(index) {
             if(!xoActive || xoBoard[index] !== '') return;
-            
-            xoBoard[index] = 'X';
-            updateXOCell(index, 'X');
-            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
-            
-            if(checkXOWin('X')) { endGame('🎉 You Win!'); return; }
-            if(xoBoard.indexOf('') === -1) { endGame('🤝 Draw!'); return; }
-
-            xoActive = false;
-            document.getElementById('xoStatus').innerText = 'Bot is thinking...';
-            
+            xoBoard[index] = 'X'; updateXOCell(index, 'X'); if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+            if(checkXOWin('X')) { endGame('🎉 You Win!'); return; } if(xoBoard.indexOf('') === -1) { endGame('🤝 Draw!'); return; }
+            xoActive = false; document.getElementById('xoStatus').innerText = 'Bot is thinking...';
             setTimeout(() => {
-                let emptyIndices = [];
-                for(let i=0; i<xoSize*xoSize; i++) if(xoBoard[i] === '') emptyIndices.push(i);
-                
+                let emptyIndices = []; for(let i=0; i<xoSize*xoSize; i++) if(xoBoard[i] === '') emptyIndices.push(i);
                 if(emptyIndices.length > 0) {
-                    let botMove = getSmartBotMove();
-                    if(botMove === null) botMove = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
-
-                    xoBoard[botMove] = 'O';
-                    updateXOCell(botMove, 'O');
-                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-
-                    if(checkXOWin('O')) { endGame('💀 Bot Wins!'); return; }
-                    if(xoBoard.indexOf('') === -1) { endGame('🤝 Draw!'); return; }
+                    let botMove = getSmartBotMove(); if(botMove === null) botMove = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+                    xoBoard[botMove] = 'O'; updateXOCell(botMove, 'O'); if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+                    if(checkXOWin('O')) { endGame('💀 Bot Wins!'); return; } if(xoBoard.indexOf('') === -1) { endGame('🤝 Draw!'); return; }
                 }
-                xoActive = true;
-                document.getElementById('xoStatus').innerHTML = `Your Turn <span style="color:var(--btn-color)">(X)</span><br><span style="font-size:12px;color:var(--hint-color);font-weight:normal;">Connect ${xoWinStreak} to win!</span>`;
+                xoActive = true; document.getElementById('xoStatus').innerHTML = `Your Turn <span style="color:var(--btn-color)">(X)</span><br><span style="font-size:12px;color:var(--hint-color);font-weight:normal;">Connect ${xoWinStreak} to win!</span>`;
             }, 350);
         }
-
         function findWinningMove(player) {
-            for(let r=0; r<xoSize; r++) {
-                for(let c=0; c<=xoSize-xoWinStreak; c++) {
-                    let pCount = 0, eCount = 0, eIdx = -1;
-                    for(let i=0; i<xoWinStreak; i++) {
-                        let idx = r*xoSize + c + i;
-                        if(xoBoard[idx] === player) pCount++;
-                        else if(xoBoard[idx] === '') { eCount++; eIdx = idx; }
-                    }
-                    if(pCount === xoWinStreak-1 && eCount === 1) return eIdx;
-                }
-            }
-            for(let c=0; c<xoSize; c++) {
-                for(let r=0; r<=xoSize-xoWinStreak; r++) {
-                    let pCount = 0, eCount = 0, eIdx = -1;
-                    for(let i=0; i<xoWinStreak; i++) {
-                        let idx = (r+i)*xoSize + c;
-                        if(xoBoard[idx] === player) pCount++;
-                        else if(xoBoard[idx] === '') { eCount++; eIdx = idx; }
-                    }
-                    if(pCount === xoWinStreak-1 && eCount === 1) return eIdx;
-                }
-            }
-            for(let r=0; r<=xoSize-xoWinStreak; r++) {
-                for(let c=0; c<=xoSize-xoWinStreak; c++) {
-                    let pCount = 0, eCount = 0, eIdx = -1;
-                    for(let i=0; i<xoWinStreak; i++) {
-                        let idx = (r+i)*xoSize + c + i;
-                        if(xoBoard[idx] === player) pCount++;
-                        else if(xoBoard[idx] === '') { eCount++; eIdx = idx; }
-                    }
-                    if(pCount === xoWinStreak-1 && eCount === 1) return eIdx;
-                }
-            }
-            for(let r=xoWinStreak-1; r<xoSize; r++) {
-                for(let c=0; c<=xoSize-xoWinStreak; c++) {
-                    let pCount = 0, eCount = 0, eIdx = -1;
-                    for(let i=0; i<xoWinStreak; i++) {
-                        let idx = (r-i)*xoSize + c + i;
-                        if(xoBoard[idx] === player) pCount++;
-                        else if(xoBoard[idx] === '') { eCount++; eIdx = idx; }
-                    }
-                    if(pCount === xoWinStreak-1 && eCount === 1) return eIdx;
-                }
-            }
+            for(let r=0; r<xoSize; r++) { for(let c=0; c<=xoSize-xoWinStreak; c++) { let pCount = 0, eCount = 0, eIdx = -1; for(let i=0; i<xoWinStreak; i++) { let idx = r*xoSize + c + i; if(xoBoard[idx] === player) pCount++; else if(xoBoard[idx] === '') { eCount++; eIdx = idx; } } if(pCount === xoWinStreak-1 && eCount === 1) return eIdx; } }
+            for(let c=0; c<xoSize; c++) { for(let r=0; r<=xoSize-xoWinStreak; r++) { let pCount = 0, eCount = 0, eIdx = -1; for(let i=0; i<xoWinStreak; i++) { let idx = (r+i)*xoSize + c; if(xoBoard[idx] === player) pCount++; else if(xoBoard[idx] === '') { eCount++; eIdx = idx; } } if(pCount === xoWinStreak-1 && eCount === 1) return eIdx; } }
+            for(let r=0; r<=xoSize-xoWinStreak; r++) { for(let c=0; c<=xoSize-xoWinStreak; c++) { let pCount = 0, eCount = 0, eIdx = -1; for(let i=0; i<xoWinStreak; i++) { let idx = (r+i)*xoSize + c + i; if(xoBoard[idx] === player) pCount++; else if(xoBoard[idx] === '') { eCount++; eIdx = idx; } } if(pCount === xoWinStreak-1 && eCount === 1) return eIdx; } }
+            for(let r=xoWinStreak-1; r<xoSize; r++) { for(let c=0; c<=xoSize-xoWinStreak; c++) { let pCount = 0, eCount = 0, eIdx = -1; for(let i=0; i<xoWinStreak; i++) { let idx = (r-i)*xoSize + c + i; if(xoBoard[idx] === player) pCount++; else if(xoBoard[idx] === '') { eCount++; eIdx = idx; } } if(pCount === xoWinStreak-1 && eCount === 1) return eIdx; } }
             return null;
         }
-
         function getSmartBotMove() {
-            let winMove = findWinningMove('O');
-            if(winMove !== null) return winMove;
-            let blockMove = findWinningMove('X');
-            if(blockMove !== null) return blockMove;
-            
-            let center = Math.floor((xoSize*xoSize)/2);
-            if(xoBoard[center] === '') return center;
-            return null;
+            let winMove = findWinningMove('O'); if(winMove !== null) return winMove; let blockMove = findWinningMove('X'); if(blockMove !== null) return blockMove; let center = Math.floor((xoSize*xoSize)/2); if(xoBoard[center] === '') return center; return null;
         }
-
-        function updateXOCell(index, player) {
-            const cell = document.getElementById('xoBoard').children[index];
-            cell.innerText = player;
-            cell.classList.add(player.toLowerCase());
-        }
-
+        function updateXOCell(index, player) { const cell = document.getElementById('xoBoard').children[index]; cell.innerText = player; cell.classList.add(player.toLowerCase()); }
         function checkXOWin(player) {
-            for(let r=0; r<xoSize; r++) {
-                for(let c=0; c<=xoSize-xoWinStreak; c++) {
-                    let win = true;
-                    for(let i=0; i<xoWinStreak; i++) if(xoBoard[r*xoSize + c + i] !== player) win = false;
-                    if(win) return true;
-                }
-            }
-            for(let c=0; c<xoSize; c++) {
-                for(let r=0; r<=xoSize-xoWinStreak; r++) {
-                    let win = true;
-                    for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r+i)*xoSize + c] !== player) win = false;
-                    if(win) return true;
-                }
-            }
-            for(let r=0; r<=xoSize-xoWinStreak; r++) {
-                for(let c=0; c<=xoSize-xoWinStreak; c++) {
-                    let win = true;
-                    for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r+i)*xoSize + c + i] !== player) win = false;
-                    if(win) return true;
-                }
-            }
-            for(let r=xoWinStreak-1; r<xoSize; r++) {
-                for(let c=0; c<=xoSize-xoWinStreak; c++) {
-                    let win = true;
-                    for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r-i)*xoSize + c + i] !== player) win = false;
-                    if(win) return true;
-                }
-            }
+            for(let r=0; r<xoSize; r++) { for(let c=0; c<=xoSize-xoWinStreak; c++) { let win = true; for(let i=0; i<xoWinStreak; i++) if(xoBoard[r*xoSize + c + i] !== player) win = false; if(win) return true; } }
+            for(let c=0; c<xoSize; c++) { for(let r=0; r<=xoSize-xoWinStreak; r++) { let win = true; for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r+i)*xoSize + c] !== player) win = false; if(win) return true; } }
+            for(let r=0; r<=xoSize-xoWinStreak; r++) { for(let c=0; c<=xoSize-xoWinStreak; c++) { let win = true; for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r+i)*xoSize + c + i] !== player) win = false; if(win) return true; } }
+            for(let r=xoWinStreak-1; r<xoSize; r++) { for(let c=0; c<=xoSize-xoWinStreak; c++) { let win = true; for(let i=0; i<xoWinStreak; i++) if(xoBoard[(r-i)*xoSize + c + i] !== player) win = false; if(win) return true; } }
             return false;
         }
-
         function endGame(msg) {
             xoActive = false; document.getElementById('xoStatus').innerHTML = msg;
-            if(msg.includes('Win!')) { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success'); } 
-            else if (msg.includes('Bot')) { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error'); } 
-            else { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning'); }
+            if(msg.includes('Win!')) { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success'); } else if (msg.includes('Bot')) { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error'); } else { if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('warning'); }
         }
 
         // --- GPA LOGIC ---
@@ -887,7 +880,6 @@
                 });
             }
 
-            // --- INJECT NOTIFICATION & EXAM BANNER ---
             let bannerHtml = "";
             if (filterCourse) {
                 if (activeExams[filterCourse]) {
@@ -944,6 +936,7 @@
                             <span class="material-type">${item.course} • ${item.type}${dateAdded}</span>
                         </div>
                         <div class="card-actions">
+                            <button class="fav-btn" style="color:#ff3b30; opacity: 0.6; font-size:16px;" onclick="event.stopPropagation(); reportIssue('Material', '${item.course}', '${item.name.replace(/'/g,"\\'")}')"><i class="fa-solid fa-triangle-exclamation"></i></button>
                             <button class="fav-btn ${isStarred?'':'unstarred'}" onclick="toggleFav('${favId}', '${item.name.replace(/'/g,"\\'")}', '${deepLink}', 'material', '${item.course} • ${item.type.toUpperCase()}')"><i class="${starClass}"></i></button>
                             <a class="dl-btn" href="${deepLink}" target="_blank">Open</a>
                         </div>
@@ -999,7 +992,6 @@
             renderMaterials();
         }
         function filterGlobalMaterials() { activeFolderContext = null; renderMaterials(); }
-
 
         // --- GLOBAL FETCH & RENDER FOR VIDEOS ---
         async function fetchAllVideos() {
@@ -1202,7 +1194,7 @@
                 try {
                     const res = await fetch(`${RENDER_URL}/api/upload`, { method: 'POST', body: formData });
                     if(res.ok) successCount++;
-                } catch(err) { console.error("Upload error", err); }
+                } catch(err) {}
                 
                 if (i < files.length - 1) submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading (${i+1}/${files.length})...`;
             }
@@ -1235,6 +1227,132 @@
             subVidBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Submit for Review`; 
             subVidBtn.disabled = false;
         });
+
+        // Submit Admin News
+        document.getElementById('adminNewsForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitNewsBtn');
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Publishing...`;
+            btn.disabled = true;
+
+            const formData = new FormData();
+            formData.append('chat_id', tg.initDataUnsafe?.user?.id || '');
+            formData.append('text', document.getElementById('adminNewsText').value);
+            
+            const fileInput = document.getElementById('adminNewsImage');
+            if (fileInput.files.length > 0) {
+                formData.append('image', fileInput.files[0]);
+            }
+
+            try {
+                const res = await fetch(`${RENDER_URL}/api/post_news`, { method: 'POST', body: formData });
+                if (res.ok) {
+                    tg.showAlert("✅ News published to dashboard!");
+                    document.getElementById('adminNewsForm').reset();
+                    loadDashboardWidgets();
+                    openMenuHub();
+                } else {
+                    tg.showAlert("⚠️ Failed to publish. Are you logged in as Admin?");
+                }
+            } catch(e) { tg.showAlert("⚠️ Network error."); }
+
+            btn.innerHTML = `<i class="fa-solid fa-bullhorn"></i> Publish to Dashboard`;
+            btn.disabled = false;
+        });
+
+        async function clearDashboardNews() {
+            const uid = tg.initDataUnsafe?.user?.id;
+            try {
+                const res = await fetch(`${RENDER_URL}/api/clear_news`, { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ chat_id: uid })
+                });
+                if (res.ok) {
+                    tg.showAlert("✅ News banner removed.");
+                    loadDashboardWidgets();
+                    openMenuHub();
+                }
+            } catch(e) {}
+        }
+
+        // Submit Feedback Form
+        document.getElementById('feedbackForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitFeedbackBtn');
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Sending...`; 
+            btn.disabled = true;
+            
+            const ratingInput = document.querySelector('input[name="rating"]:checked');
+            if(!ratingInput) {
+                tg.showAlert("⚠️ Please select a star rating!");
+                btn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Send Feedback`; 
+                btn.disabled = false;
+                return;
+            }
+
+            const payload = { 
+                rating: parseInt(ratingInput.value),
+                message: document.getElementById('feedbackText').value, 
+                username: tg.initDataUnsafe?.user?.username ? `@${tg.initDataUnsafe.user.username}` : "Student",
+                chat_id: tg.initDataUnsafe?.user?.id || ''
+            };
+            
+            try {
+                const res = await fetch(`${RENDER_URL}/api/submit_feedback`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+                if(res.ok) {
+                    tg.showAlert("✅ Thank you! Your feedback has been sent directly to the admins.");
+                    document.getElementById('feedbackForm').reset();
+                    openMenuHub();
+                } else {
+                    tg.showAlert("⚠️ Failed to send feedback.");
+                }
+            } catch(e) { tg.showAlert("⚠️ Network error."); }
+            
+            btn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Send Feedback`; 
+            btn.disabled = false;
+        });
+
+        // Report Issue Logic
+        async function reportIssue(type, course, title) {
+            const userComment = prompt(`You are reporting an issue with "${title}".\n\nPlease tell the admins what is wrong with it (e.g., 'Wrong subject', 'Pages are missing', etc.):`);
+            if(userComment === null) return;
+            
+            const payload = {
+                type: type,
+                course: course,
+                title: title,
+                comment: userComment,
+                username: tg.initDataUnsafe?.user?.username ? `@${tg.initDataUnsafe.user.username}` : "Student",
+                chat_id: tg.initDataUnsafe?.user?.id || ''
+            };
+            
+            try {
+                const res = await fetch(`${RENDER_URL}/api/report_issue`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                
+                if(res.ok) tg.showAlert("✅ Thanks! Your report has been sent to the admins.");
+                else tg.showAlert("⚠️ Failed to send report.");
+            } catch(e) { tg.showAlert("⚠️ Network error."); }
+        }
+
+        // What's New Popup Logic
+        function checkWhatsNew() {
+            const currentVersion = "v2.0"; 
+            const userVersion = localStorage.getItem('astu_ece_version');
+            if (userVersion !== currentVersion) {
+                document.getElementById('whatsNewModal').style.display = 'flex';
+            }
+        }
+        function closeWhatsNew() {
+            localStorage.setItem('astu_ece_version', "v2.0");
+            document.getElementById('whatsNewModal').style.display = 'none';
+        }
+        setTimeout(checkWhatsNew, 500);
+
     </script>
 </body>
 </html>
