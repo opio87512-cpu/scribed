@@ -150,7 +150,7 @@
             <p>Welcome to the updated ASTU ECE Portal. We've added a few things to make your life easier:</p>
             <ul>
                 <li><b>🔔 News Bell:</b> Tap the bell icon to read all announcements. A red badge shows when there's something new.</li>
-                <li><b>📢 Telegram Announcements:</b> Full news posts stay on Telegram — we just link you straight to them.</li>
+                <li><b>📢 Telegram Announcements:</b> Full news posts stay on Telegram — we just link you straight to them. Old announcements stay in the bell forever, but the banner on the menu disappears once you've seen them.</li>
                 <li><b>⏰ Live Countdowns:</b> See exactly how many days are left until exams on your dashboard.</li>
                 <li><b>⚠️ Report Issues:</b> Found a broken PDF? Flag it with the red warning icon.</li>
             </ul>
@@ -405,12 +405,12 @@
             <summary>How do I get notifications? <i class="fa-solid fa-chevron-down"></i></summary>
             <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Go to Find Materials or Video Tutorials, select your course, and click the "Notify Me" button. You'll get a direct message when new files are added!</div>
         </details>
-        
+
         <details class="filter-accordion" style="margin-bottom:10px;">
             <summary>What is the bell icon at the top? <i class="fa-solid fa-chevron-down"></i></summary>
-            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">The bell shows all official announcements. A red badge means there's a new post you haven't read. Tap it to see the list, and tap "Open Post" to read the full announcement on Telegram.</div>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">The bell shows all official announcements — old ones stay there forever. A red badge means there's a new post you haven't read yet. The blue banner on the menu only shows while the news is unread; once you open the bell, it disappears from the menu but the item stays in the bell. Tap "Open Post" to read the full announcement on Telegram.</div>
         </details>
-
+        
         <details class="filter-accordion" style="margin-bottom:10px;">
             <summary>I found a broken file. What do I do? <i class="fa-solid fa-chevron-down"></i></summary>
             <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Click the red ⚠️ icon next to any material or video. It will automatically send a report with your comment to the admins so they can fix it.</div>
@@ -497,9 +497,12 @@
                 updateNewsBadge();
                 renderNewsList();
                 renderAdminNewsList();
-                
-                // 1. Render Latest News Banner (top item) with Telegram link
-                if (allNews.length > 0) {
+
+                // 1. Render Latest News Banner — ONLY if it hasn't been seen yet
+                const latestId = allNews.length > 0 ? allNews[0].id : null;
+                const hasUnseenNews = latestId && lastSeenNewsId !== latestId;
+
+                if (hasUnseenNews) {
                     const latest = allNews[0];
                     html += `
                     <div style="background: linear-gradient(135deg, #007aff, #00c6ff); color: white; padding: 16px; border-radius: 16px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.2); line-height: 1.4; animation: slideUp 0.4s ease;">
@@ -579,23 +582,34 @@
             const container = document.getElementById('newsListContainer');
             if (!container) return;
             const q = (document.getElementById('newsSearchInput')?.value || '').toLowerCase();
-            
+
             const filtered = allNews.filter(n => 
                 !q || (n.title || '').toLowerCase().includes(q) || (n.date || '').toLowerCase().includes(q)
             );
-            
+
             if (!filtered.length) {
                 container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-bell-slash"></i><br>No announcements found.</div>`;
                 return;
             }
-            
+
+            // Compute which items are "unread" (came after the last one seen)
+            let lastSeenIndex = allNews.findIndex(n => n.id === lastSeenNewsId);
+            if (lastSeenIndex === -1) lastSeenIndex = allNews.length; // nothing seen yet → all new
+
             let html = "";
             filtered.forEach(item => {
+                const globalIndex = allNews.findIndex(n => n.id === item.id);
+                const isUnread = globalIndex !== -1 && globalIndex < lastSeenIndex;
+
+                const unreadDot = isUnread
+                    ? `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#ff3b30; margin-left:8px; vertical-align:middle;" title="New"></span>`
+                    : '';
+
                 html += `
-                <div class="material-card" style="align-items:flex-start; flex-direction:column; gap:8px;">
+                <div class="material-card" style="align-items:flex-start; flex-direction:column; gap:8px; ${isUnread ? 'border-left: 3px solid #ff3b30;' : ''}">
                     <div style="width:100%;">
                         <div style="font-weight:600; font-size:15px; margin-bottom:4px;">
-                            <i class="fa-solid fa-bullhorn" style="color:var(--btn-color); margin-right:6px;"></i>${escapeHtml(item.title)}
+                            <i class="fa-solid fa-bullhorn" style="color:var(--btn-color); margin-right:6px;"></i>${escapeHtml(item.title)}${unreadDot}
                         </div>
                         <div style="font-size:12px; color:var(--hint-color);">
                             <i class="fa-regular fa-calendar"></i> ${escapeHtml(item.date || '')}
@@ -1387,7 +1401,7 @@
             subVidBtn.disabled = false;
         });
 
-        // Submit Admin News (NEW — title + Telegram link only)
+        // Submit Admin News (title + Telegram link only)
         document.getElementById('adminNewsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitNewsBtn');
@@ -1492,14 +1506,14 @@
 
         // What's New Popup Logic
         function checkWhatsNew() {
-            const currentVersion = "v2.1"; 
+            const currentVersion = "v2.2"; 
             const userVersion = localStorage.getItem('astu_ece_version');
             if (userVersion !== currentVersion) {
                 document.getElementById('whatsNewModal').style.display = 'flex';
             }
         }
         function closeWhatsNew() {
-            localStorage.setItem('astu_ece_version', "v2.1");
+            localStorage.setItem('astu_ece_version', "v2.2");
             document.getElementById('whatsNewModal').style.display = 'none';
         }
         setTimeout(checkWhatsNew, 500);
