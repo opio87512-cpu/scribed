@@ -33,6 +33,8 @@ DATA_FILE = "materials.json"
 VIDEOS_FILE = "videos.json"
 SUBS_FILE = "subs.json"
 EXAMS_FILE = "exams.json"
+NEWS_FILE = "news.json"
+EVENTS_FILE = "global_events.json"
 
 
 def _github_headers():
@@ -508,11 +510,10 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['setexam'])
 def admin_set_exam(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+    if message.from_user.id not in ADMIN_IDS: return
     parts = message.text.split(maxsplit=3)
     if len(parts) < 4:
-        bot.reply_to(message, "Usage: /setexam [CourseCode] [YYYY-MM-DD] [Exam Title]")
+        bot.reply_to(message, "Usage: /setexam [CourseCode] [YYYY-MM-DD] [Exam Title]\nExample: /setexam ECEg2201 2026-11-15 Mid Exam")
         return
     code, date_str, title = parts[1], parts[2], parts[3]
     
@@ -520,6 +521,66 @@ def admin_set_exam(message):
     data[code] = {"date": date_str, "title": title}
     save_json(EXAMS_FILE, data)
     bot.reply_to(message, f"✅ Countdown for '{title}' ({code}) set to {date_str}.")
+
+
+@bot.message_handler(commands=['deleteexam'])
+def admin_delete_exam(message):
+    if message.from_user.id not in ADMIN_IDS: return
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "Usage: /deleteexam [CourseCode]\nExample: /deleteexam ECEg2201")
+        return
+    code = parts[1]
+    
+    data = load_json(EXAMS_FILE)
+    if code in data:
+        del data[code]
+        save_json(EXAMS_FILE, data)
+        bot.reply_to(message, f"✅ Countdown for {code} has been completely removed.")
+    else:
+        bot.reply_to(message, f"⚠️ No active countdown found for {code}.")
+
+
+@bot.message_handler(commands=['setnews'])
+def admin_set_news(message):
+    if message.from_user.id not in ADMIN_IDS: return
+    text = message.text.replace("/setnews", "").strip()
+    if not text:
+        bot.reply_to(message, "Usage: /setnews [Your announcement message]\nExample: /setnews Registration for Year II starts tomorrow!")
+        return
+    save_json(NEWS_FILE, {"text": text})
+    bot.reply_to(message, "✅ News banner updated on the main menu!")
+
+
+@bot.message_handler(commands=['clearnews'])
+def admin_clear_news(message):
+    if message.from_user.id not in ADMIN_IDS: return
+    save_json(NEWS_FILE, {})
+    bot.reply_to(message, "✅ News banner cleared.")
+
+
+@bot.message_handler(commands=['setevent'])
+def admin_set_event(message):
+    if message.from_user.id not in ADMIN_IDS: return
+    parts = message.text.split(maxsplit=3)
+    if len(parts) < 4:
+        bot.reply_to(message, "Usage: /setevent [Start Date] [End Date] [Event Title]\nExample: /setevent 2026-10-15 2026-10-20 Semester Registration\n(If it's a one-day event, just type the same date twice!)")
+        return
+    start_date, end_date, title = parts[1], parts[2], parts[3]
+    
+    events = load_json(EVENTS_FILE)
+    if not isinstance(events, list): events = []
+    
+    events.append({"start": start_date, "end": end_date, "title": title})
+    save_json(EVENTS_FILE, events)
+    bot.reply_to(message, f"✅ Global event '{title}' set from {start_date} to {end_date}.")
+
+
+@bot.message_handler(commands=['clearevents'])
+def admin_clear_events(message):
+    if message.from_user.id not in ADMIN_IDS: return
+    save_json(EVENTS_FILE, [])
+    bot.reply_to(message, "✅ All global countdown events cleared.")
 
 
 @bot.message_handler(commands=['addfile'])
@@ -1157,6 +1218,13 @@ def get_subs():
 @app.route('/api/exams', methods=['GET'])
 def get_exams():
     return jsonify(load_json(EXAMS_FILE)), 200
+
+@app.route('/api/dashboard', methods=['GET'])
+def get_dashboard():
+    news = load_json(NEWS_FILE)
+    events = load_json(EVENTS_FILE)
+    if isinstance(events, dict): events = [] # Safety fallback
+    return jsonify({"news": news.get("text", ""), "events": events}), 200
 
 @app.route("/")
 def webhook():
