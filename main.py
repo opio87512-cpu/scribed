@@ -31,6 +31,7 @@ GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
 
 DATA_FILE = "materials.json"
 VIDEOS_FILE = "videos.json"
+# New files for Dashboard features
 SUBS_FILE = "subs.json"
 EXAMS_FILE = "exams.json"
 NEWS_FILE = "news.json"
@@ -510,7 +511,8 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['setexam'])
 def admin_set_exam(message):
-    if message.from_user.id not in ADMIN_IDS: return
+    if message.from_user.id not in ADMIN_IDS:
+        return
     parts = message.text.split(maxsplit=3)
     if len(parts) < 4:
         bot.reply_to(message, "Usage: /setexam [CourseCode] [YYYY-MM-DD] [Exam Title]\nExample: /setexam ECEg2201 2026-11-15 Mid Exam")
@@ -525,7 +527,8 @@ def admin_set_exam(message):
 
 @bot.message_handler(commands=['deleteexam'])
 def admin_delete_exam(message):
-    if message.from_user.id not in ADMIN_IDS: return
+    if message.from_user.id not in ADMIN_IDS:
+        return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         bot.reply_to(message, "Usage: /deleteexam [CourseCode]\nExample: /deleteexam ECEg2201")
@@ -564,7 +567,7 @@ def admin_set_event(message):
     if message.from_user.id not in ADMIN_IDS: return
     parts = message.text.split(maxsplit=3)
     if len(parts) < 4:
-        bot.reply_to(message, "Usage: /setevent [Start Date] [End Date] [Event Title]\nExample: /setevent 2026-10-15 2026-10-20 Semester Registration\n(If it's a one-day event, just type the same date twice!)")
+        bot.reply_to(message, "Usage: /setevent [Start Date] [End Date] [Event Title]\nExample: /setevent 2026-10-15 2026-10-20 Semester Registration\n(If it's a one-day event, type the same date twice!)")
         return
     start_date, end_date, title = parts[1], parts[2], parts[3]
     
@@ -969,23 +972,26 @@ def process_admin_add_video(message, course_code):
     if ok:
         bot.reply_to(message, f"✅ Successfully added video '{title}' to {course_code}!")
         
-        # --- BOT DIRECT MESSAGE NOTIFICATIONS ---
-        subs = load_json(SUBS_FILE).get(course_code, [])
-        if subs:
-            alert = (
-                f"📺 **New Tutorial Video!**\n\n"
-                f"📚 **Course:** {course_code}\n"
-                f"📝 **Title:** {title}\n\n"
-                f"Open the Portal to watch it."
-            )
-            markup = InlineKeyboardMarkup()
-            markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
-            
-            for uid in subs:
-                try:
-                    bot.send_message(uid, alert, parse_mode="Markdown", reply_markup=markup)
-                except Exception:
-                    pass
+        try:
+            # --- BOT DIRECT MESSAGE NOTIFICATIONS (Replaced Channel Broadcast) ---
+            subs = load_json(SUBS_FILE).get(course_code, [])
+            if subs:
+                alert = (
+                    f"📺 **New Tutorial Video!**\n\n"
+                    f"📚 **Course:** {course_code}\n"
+                    f"📝 **Title:** {title}\n\n"
+                    f"Open the Portal to watch it."
+                )
+                markup = InlineKeyboardMarkup()
+                markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
+                
+                for uid in subs:
+                    try:
+                        bot.send_message(uid, alert, parse_mode="Markdown", reply_markup=markup)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     else:
         bot.reply_to(message, f"⚠️ Failed to save video to GitHub. Please check your token or server logs.")
 
@@ -1052,24 +1058,27 @@ def process_files(chat_id, files, state, user, title=None):
             bot.send_message(chat_id, f"✅ Saved \"{title}\" ({len(files)} file(s)) under {course_code} ({material_type.upper()})!")
             send_as_album(chat_id, files, caption=title)
 
-            # --- BOT DIRECT MESSAGE NOTIFICATIONS ---
-            subs = load_json(SUBS_FILE).get(course_code, [])
-            if subs:
-                alert = (
-                    f"🔔 **New Material Added!**\n\n"
-                    f"📚 **Course:** {course_code}\n"
-                    f"📂 **Type:** {material_type.upper()}\n"
-                    f"📝 **Title:** {title or 'Untitled'}\n\n"
-                    f"Open the Portal to download it."
-                )
-                markup = InlineKeyboardMarkup()
-                markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
-                
-                for uid in subs:
-                    try:
-                        bot.send_message(uid, alert, parse_mode="Markdown", reply_markup=markup)
-                    except Exception:
-                        pass 
+            try:
+                # --- BOT DIRECT MESSAGE NOTIFICATIONS (Replaced Channel Broadcast) ---
+                subs = load_json(SUBS_FILE).get(course_code, [])
+                if subs:
+                    alert = (
+                        f"🔔 **New Material Added!**\n\n"
+                        f"📚 **Course:** {course_code}\n"
+                        f"📂 **Type:** {material_type.upper()}\n"
+                        f"📝 **Title:** {title or 'Untitled'}\n\n"
+                        f"Open the Portal to download it."
+                    )
+                    markup = InlineKeyboardMarkup()
+                    markup.row(InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url="https://opio87512-cpu.github.io/scribed/")))
+                    
+                    for uid in subs:
+                        try:
+                            bot.send_message(uid, alert, parse_mode="Markdown", reply_markup=markup)
+                        except Exception:
+                            pass 
+            except Exception:
+                pass
 
         else:
             bot.send_message(chat_id, "⚠️ Failed to save to GitHub. Please try again.")
@@ -1223,8 +1232,102 @@ def get_exams():
 def get_dashboard():
     news = load_json(NEWS_FILE)
     events = load_json(EVENTS_FILE)
-    if isinstance(events, dict): events = [] # Safety fallback
-    return jsonify({"news": news.get("text", ""), "events": events}), 200
+    if isinstance(events, dict): events = [] 
+    return jsonify({"news": news, "events": events}), 200
+
+@app.route('/api/post_news', methods=['POST'])
+def api_post_news():
+    chat_id = request.form.get('chat_id', type=int)
+    if chat_id not in ADMIN_IDS:
+        return jsonify({"error": "Unauthorized"}), 403
+        
+    text = request.form.get('text', '')
+    img_url = ""
+    
+    if 'image' in request.files and request.files['image'].filename:
+        file = request.files['image']
+        encoded = base64.b64encode(file.read()).decode('utf-8')
+        filename = "news_image.jpg"
+        
+        get_resp = requests.get(f"{GITHUB_API_BASE}/{filename}", headers=_github_headers(), params={"ref": GITHUB_BRANCH})
+        sha = get_resp.json().get("sha") if get_resp.status_code == 200 else None
+        
+        payload = {"message": "Update university news image", "content": encoded, "branch": GITHUB_BRANCH}
+        if sha: payload["sha"] = sha
+        put_resp = requests.put(f"{GITHUB_API_BASE}/{filename}", headers=_github_headers(), json=payload)
+        
+        if put_resp.status_code in (200, 201):
+            img_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/main/{filename}?t={int(datetime.now().timestamp())}"
+
+    save_json(NEWS_FILE, {"text": text, "image": img_url})
+    return jsonify({"status": "success"}), 200
+
+@app.route('/api/clear_news', methods=['POST'])
+def api_clear_news():
+    chat_id = request.json.get('chat_id')
+    if int(chat_id) not in ADMIN_IDS:
+        return jsonify({"error": "Unauthorized"}), 403
+    save_json(NEWS_FILE, {})
+    return jsonify({"status": "success"}), 200
+
+@app.route('/api/submit_feedback', methods=['POST'])
+def handle_feedback():
+    try:
+        data = request.json
+        rating = data.get('rating', 0)
+        msg_content = data.get('message', '')
+        username = data.get('username', 'Student')
+        chat_id = data.get('chat_id', 'Unknown ID')
+
+        stars = "⭐" * int(rating)
+        admin_text = (
+            f"📝 **New Bot Feedback**\n\n"
+            f"👤 **From:** {username} (`{chat_id}`)\n"
+            f"🌟 **Rating:** {stars} ({rating}/5)\n\n"
+            f"💬 **Message:**\n{msg_content}"
+        )
+
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(admin, admin_text, parse_mode="Markdown")
+            except Exception:
+                pass
+
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/report_issue', methods=['POST'])
+def handle_report_issue():
+    try:
+        data = request.json
+        item_type = data.get('type', 'Item')
+        course = data.get('course', 'Unknown')
+        title = data.get('title', 'Unknown')
+        username = data.get('username', 'Student')
+        chat_id = data.get('chat_id', 'Unknown ID')
+        comment = data.get('comment', '').strip()
+
+        comment_block = f"\n💬 **Student Comment:**\n_{comment}_" if comment else "\n💬 **Student Comment:**\n_No comment provided._"
+
+        admin_text = (
+            f"⚠️ **Issue Reported by User**\n\n"
+            f"👤 **From:** {username} (`{chat_id}`)\n"
+            f"📚 **Course:** {course}\n"
+            f"📂 **Type:** {item_type}\n"
+            f"📄 **Title:** {title}\n{comment_block}\n\n"
+            f"Please check this file or video."
+        )
+
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(admin, admin_text, parse_mode="Markdown")
+            except Exception:
+                pass
+
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/")
 def webhook():
