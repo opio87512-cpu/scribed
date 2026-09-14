@@ -73,9 +73,12 @@ CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
 # ==========================================================================
-#  GITHUB MUTEX (serializes all read-modify-write operations)
+#  GITHUB MUTEX + READ CACHE
 # ==========================================================================
 _gh_lock = threading.RLock()
+_read_cache = {}
+_cache_lock = threading.Lock()
+CACHE_TTL = 60
 
 # ==========================================================================
 #  FILE NAMES
@@ -95,13 +98,10 @@ REQUESTS_FILE = "requests.json"
 #  SECURITY HELPERS
 # ==========================================================================
 def escape_md(text):
-    """HTML-escape text for safe embedding in Telegram HTML messages."""
     return html_lib.escape(str(text if text is not None else ""))
 
 
 def verify_init_data(init_data, max_age=86400):
-    """Validate Telegram WebApp initData per the official algorithm.
-    Returns the user dict on success, else None."""
     if not init_data:
         return None
     try:
@@ -140,7 +140,6 @@ def verify_init_data(init_data, max_age=86400):
 
 
 def get_auth_user():
-    """Extract & verify the calling user from the current Flask request."""
     init_data = None
     if request.is_json:
         body = request.get_json(silent=True) or {}
@@ -157,7 +156,7 @@ def is_admin(user):
 
 
 # ==========================================================================
-#  GITHUB-BACKED STORAGE
+#  GITHUB STORAGE
 # ==========================================================================
 def _github_headers():
     return {
@@ -233,24 +232,52 @@ def _save_json_unlocked(filename, data, retries=3):
     return False
 
 
+def _cache_get(filename):
+    with _cache_lock:
+        entry = _read_cache.get(filename)
+        if entry and time.time() - entry["ts"] < CACHE_TTL:
+            return entry["data"]
+    return None
+
+
+def _cache_set(filename, data):
+    with _cache_lock:
+        _read_cache[filename] = {"data": data, "ts": time.time()}
+
+
+def _cache_invalidate(filename=None):
+    with _cache_lock:
+        if filename:
+            _read_cache.pop(filename, None)
+        else:
+            _read_cache.clear()
+
+
 def load_json(filename):
+    cached = _cache_get(filename)
+    if cached is not None:
+        return cached
     with _gh_lock:
-        return _load_json_unlocked(filename)
+        data = _load_json_unlocked(filename)
+    _cache_set(filename, data)
+    return data
 
 
 def save_json(filename, data):
     with _gh_lock:
-        return _save_json_unlocked(filename, data)
+        ok = _save_json_unlocked(filename, data)
+    if ok:
+        _cache_invalidate(filename)
+    return ok
 
 
 def update_json(filename, mutator, retries=3):
-    """Read-modify-write a JSON file under a single lock so concurrent
-    callers cannot lose each other's writes."""
     with _gh_lock:
         for attempt in range(retries):
             data = _load_json_unlocked(filename)
             result = mutator(data)
             if _save_json_unlocked(filename, data):
+                _cache_invalidate(filename)
                 return result
             time.sleep(0.5 * (attempt + 1))
         return None
@@ -308,7 +335,6 @@ def enqueue_notify(chat_ids, text, markup=None):
 
 
 def notify_all_subscribers(title, date_str, link):
-    """Enqueue a DM to every unique user subscribed to at least one course."""
     try:
         all_subs = load_json(SUBS_FILE)
     except Exception:
@@ -338,7 +364,6 @@ UPDATE_SESSIONS = {}
 
 
 def _cleanup_worker():
-    """Expire stale in-memory sessions every 5 minutes."""
     while True:
         time.sleep(300)
         now = time.time()
@@ -362,35 +387,10 @@ def _stamp(d):
 
 
 # ==========================================================================
-#  CURRICULUM (single source of truth — exposed via /api/curriculum)
+#  CURRICULUM — Year 2 Sem 2 + Year 3 (both semesters)
 # ==========================================================================
 CURRICULUM = {
-    "1": {
-        "1": [
-            {"code": "Math1101", "title": "Applied Mathematics I", "cr": 4},
-            {"code": "Phys1101", "title": "General Physics", "cr": 3},
-            {"code": "Chem1101", "title": "General Chemistry", "cr": 3},
-            {"code": "CSEg1101", "title": "Introduction to Computing", "cr": 3},
-            {"code": "EnLa1001", "title": "Communicative English Skill", "cr": 3},
-            {"code": "LART1001", "title": "Intro to Civics & Citizenship", "cr": 3},
-        ],
-        "2": [
-            {"code": "Math1102", "title": "Applied Mathematics II", "cr": 4},
-            {"code": "CSEg1102", "title": "Intro to Emerging Technologies", "cr": 3},
-            {"code": "CSEg1104", "title": "Fundamentals of Programming", "cr": 3},
-            {"code": "LART1002", "title": "Logic and Critical Thinking", "cr": 3},
-            {"code": "Meng1032", "title": "Engineering Drawing", "cr": 3},
-            {"code": "EnLa1002", "title": "Basic Writing Skill", "cr": 3},
-        ],
-    },
     "2": {
-        "1": [
-            {"code": "Math2101", "title": "Applied Mathematics III", "cr": 4},
-            {"code": "ECEg2201", "title": "Electronics Circuit I", "cr": 4},
-            {"code": "EPCE2101", "title": "Fundamentals of Electrical Eng.", "cr": 4},
-            {"code": "CSEg2101", "title": "Data Structures & Algorithms", "cr": 3},
-            {"code": "LART1004", "title": "Geography of Ethiopia & the Horn", "cr": 3},
-        ],
         "2": [
             {"code": "ECEg2202", "title": "Electronic Circuit II", "cr": 4},
             {"code": "ECEg2204", "title": "Signals and System Analysis", "cr": 3},
@@ -419,52 +419,6 @@ CURRICULUM = {
             {"code": "SEng4208", "title": "Intro to Artificial Intelligence", "cr": 3},
             {"code": "EPCE3304", "title": "Intro to Control Systems", "cr": 3},
             {"code": "EPCE3302", "title": "Intro to Electrical Machines", "cr": 3},
-        ],
-    },
-    "4": {
-        "1": [
-            {"code": "ECEg4201", "title": "Comp. Architecture & Org.", "cr": 3},
-            {"code": "ECEg4203", "title": "Digital Communication", "cr": 3},
-            {"code": "ECEg4205", "title": "EM Waves & Guide Structure", "cr": 3},
-            {"code": "SOSC5003", "title": "Entrepreneurship & Bus. Dev.", "cr": 3},
-            {"code": "ECEg4206", "title": "Eng. Research & Dev Methodology", "cr": 2},
-            {"code": "EPCE3206", "title": "Intro to Power Systems", "cr": 3},
-            {"code": "EPCE3207", "title": "Electrical Measurement & Inst.", "cr": 3},
-        ],
-        "2": [
-            {"code": "ECEg4202", "title": "Microprocessor & Interfacing", "cr": 4},
-            {"code": "ECEg4204", "title": "Antenna & Radio Wave Prop.", "cr": 3},
-            {"code": "ECEg4208", "title": "Data Comm. & Computer Networks", "cr": 3},
-            {"code": "SOSC2002", "title": "Introduction to Economics", "cr": 3},
-            {"code": "IETP4203", "title": "Integrated Engineering Project", "cr": 3},
-            {"code": "ECEg4310", "title": "Microwave Devices & Systems", "cr": 3},
-            {"code": "ECEg4312", "title": "Integrated Circuit Technology", "cr": 3},
-        ],
-    },
-    "5": {
-        "1": [
-            {"code": "ECEg5201", "title": "Wireless & Mobile Comm.", "cr": 3},
-            {"code": "ECEg5203", "title": "Capstone Project", "cr": 2},
-            {"code": "ECEg5207", "title": "Final Year Project Phase I", "cr": 2},
-            {"code": "ECEg5307", "title": "VLSI Design", "cr": 3},
-            {"code": "CSEg5307", "title": "Advanced Network", "cr": 3},
-            {"code": "ECEg5315", "title": "Embedded & Real Time Systems", "cr": 3},
-            {"code": "EPCE4302", "title": "Prog. Logic Controllers & Robotics", "cr": 3},
-            {"code": "EPCE4306", "title": "Introduction to Mechatronics", "cr": 3},
-            {"code": "ECEg5321", "title": "Biomedical Inst. & Analysis", "cr": 3},
-            {"code": "EPCE3202", "title": "Power Electronics", "cr": 3},
-        ],
-        "2": [
-            {"code": "SOSC5011", "title": "Project Mgt. for Engineers", "cr": 2},
-            {"code": "ECEg5202", "title": "Final Year Project Phase II", "cr": 4},
-            {"code": "ECEg5302", "title": "Optics & Optical Comm.", "cr": 3},
-            {"code": "ECEg5304", "title": "Analysis & Design of Digital IC", "cr": 3},
-            {"code": "ECEg5306", "title": "Telecom Networks & Switching", "cr": 3},
-            {"code": "ECEg5308", "title": "Intro to Computer Vision", "cr": 3},
-            {"code": "ECEg5310", "title": "Satellite Communication", "cr": 3},
-            {"code": "ECEg5312", "title": "Digital Hardware Design", "cr": 3},
-            {"code": "ECEg5314", "title": "Digital Image Processing", "cr": 3},
-            {"code": "ECEg5316", "title": "Semiconductor Devices", "cr": 3},
         ],
     },
 }
@@ -526,7 +480,6 @@ def add_approved_video(course_code, title, url):
 
 
 def bump_stat(course_code, kind, name):
-    """Increment the global open counter for a resource."""
     def mutator(data):
         key = f"{kind}:{course_code}:{name}"
         data[key] = int(data.get(key, 0)) + 1
@@ -552,15 +505,8 @@ def main_menu_keyboard():
 def year_keyboard(action):
     markup = InlineKeyboardMarkup()
     markup.row(
-        InlineKeyboardButton("Year I", callback_data=f"{action}y_1"),
         InlineKeyboardButton("Year II", callback_data=f"{action}y_2"),
-    )
-    markup.row(
         InlineKeyboardButton("Year III", callback_data=f"{action}y_3"),
-        InlineKeyboardButton("Year IV", callback_data=f"{action}y_4"),
-    )
-    markup.row(
-        InlineKeyboardButton("Year V", callback_data=f"{action}y_5"),
     )
     markup.row(InlineKeyboardButton("⬅️ Back to Main Menu",
                                     callback_data="back_main"))
@@ -569,10 +515,19 @@ def year_keyboard(action):
 
 def semester_keyboard(year, action):
     markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("Semester I", callback_data=f"{action}s_{year}_1"),
-        InlineKeyboardButton("Semester II", callback_data=f"{action}s_{year}_2"),
-    )
+    sems = sorted(CURRICULUM.get(year, {}).keys())
+    buttons = []
+    for s in sems:
+        label = "Semester I" if s == "1" else "Semester II"
+        buttons.append(InlineKeyboardButton(
+            label, callback_data=f"{action}s_{year}_{s}"
+        ))
+    if buttons:
+        markup.row(*buttons)
+    else:
+        markup.row(InlineKeyboardButton("⚠️ No semesters available",
+                                        callback_data="ignore"))
+
     back_target = {
         "f": "main_find", "u": "main_upload", "a": "back_main",
         "d": "back_main", "v": "back_main", "p": "back_main",
@@ -1134,7 +1089,7 @@ def handle_query(call):
     elif data.startswith(("fy_", "uy_", "ay_", "dy_", "vy_", "py_")):
         action = data[0]
         year = data.split('_')[1]
-        roman = {"1": "I", "2": "II", "3": "III", "4": "IV", "5": "V"}.get(year, year)
+        roman = {"2": "II", "3": "III"}.get(year, year)
         _edit(f"Year {roman} selected.\nChoose your semester:",
               semester_keyboard(year, action))
 
