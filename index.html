@@ -110,31 +110,31 @@
     </style>
 </head>
 <body>
-    <!-- WHAT'S NEW WELCOME POPUP -->
+    <!-- WHAT'S NEW POPUP -->
     <div id="whatsNewModal" class="modal-overlay">
         <div class="modal-content">
             <h3><i class="fa-solid fa-gift" style="color:var(--btn-color)"></i> What's New!</h3>
-            <p>Welcome to the updated ASTU ECE Portal. We've added a few things to make your life easier:</p>
+            <p>Welcome to the ASTU ECE Portal. Everything you need for your courses, in one place:</p>
             <ul>
-                <li><b>🔔 News Bell:</b> Tap the bell icon to read all announcements. A red badge shows when there's something new.</li>
-                <li><b>📢 Telegram Announcements:</b> Full news posts stay on Telegram — we just link you straight to them.</li>
-                <li><b>⏰ Live Countdowns:</b> See how many days are left until exams, and export them to your calendar.</li>
-                <li><b>⭐ Saved Favorites:</b> Now synced to your Telegram account — they follow you across devices.</li>
-                <li><b>🔥 Popular Files:</b> See the most-opened resources this week.</li>
-                <li><b>🙋 Request a Resource:</b> Tell admins exactly what's missing.</li>
-                <li><b>⚠️ Report Issues:</b> Found a broken PDF? Flag it with the red warning icon.</li>
+                <li><b>📚 Find Materials:</b> Notes, exams, and assignments for Year 2 Sem 2 and Year 3.</li>
+                <li><b>📺 Video Tutorials:</b> Approved YouTube lectures for your courses.</li>
+                <li><b>🧮 GPA Calculator:</b> Auto-loads your exact ASTU credit hours.</li>
+                <li><b>⭐ Favorites:</b> Save files you use often — they sync to your account.</li>
+                <li><b>🔥 Popular Files:</b> See what your classmates are opening.</li>
+                <li><b>🙋 Request a Resource:</b> Tell the admins what's missing.</li>
+                <li><b>🔔 News Bell:</b> All official announcements, always available.</li>
             </ul>
             <button class="action-btn" onclick="closeWhatsNew()"><i class="fa-solid fa-check"></i> Got it, thanks!</button>
         </div>
     </div>
 
-    <!-- TOP NAVIGATION BAR -->
+    <!-- TOP NAV -->
     <div class="top-navbar">
         <div class="nav-title" id="navTitle">
             <i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
-            <button class="nav-menu-btn" id="newsBellBtn" onclick="switchSection('news')" style="padding:8px 12px;">
+            <button class="nav-menu-btn" onclick="switchSection('news')" style="padding:8px 12px;">
                 <i class="fa-solid fa-bell"></i>
                 <span id="newsBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3b30; color:#fff; font-size:10px; font-weight:700; padding:2px 5px; border-radius:10px; min-width:16px; text-align:center; line-height:1.2;">0</span>
             </button>
@@ -212,11 +212,11 @@
         </div>
     </div>
 
-    <!-- UPLOAD SECTION -->
+    <!-- UPLOAD -->
     <div id="uploadSection" class="section card-container">
         <form id="uploadForm">
-            <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
-            <div class="form-group"><label>Semester</label><select id="upSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+            <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
+            <div class="form-group"><label>Semester</label><select id="upSem" required disabled><option value="">Select Semester...</option></select></div>
             <div class="form-group"><label>Course</label><select id="upCourse" required disabled><option value="">Select Course...</option></select></div>
             <div class="form-group"><label>Material Type</label><select id="upType" required disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
             <div class="form-group">
@@ -227,7 +227,7 @@
         </form>
     </div>
 
-    <!-- FIND MATERIALS SECTION -->
+    <!-- FIND MATERIALS -->
     <div id="findSection" class="section">
         <div class="search-box">
             <i class="fa-solid fa-magnifying-glass"></i>
@@ -242,8 +242,8 @@
         <details class="filter-accordion">
             <summary><i class="fa-solid fa-filter"></i> Filter by Course & Type <i class="fa-solid fa-chevron-down" style="font-size: 12px;"></i></summary>
             <div class="filter-content">
-                <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
-                <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+                <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
+                <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option></select></div>
                 <div class="form-group"><label>Course</label><select id="findCourse" disabled><option value="">Select Course...</option></select></div>
                 <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
             </div>
@@ -251,7 +251,7 @@
         <div id="resultsContainer"></div>
     </div>
 
-    <!-- VIDEOS SECTION -->
+    <!-- VIDEOS -->
     <div id="videoSection" class="section">
         <div class="search-box">
             <i class="fa-solid fa-magnifying-glass"></i>
@@ -266,32 +266,27 @@
         <details class="filter-accordion">
             <summary><i class="fa-solid fa-filter"></i> Filter by Course <i class="fa-solid fa-chevron-down" style="font-size: 12px;"></i></summary>
             <div class="filter-content">
-                <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
-                <div class="form-group"><label>Semester</label><select id="vidSem" disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+                <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
+                <div class="form-group"><label>Semester</label><select id="vidSem" disabled><option value="">Select Semester...</option></select></div>
                 <div class="form-group"><label>Course</label><select id="vidCourse" disabled><option value="">Select Course...</option></select></div>
             </div>
         </details>
         <div id="videoResultsContainer"></div>
     </div>
 
-    <!-- GPA CALCULATOR -->
+    <!-- GPA -->
     <div id="gpaSection" class="section">
         <div class="card-container">
             <h3 style="margin-top:0;">Semester GPA</h3>
             <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Auto-loads exact ASTU ECE credit hours!</p>
             <div style="display:flex; gap:10px; margin-bottom:15px;">
-                <select id="gpaYear" onchange="document.getElementById('gpaSem').disabled = !this.value; document.getElementById('gpaSem').value=''; loadSemesterGPA();">
+                <select id="gpaYear" onchange="rebuildSemesterSelect(document.getElementById('gpaSem'), this.value); loadSemesterGPA();">
                     <option value="">Select Year...</option>
-                    <option value="1">Year I</option>
                     <option value="2">Year II</option>
                     <option value="3">Year III</option>
-                    <option value="4">Year IV</option>
-                    <option value="5">Year V</option>
                 </select>
                 <select id="gpaSem" disabled onchange="loadSemesterGPA()">
                     <option value="">Semester...</option>
-                    <option value="1">Semester I</option>
-                    <option value="2">Semester II</option>
                 </select>
             </div>
             <div id="courseRows"></div>
@@ -309,7 +304,7 @@
         </div>
     </div>
 
-    <!-- ADVANCED GAME -->
+    <!-- GAME -->
     <div id="gameSection" class="section">
         <div class="card-container" style="text-align: center; margin-bottom: 20px;">
             <h3 style="margin-top:0;"><i class="fa-solid fa-xmarks-lines" style="color:var(--btn-color)"></i> Advanced XO</h3>
@@ -346,8 +341,8 @@
     <!-- ADD VIDEO -->
     <div id="addVideoSection" class="section card-container">
         <form id="videoForm">
-            <div class="form-group"><label>Academic Year</label><select id="subVidYear" required><option value="">Select Year...</option><option value="1">Year I</option><option value="2">Year II</option><option value="3">Year III</option><option value="4">Year IV</option><option value="5">Year V</option></select></div>
-            <div class="form-group"><label>Semester</label><select id="subVidSem" required disabled><option value="">Select Semester...</option><option value="1">Semester I</option><option value="2">Semester II</option></select></div>
+            <div class="form-group"><label>Academic Year</label><select id="subVidYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
+            <div class="form-group"><label>Semester</label><select id="subVidSem" required disabled><option value="">Select Semester...</option></select></div>
             <div class="form-group"><label>Course</label><select id="subVidCourse" required disabled><option value="">Select Course...</option></select></div>
             <div class="form-group"><label>Video Title</label><input type="text" id="vidTitle" placeholder="e.g. Chapter 1 Lecture" required disabled></div>
             <div class="form-group"><label>YouTube Link</label><input type="url" id="vidUrl" placeholder="https://youtube.com/watch?v=... or a playlist link" required disabled></div>
@@ -392,7 +387,7 @@
         </details>
         <details class="filter-accordion" style="margin-bottom:10px;">
             <summary>Are my favorites saved? <i class="fa-solid fa-chevron-down"></i></summary>
-            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Yes! Your favorites are now saved to your Telegram account, so they follow you across all your devices.</div>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Yes! Your favorites are saved to your Telegram account, so they follow you across all your devices.</div>
         </details>
         <details class="filter-accordion" style="margin-bottom:10px;">
             <summary>Is my GPA data saved online? <i class="fa-solid fa-chevron-down"></i></summary>
@@ -456,18 +451,18 @@
         // ---------- UTILITIES ----------
         function esc(str) {
             return String(str == null ? '' : str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
         }
 
-        function debounce(fn, ms = 180) {
+        function debounce(fn, ms) {
+            ms = ms || 180;
             let t;
-            return function (...args) {
+            return function () {
+                const args = arguments, self = this;
                 clearTimeout(t);
-                t = setTimeout(() => fn.apply(this, args), ms);
+                t = setTimeout(function () { fn.apply(self, args); }, ms);
             };
         }
 
@@ -480,7 +475,7 @@
         function getYouTubeId(url) {
             if (!url) return null;
             const patterns = [/youtube\.com\/watch\?(?:.*&)?v=([\w-]{11})/, /youtu\.be\/([\w-]{11})/, /youtube\.com\/embed\/([\w-]{11})/, /youtube\.com\/shorts\/([\w-]{11})/];
-            for (const p of patterns) { const m = url.match(p); if (m) return m[1]; }
+            for (let i = 0; i < patterns.length; i++) { const m = url.match(patterns[i]); if (m) return m[1]; }
             return null;
         }
         function getPlaylistId(url) {
@@ -516,11 +511,12 @@
 
         // ---------- ADMIN CHECK ----------
         const ADMIN_IDS = [8429521561, 8244142809];
-        if (ADMIN_IDS.indexOf(tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) !== -1) {
+        const myUserId = tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id;
+        if (ADMIN_IDS.indexOf(myUserId) !== -1) {
             document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
         }
 
-        // ---------- GLOBAL STATE ----------
+        // ---------- STATE ----------
         let userSubs = [];
         let activeExams = {};
         let allNews = [];
@@ -533,6 +529,19 @@
         let activeFavFolder = null;
         let lastSeenNewsId = localStorage.getItem('astu_ece_last_seen_news') || null;
         let pendingRemoteThumbs = [];
+
+        // ---------- SEMESTER SELECT REBUILDER ----------
+        window.rebuildSemesterSelect = function(semSelect, yearValue) {
+            semSelect.innerHTML = '<option value="">Select Semester...</option>';
+            const yearData = curriculum[yearValue] || {};
+            const sems = Object.keys(yearData).sort();
+            sems.forEach(function(s) {
+                const label = s === "1" ? "Semester I" : "Semester II";
+                semSelect.innerHTML += '<option value="' + s + '">' + label + '</option>';
+            });
+            semSelect.disabled = !yearValue || sems.length === 0;
+            semSelect.value = "";
+        };
 
         // ---------- FETCHERS ----------
         async function loadCurriculum() {
@@ -685,7 +694,8 @@
         function renderNewsList() {
             const container = document.getElementById('newsListContainer');
             if (!container) return;
-            const q = (document.getElementById('newsSearchInput') && document.getElementById('newsSearchInput').value || '').toLowerCase();
+            const searchEl = document.getElementById('newsSearchInput');
+            const q = (searchEl ? searchEl.value : '').toLowerCase();
 
             const filtered = allNews.filter(n =>
                 !q || (n.title || '').toLowerCase().includes(q) || (n.date || '').toLowerCase().includes(q)
@@ -742,6 +752,7 @@
                     + '</div></div>';
             });
             container.innerHTML = html;
+            wireDelegation(container);
         }
 
         async function deleteNewsItem(id) {
@@ -830,7 +841,11 @@
                 if (!el) return;
                 const action = el.dataset.action;
                 if (action === 'open-folder') {
+                    e.preventDefault();
                     openFolder(el.dataset.key, el.dataset.folder);
+                } else if (action === 'open-fav-folder') {
+                    e.preventDefault();
+                    openFavFolder(el.dataset.folderName);
                 } else if (action === 'toggle-fav') {
                     e.stopPropagation();
                     e.preventDefault();
@@ -849,7 +864,7 @@
             });
         }
 
-        // ---------- SECTION ROUTING ----------
+        // ---------- ROUTING ----------
         const sectionTitles = {
             'menu': '<i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal',
             'find': '<i class="fa-solid fa-book" style="color:var(--btn-color)"></i> Materials',
@@ -913,15 +928,11 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
-        async function goToFolderFromFav(key, folderName) {
-            await switchSection('find');
-            openFolder(key, folderName);
-        }
-
-        // ---------- MATERIALS RENDERING ----------
+        // ---------- MATERIALS ----------
         function renderMaterials() {
             const container = document.getElementById('resultsContainer');
-            const searchQ = document.getElementById('globalMatSearch').value.toLowerCase();
+            const searchEl = document.getElementById('globalMatSearch');
+            const searchQ = (searchEl ? searchEl.value : '').toLowerCase();
             const filterCourse = document.getElementById('findCourse').value;
             const filterType = document.getElementById('findType').value;
             const sortOrder = document.getElementById('matSortOrder').value;
@@ -1142,7 +1153,8 @@
 
         function renderVideos() {
             const container = document.getElementById('videoResultsContainer');
-            const searchQ = document.getElementById('globalVidSearch').value.toLowerCase();
+            const searchEl = document.getElementById('globalVidSearch');
+            const searchQ = (searchEl ? searchEl.value : '').toLowerCase();
             const filterCourse = document.getElementById('vidCourse').value;
             const sortOrder = document.getElementById('vidSortOrder').value;
 
@@ -1178,7 +1190,7 @@
             flushRemoteThumbs();
         }
 
-        // ---------- FAVORITES RENDERING ----------
+        // ---------- FAVORITES ----------
         function openFavFolder(folderName) {
             activeFavFolder = folderName;
             renderFavs();
@@ -1186,7 +1198,8 @@
 
         function renderFavs() {
             const container = document.getElementById('favsContainer');
-            const searchInput = (document.getElementById('favSearchInput').value || '').toLowerCase();
+            const searchEl = document.getElementById('favSearchInput');
+            const searchInput = (searchEl ? searchEl.value : '').toLowerCase();
             container.innerHTML = "";
 
             if (favorites.length === 0) {
@@ -1282,7 +1295,8 @@
         // ---------- LEADERBOARD ----------
         function renderLeaderboard() {
             const container = document.getElementById('leaderboardContainer');
-            const q = (document.getElementById('lbSearch') && document.getElementById('lbSearch').value || '').toLowerCase();
+            const searchEl = document.getElementById('lbSearch');
+            const q = (searchEl ? searchEl.value : '').toLowerCase();
             const list = (leaderboard || []).filter(r => !q || (r.resource || '').toLowerCase().includes(q));
             if (!list.length) {
                 container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-ranking-star"></i><br>No data yet. Open some files!</div>';
@@ -1299,7 +1313,7 @@
             }).join('');
         }
 
-        // ---------- XO GAME ----------
+        // ---------- XO ----------
         let xoBoard = [];
         let xoActive = true;
         let xoSize = 4;
@@ -1453,7 +1467,7 @@
         // ---------- GPA ----------
         const ASTU_GRADES = { "A+": 4.0, "A": 4.0, "A-": 3.75, "B+": 3.5, "B": 3.0, "B-": 2.75, "C+": 2.5, "C": 2.0, "C-": 1.75, "D": 1.0, "F": 0.0 };
 
-        function loadSemesterGPA() {
+        window.loadSemesterGPA = function() {
             const y = document.getElementById('gpaYear').value;
             const s = document.getElementById('gpaSem').value;
             const container = document.getElementById('courseRows');
@@ -1473,7 +1487,7 @@
                 for (let i = 0; i < 5; i++) addCourseRow();
             }
             document.getElementById('gpaResult').innerHTML = '';
-        }
+        };
 
         window.addCourseRow = function() {
             const row = document.createElement('div');
@@ -1511,11 +1525,13 @@
             const row = document.createElement('div');
             row.className = 'cgpa-row';
             let options = '<option value="">Select Sem...</option>';
-            for (let y = 1; y <= 5; y++) for (let s = 1; s <= 2; s++) {
-                if (curriculum[y] && curriculum[y][s]) {
+            const years = Object.keys(curriculum).sort();
+            years.forEach(y => {
+                const sems = Object.keys(curriculum[y]).sort();
+                sems.forEach(s => {
                     options += '<option value="' + y + '_' + s + '">Year ' + y + ' Sem ' + s + '</option>';
-                }
-            }
+                });
+            });
             options += '<option value="custom">Custom / Other</option>';
             row.innerHTML = '<select style="flex:2;" onchange="autoFillCr(this)">' + options + '</select>'
                 + '<input type="number" class="cgpa-cr" placeholder="Cr" style="flex:1;">'
@@ -1548,13 +1564,11 @@
             res.innerHTML = '🎓 Cumulative CGPA: <span style="color:var(--btn-color)">' + cgpa + '</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ' + tCr + '</div>';
         };
 
-        // ---------- REPORT ISSUE ----------
+        // ---------- REPORT ----------
         window.reportIssue = async function(type, course, title) {
-            const userComment = prompt('You are reporting an issue with "' + title + '".\n\nPlease tell the admins what is wrong with it (e.g., "Wrong subject", "Pages are missing", etc.):');
+            const userComment = prompt('You are reporting an issue with "' + title + '".\n\nPlease tell the admins what is wrong with it:');
             if (userComment === null) return;
-            const payload = {
-                type: type, course: course, title: title, comment: userComment
-            };
+            const payload = { type: type, course: course, title: title, comment: userComment };
             try {
                 const res = await api('/api/report_issue', {
                     method: 'POST',
@@ -1567,9 +1581,8 @@
 
         // ---------- FORM SETUP ----------
         const upYear = document.getElementById('upYear'), upSem = document.getElementById('upSem'), upCourse = document.getElementById('upCourse'), upType = document.getElementById('upType'), fileInput = document.getElementById('fileInput'), submitBtn = document.getElementById('submitBtn');
-
         upYear.onchange = () => {
-            upSem.disabled = !upYear.value; upSem.value = "";
+            rebuildSemesterSelect(upSem, upYear.value);
             upCourse.innerHTML = '<option value="">Select Course...</option>'; upCourse.disabled = true;
             upType.disabled = true; fileInput.disabled = true; submitBtn.disabled = true;
         };
@@ -1589,7 +1602,7 @@
         const findYear = document.getElementById('findYear'), findSem = document.getElementById('findSem'), findCourse = document.getElementById('findCourse'), findType = document.getElementById('findType');
         findYear.onchange = () => {
             activeFolderContext = null;
-            findSem.disabled = !findYear.value; findSem.value = "";
+            rebuildSemesterSelect(findSem, findYear.value);
             findCourse.innerHTML = '<option value="">Select Course...</option>'; findCourse.disabled = true;
             findType.disabled = true; renderMaterials();
         };
@@ -1608,7 +1621,7 @@
 
         const vidYear = document.getElementById('vidYear'), vidSem = document.getElementById('vidSem'), vidCourse = document.getElementById('vidCourse');
         vidYear.onchange = () => {
-            vidSem.disabled = !vidYear.value; vidSem.value = "";
+            rebuildSemesterSelect(vidSem, vidYear.value);
             vidCourse.innerHTML = '<option value="">Select Course...</option>'; vidCourse.disabled = true;
             renderVideos();
         };
@@ -1625,7 +1638,7 @@
 
         const subVidYear = document.getElementById('subVidYear'), subVidSem = document.getElementById('subVidSem'), subVidCourse = document.getElementById('subVidCourse'), vidTitle = document.getElementById('vidTitle'), vidUrl = document.getElementById('vidUrl'), subVidBtn = document.getElementById('subVidBtn');
         subVidYear.onchange = () => {
-            subVidSem.disabled = !subVidYear.value; subVidSem.value = "";
+            rebuildSemesterSelect(subVidSem, subVidYear.value);
             subVidCourse.innerHTML = '<option value="">Select Course...</option>'; subVidCourse.disabled = true;
             vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true;
         };
@@ -1652,21 +1665,17 @@
             submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uploading (0/' + files.length + ')...';
             submitBtn.disabled = true;
             let successCount = 0;
-
             for (let i = 0; i < files.length; i++) {
                 const formData = new FormData();
                 formData.append('file', files[i]);
                 formData.append('course', upCourse.value);
                 formData.append('type', upType.value);
-                formData.append('username', tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.username ? '@' + tg.initDataUnsafe.user.username : 'Student');
-                formData.append('chat_id', (tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || '');
                 try {
                     const res = await api('/api/upload', { method: 'POST', body: formData });
                     if (res.ok) successCount++;
                 } catch (err) {}
                 if (i < files.length - 1) submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uploading (' + (i + 1) + '/' + files.length + ')...';
             }
-
             if (successCount > 0) {
                 tg.showAlert('✅ Success! ' + successCount + '/' + files.length + ' file(s) sent to admin for review.');
                 document.getElementById('uploadForm').reset();
@@ -1683,11 +1692,7 @@
             e.preventDefault();
             subVidBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Submitting...';
             subVidBtn.disabled = true;
-            const payload = {
-                course: subVidCourse.value,
-                title: vidTitle.value,
-                url: vidUrl.value
-            };
+            const payload = { course: subVidCourse.value, title: vidTitle.value, url: vidUrl.value };
             try {
                 const res = await api('/api/upload_video', {
                     method: 'POST',
@@ -1745,10 +1750,7 @@
                 btn.disabled = false;
                 return;
             }
-            const payload = {
-                rating: parseInt(ratingInput.value),
-                message: document.getElementById('feedbackText').value
-            };
+            const payload = { rating: parseInt(ratingInput.value), message: document.getElementById('feedbackText').value };
             try {
                 const res = await api('/api/submit_feedback', {
                     method: 'POST',
@@ -1756,7 +1758,7 @@
                     body: JSON.stringify(payload)
                 });
                 if (res.ok) {
-                    tg.showAlert("✅ Thank you! Your feedback has been sent directly to the admins.");
+                    tg.showAlert("✅ Thank you! Your feedback has been sent.");
                     document.getElementById('feedbackForm').reset();
                     openMenuHub();
                 }
@@ -1790,41 +1792,38 @@
             btn.disabled = false;
         });
 
-        // Expose to window for onclick handlers
+        // Expose to window
         window.toggleSubscription = toggleSubscription;
         window.renderMaterials = renderMaterials;
         window.renderVideos = renderVideos;
         window.renderFavs = renderFavs;
-        window.renderNewsList = renderNewsList;
-        window.renderAdminNewsList = renderAdminNewsList;
         window.deleteNewsItem = deleteNewsItem;
         window.clearAllNews = clearAllNews;
         window.renderLeaderboard = renderLeaderboard;
         window.openFavFolder = openFavFolder;
-        window.goToFolderFromFav = goToFolderFromFav;
 
-        // ---------- SEARCH DEBOUNCE ----------
+        // Search debounce
         document.getElementById('globalMatSearch').addEventListener('input', debounce(() => { activeFolderContext = null; renderMaterials(); }));
         document.getElementById('globalVidSearch').addEventListener('input', debounce(() => renderVideos()));
         document.getElementById('favSearchInput').addEventListener('input', debounce(() => { activeFavFolder = null; renderFavs(); }));
         document.getElementById('newsSearchInput').addEventListener('input', debounce(() => renderNewsList()));
         document.getElementById('lbSearch').addEventListener('input', debounce(() => renderLeaderboard()));
 
-        // ---------- WHAT'S NEW POPUP ----------
+        // What's New
         function checkWhatsNew() {
-            const currentVersion = "v2.3";
+            const currentVersion = "v2.4";
             const userVersion = localStorage.getItem('astu_ece_version');
             if (userVersion !== currentVersion) {
                 document.getElementById('whatsNewModal').style.display = 'flex';
             }
         }
         window.closeWhatsNew = function() {
-            localStorage.setItem('astu_ece_version', "v2.3");
+            localStorage.setItem('astu_ece_version', "v2.4");
             document.getElementById('whatsNewModal').style.display = 'none';
         };
         setTimeout(checkWhatsNew, 500);
 
-        // ---------- BOOTSTRAP ----------
+        // Bootstrap
         (async function bootstrap() {
             await loadCurriculum();
             addCGPARow();
@@ -1839,7 +1838,6 @@
             ]);
         })();
 
-        // Fallback in case curriculum fails to load, seed a few GPA rows
         setTimeout(() => {
             if (document.getElementById('courseRows').children.length === 0) {
                 for (let i = 0; i < 5; i++) addCourseRow();
