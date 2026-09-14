@@ -424,6 +424,18 @@ CURRICULUM = {
 }
 
 
+def course_display(code):
+    """Return 'CODE — Course Title' or just the code if unknown."""
+    if not code:
+        return ""
+    for _, sems in CURRICULUM.items():
+        for _, courses in sems.items():
+            for c in courses:
+                if c["code"] == code:
+                    return f"{code} — {c['title']}"
+    return code
+
+
 # ==========================================================================
 #  MATERIAL HELPERS
 # ==========================================================================
@@ -583,9 +595,9 @@ def build_delete_list(course_code, material_type):
                 callback_data=f"delitem_{course_code}_{material_type}_{idx}",
             ))
         text = (f"Select the file you want to delete for "
-                f"{course_code} ({material_type.upper()}):")
+                f"{course_display(course_code)} ({material_type.upper()}):")
     else:
-        text = f"✅ No files remain for {course_code} ({material_type.upper()})."
+        text = f"✅ No files remain for {course_display(course_code)} ({material_type.upper()})."
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     return text, markup
 
@@ -616,9 +628,9 @@ def build_update_folder_list(course_code, material_type):
                 callback_data=f"updfolder_{sess_id}",
             ))
         text = (f"Select the folder you want to UPDATE for "
-                f"{course_code} ({material_type.upper()}):")
+                f"{course_display(course_code)} ({material_type.upper()}):")
     else:
-        text = f"✅ No files found for {course_code} ({material_type.upper()}) to update."
+        text = f"✅ No files found for {course_display(course_code)} ({material_type.upper()}) to update."
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     return text, markup
 
@@ -645,7 +657,7 @@ def build_update_folder_detail(sess_id):
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     text = (
         f"📁 <b>{escape_md(sess['title'])}</b>\n"
-        f"Course: {escape_md(sess['course_code'])} • "
+        f"Course: {escape_md(course_display(sess['course_code']))} • "
         f"Type: {escape_md(sess['material_type'].upper())}\n\n"
         f"Choose to replace the whole folder's files at once, "
         f"or update a single file inside it."
@@ -1046,7 +1058,7 @@ def admin_delete_video_start(message):
         for idx, v in enumerate(vids):
             has_videos = True
             markup.row(InlineKeyboardButton(
-                f"❌ [{course_code}] {v.get('title', 'Video')}",
+                f"❌ [{course_display(course_code)}] {v.get('title', 'Video')}",
                 callback_data=f"delvid_{course_code}_{idx}",
             ))
     if not has_videos:
@@ -1108,7 +1120,7 @@ def handle_query(call):
         if action == 'v':
             try:
                 msg = bot.edit_message_text(
-                    f"Course: <b>{escape_md(course_code)}</b>\n\n"
+                    f"Course: <b>{escape_md(course_display(course_code))}</b>\n\n"
                     f"Reply with the <b>Video Title</b> and <b>URL</b> separated by a new line.\n\n"
                     f"Example:\n"
                     f"<code>Lecture 1 Introduction\nhttps://youtube.com/watch?v=...</code>",
@@ -1120,7 +1132,7 @@ def handle_query(call):
             except Exception:
                 pass
         else:
-            _edit(f"Course: <b>{escape_md(course_code)}</b>\nSelect the type of material:",
+            _edit(f"Course: <b>{escape_md(course_display(course_code))}</b>\nSelect the type of material:",
                   material_type_keyboard(course_code, action))
 
     elif data.startswith(("fm_", "um_", "am_", "dm_", "pm_")):
@@ -1133,10 +1145,10 @@ def handle_query(call):
             materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
             if not materials:
                 bot.send_message(call.message.chat.id,
-                                 f"ℹ️ No {material_type.upper()} files available yet for {course_code}.")
+                                 f"ℹ️ No {material_type.upper()} files available yet for {course_display(course_code)}.")
             else:
                 bot.send_message(call.message.chat.id,
-                                 f"📚 Found {len(materials)} file(s) for {course_code}:")
+                                 f"📚 Found {len(materials)} file(s) for {course_display(course_code)}:")
                 for item in materials:
                     if item.get("content_type") == "photo":
                         bot.send_photo(call.message.chat.id, item["file_id"],
@@ -1153,7 +1165,7 @@ def handle_query(call):
             label = "Upload" if action == 'u' else "Admin save"
             msg = bot.send_message(
                 call.message.chat.id,
-                f"📤 <b>{label} mode: {escape_md(course_code)} ({escape_md(material_type.upper())})</b>\n\n"
+                f"📤 <b>{label} mode: {escape_md(course_display(course_code))} ({escape_md(material_type.upper())})</b>\n\n"
                 f"Send your file(s) now — you can send as many as you want.\n\n"
                 f"👇 When done, click <b>Finish Upload</b>.",
                 parse_mode="HTML",
@@ -1171,7 +1183,7 @@ def handle_query(call):
             materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
             if not materials:
                 bot.send_message(call.message.chat.id,
-                                 f"ℹ️ No files found under {course_code} ({material_type.upper()}) to delete.")
+                                 f"ℹ️ No files found under {course_display(course_code)} ({material_type.upper()}) to delete.")
             else:
                 text, markup = build_delete_list(course_code, material_type)
                 _edit(text, markup)
@@ -1320,7 +1332,7 @@ def handle_query(call):
                 bot.send_message(
                     admin,
                     f"✅ Video '{escape_md(v_data['title'])}' for "
-                    f"{escape_md(v_data['course'])} from "
+                    f"{escape_md(course_display(v_data['course']))} from "
                     f"{escape_md(v_data['username'])} approved!\n"
                     f"Use /addvideo to add it to the official list.",
                     parse_mode="HTML",
@@ -1368,7 +1380,7 @@ def handle_query(call):
             bot.send_message(
                 up["chat_id"],
                 f"✅ Good news! Your batch of {len(up['files'])} file(s) "
-                f"for {up['course_code']} has been approved.\n\n"
+                f"for {course_display(up['course_code'])} has been approved.\n\n"
                 f"They will be organized and added to the official portal soon.",
             )
         except Exception:
@@ -1501,7 +1513,7 @@ def process_admin_add_video(message, course_code):
 
     title, url = parts[0].strip(), parts[1].strip()
     if add_approved_video(course_code, title, url):
-        bot.reply_to(message, f"✅ Added video '{title}' to {course_code}!")
+        bot.reply_to(message, f"✅ Added video '{title}' to {course_display(course_code)}!")
         try:
             subs = load_json(SUBS_FILE).get(course_code, [])
             if subs:
@@ -1511,7 +1523,7 @@ def process_admin_add_video(message, course_code):
                 ))
                 text = (
                     f"📺 <b>New Tutorial Video!</b>\n\n"
-                    f"📚 <b>Course:</b> {escape_md(course_code)}\n"
+                    f"📚 <b>Course:</b> {escape_md(course_display(course_code))}\n"
                     f"📝 <b>Title:</b> {escape_md(title)}\n\n"
                     f"Open the Portal to watch it."
                 )
@@ -1568,7 +1580,7 @@ def process_files(chat_id, files, state, user, title=None):
         if ok:
             bot.send_message(chat_id,
                              f"✅ Saved \"{title}\" ({len(files)} file(s)) under "
-                             f"{course_code} ({material_type.upper()})!")
+                             f"{course_display(course_code)} ({material_type.upper()})!")
             send_as_album(chat_id, files, caption=title)
             try:
                 subs = load_json(SUBS_FILE).get(course_code, [])
@@ -1579,7 +1591,7 @@ def process_files(chat_id, files, state, user, title=None):
                     ))
                     text = (
                         f"🔔 <b>New Material Added!</b>\n\n"
-                        f"📚 <b>Course:</b> {escape_md(course_code)}\n"
+                        f"📚 <b>Course:</b> {escape_md(course_display(course_code))}\n"
                         f"📂 <b>Type:</b> {escape_md(material_type.upper())}\n"
                         f"📝 <b>Title:</b> {escape_md(title or 'Untitled')}\n\n"
                         f"Open the Portal to download it."
@@ -1602,7 +1614,8 @@ def process_files(chat_id, files, state, user, title=None):
         admin_text = (
             f"📥 New Chat Upload (Batch of {len(files)} files)\n"
             f"From: @{user.username or 'Student'}\n\n"
-            f"Course: {course_code}\nType: {material_type.upper()}"
+            f"Course: {course_display(course_code)}\n"
+            f"Type: {material_type.upper()}"
         )
         for admin in ADMIN_IDS:
             try:
@@ -1752,7 +1765,8 @@ def handle_webapp_upload():
 
     admin_text = (
         f"🌐 WEB APP Upload from {escape_md(username)}\n"
-        f"Course: {escape_md(course)}\nType: {escape_md(mat_type.upper())}"
+        f"Course: {escape_md(course_display(course))}\n"
+        f"Type: {escape_md(mat_type.upper())}"
     )
 
     file_id = None
@@ -1798,7 +1812,7 @@ def handle_webapp_upload():
             bot.send_message(
                 admin,
                 f"Review web upload from {escape_md(username)} "
-                f"({escape_md(course)} / {escape_md(mat_type.upper())}):",
+                f"({escape_md(course_display(course))} / {escape_md(mat_type.upper())}):",
                 parse_mode="HTML",
                 reply_markup=markup,
             )
@@ -1830,7 +1844,7 @@ def handle_video_upload():
 
     admin_text = (
         f"📺 New Video Submission from {escape_md(username)}\n\n"
-        f"Course: {escape_md(course)}\n"
+        f"Course: {escape_md(course_display(course))}\n"
         f"Title: {escape_md(title)}\n"
         f"URL: {escape_md(url)}"
     )
@@ -2023,7 +2037,7 @@ def handle_report_issue():
     admin_text = (
         f"⚠️ <b>Issue Reported</b>\n\n"
         f"👤 From: {escape_md(username)} (<code>{escape_md(uid)}</code>)\n"
-        f"📚 Course: {escape_md(course)}\n"
+        f"📚 Course: {escape_md(course_display(course))}\n"
         f"📂 Type: {escape_md(item_type)}\n"
         f"📄 Title: {escape_md(title)}\n"
         f"{comment_block}"
@@ -2070,7 +2084,7 @@ def handle_request_resource():
     admin_text = (
         f"🙋 <b>Resource Request</b>\n\n"
         f"👤 From: {escape_md(username)} (<code>{escape_md(uid)}</code>)\n"
-        f"📚 Course: {escape_md(course or '—')}\n"
+        f"📚 Course: {escape_md(course_display(course) or '—')}\n"
         f"📝 Detail: {escape_md(detail or '—')}"
     )
     for admin in ADMIN_IDS:
