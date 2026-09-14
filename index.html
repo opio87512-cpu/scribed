@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>ASTU ECE Portal</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -484,6 +487,24 @@
             return m ? m[1] : null;
         }
 
+        function getCourseName(code) {
+            if (!code) return '';
+            for (const y in curriculum) {
+                for (const s in curriculum[y]) {
+                    const courses = curriculum[y][s] || [];
+                    for (let i = 0; i < courses.length; i++) {
+                        if (courses[i].code === code) return courses[i].title;
+                    }
+                }
+            }
+            return '';
+        }
+
+        function courseDisplay(code) {
+            const name = getCourseName(code);
+            return name ? (code + ' · ' + name) : code;
+        }
+
         // ---------- API WRAPPER ----------
         async function api(path, opts) {
             opts = opts || {};
@@ -530,7 +551,7 @@
         let lastSeenNewsId = localStorage.getItem('astu_ece_last_seen_news') || null;
         let pendingRemoteThumbs = [];
 
-        // ---------- SEMESTER SELECT REBUILDER ----------
+        // ---------- SEMESTER REBUILDER ----------
         window.rebuildSemesterSelect = function(semSelect, yearValue) {
             semSelect.innerHTML = '<option value="">Select Semester...</option>';
             const yearData = curriculum[yearValue] || {};
@@ -950,8 +971,10 @@
 
                 items.forEach((item, idx) => {
                     const folderName = item.title || "Other Files";
+                    const courseName = getCourseName(course);
                     if (searchQ && !(item.name || '').toLowerCase().includes(searchQ)
                         && !course.toLowerCase().includes(searchQ)
+                        && !(courseName || '').toLowerCase().includes(searchQ)
                         && !folderName.toLowerCase().includes(searchQ)) return;
 
                     if (!grouped[key]) grouped[key] = {};
@@ -1011,15 +1034,17 @@
                     const isStarred = isFav(favId);
                     const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
                     const dateAdded = item.date_added ? ' • Added: ' + item.date_added : '';
+                    const courseLine = courseDisplay(item.course);
 
                     html += '<div class="material-card">'
                         + '<div class="material-info">'
                         + '<span class="material-name">📄 ' + esc(item.name) + '</span>'
-                        + '<span class="material-type">' + esc(item.course) + ' • ' + esc(item.type) + esc(dateAdded) + '</span>'
+                        + '<span class="material-type" style="text-transform:none;">' + esc(courseLine) + '</span>'
+                        + '<span class="material-type">' + esc(item.type.toUpperCase()) + esc(dateAdded) + '</span>'
                         + '</div>'
                         + '<div class="card-actions">'
                         + '<button class="fav-btn" style="color:#ff3b30; opacity: 0.6; font-size:16px;" data-action="report" data-rtype="Material" data-course="' + esc(item.course) + '" data-title="' + esc(item.name) + '"><i class="fa-solid fa-triangle-exclamation"></i></button>'
-                        + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(item.name) + '" data-url="' + esc(deepLink) + '" data-type="material" data-meta="' + esc(item.course) + ' • ' + esc(item.type.toUpperCase()) + '"><i class="' + starClass + '"></i></button>'
+                        + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(item.name) + '" data-url="' + esc(deepLink) + '" data-type="material" data-meta="' + esc(courseLine) + ' • ' + esc(item.type.toUpperCase()) + '"><i class="' + starClass + '"></i></button>'
                         + '<a class="dl-btn" href="' + esc(deepLink) + '" target="_blank" data-action="track-open" data-course="' + esc(item.course) + '" data-kind="' + esc(item.type) + '" data-name="' + esc(item.name) + '">Open</a>'
                         + '</div></div>';
                 });
@@ -1050,7 +1075,9 @@
                 const favId = 'folder_' + key + '_' + folderName;
                 const isStarred = isFav(favId);
                 const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
-                const metaData = course + ' • ' + type.toUpperCase();
+                const courseName = getCourseName(course);
+                const metaCourse = courseName ? (course + ' · ' + courseName) : course;
+                const metaType = type.toUpperCase();
                 const dateLine = folderDate ? '<div class="folder-date"><i class="fa-regular fa-clock"></i> Uploaded: ' + esc(folderDate) + '</div>' : '';
 
                 html += '<div class="folder-card" data-action="open-folder" data-key="' + esc(key) + '" data-folder="' + esc(folderName) + '">'
@@ -1058,11 +1085,12 @@
                     + '<div class="folder-bottom">'
                     + '<div class="folder-info">'
                     + '<div class="folder-title"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ' + esc(folderName) + '</div>'
-                    + '<div class="folder-meta">' + esc(metaData) + ' • ' + items.length + ' file(s)</div>'
+                    + '<div class="folder-meta" style="text-transform:none; font-weight:500; color:var(--btn-color);">' + esc(metaCourse) + '</div>'
+                    + '<div class="folder-meta">' + esc(metaType) + ' · ' + items.length + ' file(s)</div>'
                     + dateLine
                     + '</div>'
                     + '<div class="folder-actions">'
-                    + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(folderName) + '" data-url="' + esc(key) + '" data-type="folder" data-meta="' + esc(metaData) + '"><i class="' + starClass + '"></i></button>'
+                    + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(folderName) + '" data-url="' + esc(key) + '" data-type="folder" data-meta="' + esc(metaCourse) + '"><i class="' + starClass + '"></i></button>'
                     + '<i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>'
                     + '</div></div></div>';
             });
@@ -1100,6 +1128,7 @@
             const isStarred = isFav(favId);
             const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
             const dateAdded = v.date_added ? ' • Added: ' + v.date_added : '';
+            const courseLine = courseDisplay(courseCode);
 
             let thumbHtml;
             if (ytId) {
@@ -1123,10 +1152,10 @@
                 + '<div class="yt-avatar"><i class="fa-solid fa-graduation-cap"></i></div>'
                 + '<div class="yt-info">'
                 + '<div class="yt-title">' + esc(v.title) + '</div>'
-                + '<div class="yt-channel">' + esc(courseCode) + ' • Tutorial' + esc(dateAdded) + '</div>'
+                + '<div class="yt-channel">' + esc(courseLine) + ' · Tutorial' + esc(dateAdded) + '</div>'
                 + '</div>'
                 + '<div style="display:flex; flex-direction:column; gap:8px;">'
-                + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(v.title) + '" data-url="' + esc(v.url) + '" data-type="video" data-meta="' + esc(courseCode) + '"><i class="' + starClass + '"></i></button>'
+                + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(v.title) + '" data-url="' + esc(v.url) + '" data-type="video" data-meta="' + esc(courseLine) + '"><i class="' + starClass + '"></i></button>'
                 + '<button class="fav-btn" style="color:#ff3b30; opacity: 0.6; font-size:16px;" data-action="report" data-rtype="Video" data-course="' + esc(courseCode) + '" data-title="' + esc(v.title) + '"><i class="fa-solid fa-triangle-exclamation"></i></button>'
                 + '</div></div></div>';
         }
@@ -1162,8 +1191,11 @@
             let allVidsFlat = [];
             for (const [courseCode, vids] of Object.entries(allVideos)) {
                 if (filterCourse && courseCode !== filterCourse) continue;
+                const courseName = getCourseName(courseCode);
                 vids.forEach((v, idx) => {
-                    if (searchQ && !(v.title || '').toLowerCase().includes(searchQ) && !courseCode.toLowerCase().includes(searchQ)) return;
+                    if (searchQ && !(v.title || '').toLowerCase().includes(searchQ)
+                        && !courseCode.toLowerCase().includes(searchQ)
+                        && !(courseName || '').toLowerCase().includes(searchQ)) return;
                     allVidsFlat.push({ v: v, courseCode: courseCode, idx: idx, sortKey: parseDateAdded(v.date_added) });
                 });
             }
@@ -1244,7 +1276,7 @@
                         html += '<div class="material-card">'
                             + '<div class="material-info">'
                             + '<span class="material-name">📄 ' + esc(fav.title) + '</span>'
-                            + '<span class="material-type">' + esc(fav.meta) + '</span>'
+                            + '<span class="material-type" style="text-transform:none;">' + esc(fav.meta) + '</span>'
                             + '</div>'
                             + '<div class="card-actions">'
                             + '<button class="fav-btn" data-action="toggle-fav" data-fav-id="' + esc(fav.id) + '" data-title="' + esc(fav.title) + '" data-url="' + esc(fav.url) + '" data-type="material" data-meta="' + esc(fav.meta) + '"><i class="fa-solid fa-star"></i></button>'
@@ -1259,7 +1291,7 @@
                             + '<div class="folder-bottom">'
                             + '<div class="folder-info">'
                             + '<div class="folder-title"><i class="fa-solid fa-folder" style="color:#ffb300; margin-right:6px;"></i> ' + esc(fav.title) + '</div>'
-                            + '<div class="folder-meta">' + esc(fav.meta) + '</div>'
+                            + '<div class="folder-meta" style="text-transform:none; font-weight:500;">' + esc(fav.meta) + '</div>'
                             + '</div>'
                             + '<div class="folder-actions">'
                             + '<button class="fav-btn" data-action="toggle-fav" data-fav-id="' + esc(fav.id) + '" data-title="' + esc(fav.title) + '" data-url="' + esc(fav.url) + '" data-type="folder" data-meta="' + esc(fav.meta) + '"><i class="fa-solid fa-star"></i></button>'
@@ -1297,18 +1329,30 @@
             const container = document.getElementById('leaderboardContainer');
             const searchEl = document.getElementById('lbSearch');
             const q = (searchEl ? searchEl.value : '').toLowerCase();
-            const list = (leaderboard || []).filter(r => !q || (r.resource || '').toLowerCase().includes(q));
+            const list = (leaderboard || []).filter(r => {
+                if (!q) return true;
+                const parts = (r.resource || '').split(':');
+                const name = parts.slice(2).join(':') || '';
+                const code = parts[1] || '';
+                const cName = getCourseName(code);
+                return (r.resource || '').toLowerCase().includes(q)
+                    || name.toLowerCase().includes(q)
+                    || (cName || '').toLowerCase().includes(q);
+            });
             if (!list.length) {
                 container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-ranking-star"></i><br>No data yet. Open some files!</div>';
                 return;
             }
             container.innerHTML = list.map((r, i) => {
                 const parts = (r.resource || '').split(':');
-                const displayName = parts.length > 2 ? parts.slice(2).join(':') : (parts[parts.length - 1] || r.resource);
+                const code = parts[1] || '';
+                const name = parts.slice(2).join(':') || r.resource;
+                const courseName = getCourseName(code);
+                const subline = (code ? (courseName ? code + ' · ' + courseName : code) + ' · ' : '') + r.opens + ' opens';
                 return '<div class="material-card">'
                     + '<div class="material-info">'
-                    + '<span class="material-name">#' + (i + 1) + ' ' + esc(displayName) + '</span>'
-                    + '<span class="material-type">' + r.opens + ' opens</span>'
+                    + '<span class="material-name">#' + (i + 1) + ' ' + esc(name) + '</span>'
+                    + '<span class="material-type" style="text-transform:none;">' + esc(subline) + '</span>'
                     + '</div></div>';
             }).join('');
         }
@@ -1590,7 +1634,7 @@
             upCourse.innerHTML = '<option value="">Select Course...</option>';
             const courses = (curriculum[upYear.value] && curriculum[upYear.value][upSem.value]) || [];
             if (upYear.value && upSem.value && courses.length) {
-                courses.forEach(c => upCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.title) + '</option>');
+                courses.forEach(c => upCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
                 upCourse.disabled = false;
             } else upCourse.disabled = true;
             upType.disabled = true; fileInput.disabled = true; submitBtn.disabled = true;
@@ -1611,7 +1655,7 @@
             findCourse.innerHTML = '<option value="">Select Course...</option>';
             const courses = (curriculum[findYear.value] && curriculum[findYear.value][findSem.value]) || [];
             if (findYear.value && findSem.value && courses.length) {
-                courses.forEach(c => findCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.title) + '</option>');
+                courses.forEach(c => findCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
                 findCourse.disabled = false;
             } else findCourse.disabled = true;
             findType.disabled = true; renderMaterials();
@@ -1629,7 +1673,7 @@
             vidCourse.innerHTML = '<option value="">Select Course...</option>';
             const courses = (curriculum[vidYear.value] && curriculum[vidYear.value][vidSem.value]) || [];
             if (vidYear.value && vidSem.value && courses.length) {
-                courses.forEach(c => vidCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.title) + '</option>');
+                courses.forEach(c => vidCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
                 vidCourse.disabled = false;
             } else vidCourse.disabled = true;
             renderVideos();
@@ -1646,7 +1690,7 @@
             subVidCourse.innerHTML = '<option value="">Select Course...</option>';
             const courses = (curriculum[subVidYear.value] && curriculum[subVidYear.value][subVidSem.value]) || [];
             if (subVidYear.value && subVidSem.value && courses.length) {
-                courses.forEach(c => subVidCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.title) + '</option>');
+                courses.forEach(c => subVidCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
                 subVidCourse.disabled = false;
             } else subVidCourse.disabled = true;
             vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true;
@@ -1811,14 +1855,14 @@
 
         // What's New
         function checkWhatsNew() {
-            const currentVersion = "v2.4";
+            const currentVersion = "v2.5";
             const userVersion = localStorage.getItem('astu_ece_version');
             if (userVersion !== currentVersion) {
                 document.getElementById('whatsNewModal').style.display = 'flex';
             }
         }
         window.closeWhatsNew = function() {
-            localStorage.setItem('astu_ece_version', "v2.4");
+            localStorage.setItem('astu_ece_version', "v2.5");
             document.getElementById('whatsNewModal').style.display = 'none';
         };
         setTimeout(checkWhatsNew, 500);
