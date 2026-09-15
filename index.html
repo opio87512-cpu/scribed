@@ -660,17 +660,14 @@
         const INIT_DATA = tg.initData || "";
 
         // ---------- TELEGRAM BACK BUTTON ----------
-        // Single dedicated handler -> always returns to the menu hub.
         if (tg.BackButton) {
             tg.BackButton.onClick(function() {
-                // Clear any open folder drill-downs so we don't get stuck
                 try {
                     if (typeof activeFolderContext !== 'undefined') activeFolderContext = null;
                     if (typeof activeFavFolder !== 'undefined') activeFavFolder = null;
                 } catch (_) {}
                 window.openMenuHub();
             });
-            // Start hidden; sections will show it.
             tg.BackButton.hide();
         }
 
@@ -1108,6 +1105,29 @@
             });
         }
 
+        // ---------- BACK NAVIGATION (inline-onclick safe) ----------
+        window.backToFolders = function () {
+            try {
+                activeFolderContext = null;
+                const results = document.getElementById('resultsContainer');
+                if (results) results.innerHTML = '';
+                renderMaterials();
+            } catch (err) {
+                console.error('backToFolders failed:', err);
+            }
+        };
+
+        window.backToFavFolders = function () {
+            try {
+                activeFavFolder = null;
+                const favs = document.getElementById('favsContainer');
+                if (favs) favs.innerHTML = '';
+                renderFavs();
+            } catch (err) {
+                console.error('backToFavFolders failed:', err);
+            }
+        };
+
         // ---------- ROUTING ----------
         const sectionTitles = {
             'menu': '<i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal',
@@ -1130,7 +1150,6 @@
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.getElementById('menuHubSection').classList.add('active');
             document.getElementById('navTitle').innerHTML = sectionTitles['menu'];
-            // Hide Telegram BackButton when on the main hub.
             if (tg.BackButton) {
                 try { tg.BackButton.hide(); } catch (_) {}
             }
@@ -1138,7 +1157,6 @@
         };
 
         window.switchSection = async function(sec) {
-            // Show Telegram BackButton whenever we leave the menu hub.
             if (tg.BackButton) {
                 try { tg.BackButton.show(); } catch (_) {}
             }
@@ -1257,7 +1275,7 @@
                     return;
                 }
 
-                html += '<button class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="activeFolderContext=null; renderMaterials();"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>';
+                html += '<button type="button" class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="window.backToFolders()"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>';
                 html += '<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px;">📁 ' + esc(folderName) + ' <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(' + items.length + ' files)</span></div>';
 
                 items.forEach(item => {
@@ -1499,7 +1517,7 @@
                     return;
                 }
 
-                html += '<button class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="activeFavFolder=null; renderFavs();"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>';
+                html += '<button type="button" class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="window.backToFavFolders()"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>';
                 html += '<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px;">📁 ' + esc(activeFavFolder) + ' <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(' + items.length + ' saved)</span></div>';
 
                 pendingRemoteThumbs = [];
@@ -1631,7 +1649,6 @@
         };
 
         function msPlaceMines(safeR, safeC) {
-            // First click and its neighbors are always safe.
             const forbidden = new Set();
             for (let dr = -1; dr <= 1; dr++) {
                 for (let dc = -1; dc <= 1; dc++) {
@@ -1653,7 +1670,6 @@
                 MS.board[r][c].mine = true;
                 placed++;
             }
-            // Neighbor counts
             for (let r = 0; r < MS.rows; r++) {
                 for (let c = 0; c < MS.cols; c++) {
                     if (MS.board[r][c].mine) continue;
@@ -1731,12 +1747,10 @@
             msRender();
             msUpdateMeta();
 
-            // Victory check
             if (MS.revealedCount >= MS.totalSafe) {
                 MS.over = true;
                 MS.won = true;
                 msStopTimer();
-                // Auto-flag remaining mines for visual polish
                 for (let rr = 0; rr < MS.rows; rr++) {
                     for (let cc = 0; cc < MS.cols; cc++) {
                         if (MS.board[rr][cc].mine && !MS.board[rr][cc].flagged) {
@@ -2031,7 +2045,6 @@
             subVidBtn.disabled = !subVidCourse.value;
         };
 
-        // Upload form
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const files = fileInput.files;
@@ -2061,7 +2074,6 @@
             submitBtn.disabled = false;
         });
 
-        // Video form
         document.getElementById('videoForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             subVidBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Submitting...';
@@ -2083,7 +2095,6 @@
             subVidBtn.disabled = false;
         });
 
-        // Admin news
         document.getElementById('adminNewsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitNewsBtn');
@@ -2111,7 +2122,6 @@
             btn.disabled = false;
         });
 
-        // Feedback
         document.getElementById('feedbackForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitFeedbackBtn');
@@ -2141,7 +2151,6 @@
             btn.disabled = false;
         });
 
-        // Request resource
         document.getElementById('requestForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitReqBtn');
@@ -2166,7 +2175,6 @@
             btn.disabled = false;
         });
 
-        // Expose to window
         window.toggleSubscription = toggleSubscription;
         window.renderMaterials = renderMaterials;
         window.renderVideos = renderVideos;
@@ -2176,14 +2184,12 @@
         window.renderLeaderboard = renderLeaderboard;
         window.openFavFolder = openFavFolder;
 
-        // Search debounce
         document.getElementById('globalMatSearch').addEventListener('input', debounce(() => { activeFolderContext = null; renderMaterials(); }));
         document.getElementById('globalVidSearch').addEventListener('input', debounce(() => renderVideos()));
         document.getElementById('favSearchInput').addEventListener('input', debounce(() => { activeFavFolder = null; renderFavs(); }));
         document.getElementById('newsSearchInput').addEventListener('input', debounce(() => renderNewsList()));
         document.getElementById('lbSearch').addEventListener('input', debounce(() => renderLeaderboard()));
 
-        // What's New
         function checkWhatsNew() {
             const currentVersion = "v2.6";
             const userVersion = localStorage.getItem('astu_ece_version');
@@ -2197,7 +2203,6 @@
         };
         setTimeout(checkWhatsNew, 500);
 
-        // Bootstrap
         (async function bootstrap() {
             await loadCurriculum();
             addCGPARow();
@@ -2280,7 +2285,6 @@
         grid.before(document.getElementById('portalTools'));
         document.querySelector('.top-navbar').after(document.getElementById('portalConnection'));
 
-        // Allow browser zoom even in compact mobile layouts.
         document.querySelector('meta[name="viewport"]').content = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
         const effectsButton = document.getElementById('portalEffects');
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
