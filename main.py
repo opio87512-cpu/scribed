@@ -505,13 +505,15 @@ def bump_stat(course_code, kind, name):
 #  INLINE KEYBOARDS
 # ==========================================================================
 def main_menu_keyboard():
+    # "Find Materials" removed per update request.
+    # Remaining buttons realigned into a clean 2-column row.
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("🚀 Open ASTU ECE Portal",
-                                    web_app=WebAppInfo(url=WEBAPP_URL)))
-    markup.row(InlineKeyboardButton("📚 Find Materials",
-                                    callback_data="main_find"))
-    markup.row(InlineKeyboardButton("📤 Upload Material (Chat)",
-                                    callback_data="main_upload"))
+    markup.row(
+        InlineKeyboardButton("🚀 Open ASTU ECE Portal",
+                             web_app=WebAppInfo(url=WEBAPP_URL)),
+        InlineKeyboardButton("📤 Upload Material",
+                             callback_data="main_upload"),
+    )
     return markup
 
 
