@@ -142,8 +142,9 @@ def verify_init_data(init_data, max_age=86400):
 def get_auth_user():
     init_data = None
     if request.is_json:
-        body = request.get_json(silent=True) or {}
-        init_data = body.get("initData")
+        body = request.get_json(silent=True)
+        if isinstance(body, dict):
+            init_data = body.get("initData")
     if not init_data:
         init_data = request.form.get("initData")
     if not init_data:
@@ -1995,8 +1996,18 @@ def handle_feedback():
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
-    body = request.get_json(silent=True) or {}
-    rating = int(body.get("rating", 0) or 0)
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "Feedback must be a JSON object"}), 400
+    raw_rating = body.get("rating")
+    if isinstance(raw_rating, bool) or not isinstance(raw_rating, (int, str)):
+        return jsonify({"error": "Choose a whole-number rating from 1 to 5"}), 400
+    try:
+        rating = int(raw_rating)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Choose a whole-number rating from 1 to 5"}), 400
+    if not 1 <= rating <= 5:
+        return jsonify({"error": "Choose a rating from 1 to 5"}), 400
     msg_content = body.get("message", "")
     username = user.get("username") or user.get("first_name", "Student")
     uid = user.get("id")
