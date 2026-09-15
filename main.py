@@ -1641,7 +1641,7 @@ def process_files(chat_id, files, state, user, title=None):
 
 
 # ==========================================================================
-#  FLASK — WEBHOOK
+#  FLASK — WEBHOOK + HEALTH CHECK
 # ==========================================================================
 @app.route('/' + TOKEN, methods=['POST'])
 def getMessage():
@@ -1657,7 +1657,8 @@ def getMessage():
 
 @app.route('/')
 def webhook():
-    return "ASTU ECE Bot is running on Render!", 200
+    # UptimeRobot-friendly health check endpoint.
+    return "Bot is awake and running!", 200
 
 
 @app.route('/api/health')
