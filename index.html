@@ -1893,5 +1893,139 @@
 
     })();
     </script>
+    <style>
+        body { max-width: 960px; margin-inline: auto; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+        :focus-visible { outline: 3px solid var(--btn-color); outline-offset: 4px; }
+        .portal-welcome { position: relative; overflow: hidden; padding: 24px; margin-bottom: 18px; border-radius: 24px; background: var(--sec-bg); border: 1px solid var(--hint-color); }
+        .portal-welcome h1 { font-size: clamp(22px, 5vw, 32px); margin: 0 0 8px; }
+        .portal-welcome p { line-height: 1.6; margin: 0 0 16px; max-width: 48ch; }
+        .portal-welcome button { width: auto; min-height: 44px; cursor: pointer; }
+        .portal-scene { float: right; width: 96px; height: 110px; display: grid; place-items: center; perspective: 500px; }
+        .portal-book { width: 64px; height: 80px; display: grid; place-items: center; border-radius: 5px 14px 14px 5px; border-left: 8px solid var(--text-color); background: var(--btn-color); color: var(--btn-text); box-shadow: 6px 6px 0 var(--bg-color), 10px 12px 18px rgba(0,0,0,.18); font-size: 32px; }
+        .portal-effects .portal-book { animation: portal-float 6s ease-in-out infinite; }
+        @keyframes portal-float { 0%, 100% { transform: rotateY(-22deg) rotateZ(-6deg); } 50% { transform: translateY(-8px) rotateY(22deg) rotateZ(3deg); } }
+        .portal-tools { margin-bottom: 18px; }
+        .portal-search-row { display: flex; gap: 8px; }
+        .portal-search-row input { min-width: 0; }
+        .portal-search-row button { width: auto; cursor: pointer; }
+        .portal-search-status { font-size: 13px; margin: 8px 0; }
+        .menu-card[hidden] { display: none !important; }
+        .portal-connection { border: 1px solid var(--hint-color); background: var(--sec-bg); border-radius: 12px; padding: 12px; margin-bottom: 16px; }
+        .portal-back-top { display: block; width: auto; margin: 20px auto; cursor: pointer; }
+        .nav-menu-btn, .fav-btn, .dl-btn { min-height: 44px; }
+        .top-navbar { flex-wrap: wrap; gap: 12px; }
+        @media (min-width: 700px) { .menu-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+            .portal-effects .menu-card:hover { transform: perspective(700px) translateY(-3px) rotateX(3deg); box-shadow: 0 12px 24px rgba(0,0,0,.12); }
+        }
+        body:not(.portal-effects) .portal-book { animation: none; transform: none; }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+        }
+    </style>
+    <section id="portalWelcome" class="portal-welcome" aria-labelledby="portalWelcomeTitle">
+        <div class="portal-scene" aria-hidden="true"><div class="portal-book">✦</div></div>
+        <h1 id="portalWelcomeTitle">Your study space</h1>
+        <p>Find course materials, save favorites, and plan your next semester. Choose a tool below to get started.</p>
+        <button id="portalEffects" type="button" aria-pressed="false">3D effects: off</button>
+    </section>
+    <div id="portalTools" class="portal-tools">
+        <label for="portalMenuSearch">Find a tool</label>
+        <div class="portal-search-row">
+            <input id="portalMenuSearch" type="search" placeholder="Try materials, GPA, or favorites" autocomplete="off" aria-controls="portalMenuGrid">
+            <button id="portalClearSearch" type="button">Clear</button>
+        </div>
+        <p id="portalSearchStatus" class="portal-search-status" role="status" aria-live="polite"></p>
+    </div>
+    <div id="portalConnection" class="portal-connection" role="status" hidden>You're offline. Reconnect to load resources or save changes. Keep this page open to preserve your current work.</div>
+    <button id="portalBackTop" class="portal-back-top" type="button">Back to top ↑</button>
+    <script>
+    (function enhancePortal() {
+        'use strict';
+        const hub = document.getElementById('menuHubSection');
+        const grid = hub && hub.querySelector('.menu-grid');
+        if (!grid) return;
+        grid.id = 'portalMenuGrid';
+        hub.prepend(document.getElementById('portalWelcome'));
+        grid.before(document.getElementById('portalTools'));
+        document.querySelector('.top-navbar').after(document.getElementById('portalConnection'));
+
+        // Allow browser zoom even in compact mobile layouts.
+        document.querySelector('meta[name="viewport"]').content = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
+        const effectsButton = document.getElementById('portalEffects');
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let effectsPreference = true;
+        try { effectsPreference = localStorage.getItem('astu_portal_effects') !== 'off'; } catch (_) {}
+        function updateEffects() {
+            const enabled = effectsPreference && !reducedMotion.matches;
+            document.body.classList.toggle('portal-effects', enabled);
+            effectsButton.setAttribute('aria-pressed', String(enabled));
+            effectsButton.textContent = reducedMotion.matches ? '3D effects: reduced motion enabled' : '3D effects: ' + (enabled ? 'on' : 'off');
+            effectsButton.disabled = reducedMotion.matches;
+        }
+        effectsButton.addEventListener('click', function () {
+            effectsPreference = !effectsPreference;
+            try { localStorage.setItem('astu_portal_effects', effectsPreference ? 'on' : 'off'); } catch (_) {}
+            updateEffects();
+        });
+        if (reducedMotion.addEventListener) reducedMotion.addEventListener('change', updateEffects);
+        else if (reducedMotion.addListener) reducedMotion.addListener(updateEffects);
+        updateEffects();
+        document.addEventListener('visibilitychange', function () {
+            document.querySelector('.portal-book').style.animationPlayState = document.hidden ? 'paused' : 'running';
+        });
+
+        const cards = Array.from(grid.querySelectorAll('.menu-card'));
+        cards.forEach(function (card) {
+            card.setAttribute('role', 'button');
+            card.tabIndex = 0;
+            const label = card.querySelector('.menu-label');
+            if (label) card.setAttribute('aria-label', label.textContent.trim());
+            card.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    card.click();
+                }
+            });
+        });
+        const search = document.getElementById('portalMenuSearch');
+        const status = document.getElementById('portalSearchStatus');
+        function filterTools() {
+            const words = search.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+            let count = 0;
+            cards.forEach(function (card) {
+                // Preserve the existing visibility decision for admin-only cards.
+                const available = !card.classList.contains('admin-only') || card.style.display === 'block';
+                const text = card.textContent.toLocaleLowerCase();
+                const matches = words.every(function (word) { return text.includes(word); });
+                card.hidden = !available || !matches;
+                if (!card.hidden) count++;
+            });
+            status.textContent = !count ? 'No tools match. Try another word or clear the search.' : words.length ? count + (count === 1 ? ' tool found.' : ' tools found.') : '';
+        }
+        search.addEventListener('input', filterTools);
+        document.getElementById('portalClearSearch').addEventListener('click', function () {
+            search.value = '';
+            filterTools();
+            search.focus();
+        });
+        search.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') { search.value = ''; filterTools(); }
+        });
+        filterTools();
+
+        const connection = document.getElementById('portalConnection');
+        function updateConnection() { connection.hidden = navigator.onLine; }
+        window.addEventListener('online', updateConnection);
+        window.addEventListener('offline', updateConnection);
+        updateConnection();
+        document.getElementById('portalBackTop').addEventListener('click', function () {
+            window.scrollTo({ top: 0, behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+            document.querySelector('.nav-menu-btn').focus({ preventScroll: true });
+        });
+        const newsButton = document.querySelector('.nav-menu-btn[onclick="switchSection(\'news\')"]');
+        if (newsButton) newsButton.setAttribute('aria-label', 'Open announcements');
+    })();
+    </script>
 </body>
 </html>
