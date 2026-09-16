@@ -63,5 +63,16 @@
         "last_active": "2026-09-16T09:05:59",
         "active": true,
         "source": "bot"
+    },
+    "5785911841": {
+        "user_id": "5785911841",
+        "username": "Prizeman_7",
+        "first_name": "Nahom",
+        "last_name": "",
+        "full_name": "Nahom",
+        "joined_at": "2026-09-16T09:06:16",
+        "last_active": "2026-09-16T09:06:16",
+        "active": true,
+        "source": "bot"
     }
 }
