@@ -92,6 +92,7 @@ EVENTS_FILE = "global_events.json"
 FAVS_FILE = "favorites.json"
 STATS_FILE = "stats.json"
 REQUESTS_FILE = "requests.json"
+USERS_FILE = "users.json"
 
 
 # ==========================================================================
@@ -149,11 +150,89 @@ def get_auth_user():
         init_data = request.form.get("initData")
     if not init_data:
         init_data = request.headers.get("X-Telegram-Init-Data")
-    return verify_init_data(init_data)
+    user = verify_init_data(init_data)
+    if user:
+        # Fire-and-forget registration so every Mini App open counts
+        try:
+            threading.Thread(
+                target=register_user, args=(user, "webapp"), daemon=True
+            ).start()
+        except Exception:
+            pass
+    return user
 
 
 def is_admin(user):
     return user and int(user.get("id", 0)) in ADMIN_IDS
+
+
+# ==========================================================================
+#  USER TRACKING (for broadcast notifications)
+# ==========================================================================
+def register_user(user, source="bot"):
+    """Register or refresh a user in users.json."""
+    if not user or not user.get("id"):
+        return
+    uid = str(user["id"])
+    now = datetime.now().strftime("%b %d, %Y - %H:%M")
+
+    def mutator(data):
+        if not isinstance(data, dict):
+            data = {}
+        existing = data.get(uid, {})
+        data[uid] = {
+            "id": uid,
+            "username": user.get("username") or existing.get("username", ""),
+            "first_name": user.get("first_name") or existing.get("first_name", ""),
+            "last_name": user.get("last_name") or existing.get("last_name", ""),
+            "joined": existing.get("joined", now),
+            "last_seen": now,
+            "active": True,
+            "source": source,
+        }
+        return True
+
+    try:
+        update_json(USERS_FILE, mutator)
+    except Exception:
+        log.exception("register_user failed for %s", uid)
+
+
+def mark_user_inactive(uid):
+    """Mark a user as inactive (they blocked the bot)."""
+    uid = str(uid)
+
+    def mutator(data):
+        if isinstance(data, dict) and uid in data:
+            data[uid]["active"] = False
+            return True
+        return False
+
+    try:
+        update_json(USERS_FILE, mutator)
+    except Exception:
+        log.exception("mark_user_inactive failed for %s", uid)
+
+
+def get_active_users():
+    """Return a list of active user chat_ids (ints)."""
+    data = load_json(USERS_FILE)
+    if not isinstance(data, dict):
+        return []
+    return [
+        int(uid) for uid, info in data.items()
+        if isinstance(info, dict) and info.get("active", True)
+    ]
+
+
+def get_user_stats():
+    """Return (total, active, inactive) counts."""
+    data = load_json(USERS_FILE)
+    if not isinstance(data, dict):
+        return 0, 0, 0
+    total = len(data)
+    active = sum(1 for v in data.values() if isinstance(v, dict) and v.get("active", True))
+    return total, active, total - active
 
 
 # ==========================================================================
@@ -291,13 +370,26 @@ _notify_queue = Queue()
 
 
 def _notify_worker():
+    """
+    Background broadcaster.
+
+    Safety mechanisms:
+      • ~22 msgs/sec via time.sleep(0.045) — safely under Telegram's ~30/sec cap.
+      • On 429 "Too Many Requests" we back off 5s and retry the single message once.
+      • On "Forbidden: bot was blocked" we mark the user inactive in users.json
+        so future broadcasts skip them.
+    """
     while True:
+        job = None
         try:
             job = _notify_queue.get()
             if job is None:
                 continue
             chat_ids, text, markup = job
             sent = 0
+            blocked = 0
+            failed = 0
+
             for uid in chat_ids:
                 try:
                     bot.send_message(
@@ -305,25 +397,54 @@ def _notify_worker():
                         reply_markup=markup, disable_web_page_preview=True,
                     )
                     sent += 1
-                    time.sleep(0.05)
+                    time.sleep(0.045)  # ~22 messages/sec
+
                 except telebot.apihelper.ApiTelegramException as e:
                     msg = str(e).lower()
-                    if "too many requests" in msg or "retry" in msg:
-                        time.sleep(3)
-                    elif "blocked" in msg or "chat not found" in msg or "deactivated" in msg:
-                        pass
+                    if "too many requests" in msg or "retry" in msg or "429" in msg:
+                        log.warning("Rate limited on uid=%s — backing off 5s", uid)
+                        time.sleep(5)
+                        try:
+                            bot.send_message(
+                                uid, text, parse_mode="HTML",
+                                reply_markup=markup, disable_web_page_preview=True,
+                            )
+                            sent += 1
+                        except Exception as retry_err:
+                            log.warning("Retry failed for uid=%s: %s", uid, retry_err)
+                            failed += 1
+                    elif ("blocked" in msg or "chat not found" in msg
+                          or "deactivated" in msg or "user is deactivated" in msg
+                          or "forbidden" in msg):
+                        blocked += 1
+                        try:
+                            threading.Thread(
+                                target=mark_user_inactive,
+                                args=(uid,),
+                                daemon=True,
+                            ).start()
+                        except Exception:
+                            pass
                     else:
+                        failed += 1
                         log.warning("notify to %s failed: %s", uid, e)
+
                 except Exception as e:
+                    failed += 1
                     log.warning("notify to %s error: %s", uid, e)
-            log.info("notify sent=%d/%d", sent, len(chat_ids))
+
+            log.info(
+                "notify sent=%d/%d blocked=%d failed=%d",
+                sent, len(chat_ids), blocked, failed,
+            )
         except Exception:
             log.exception("notify worker crashed")
         finally:
-            try:
-                _notify_queue.task_done()
-            except Exception:
-                pass
+            if job is not None:
+                try:
+                    _notify_queue.task_done()
+                except Exception:
+                    pass
 
 
 threading.Thread(target=_notify_worker, daemon=True, name="notify").start()
@@ -356,6 +477,89 @@ def notify_all_subscribers(title, date_str, link):
         f"🗓 {escape_md(date_str)}"
     )
     enqueue_notify(notified, text, markup)
+
+
+# ==========================================================================
+#  NEW-UPLOAD BROADCAST  →  every registered user
+# ==========================================================================
+def _find_year_sem_for_course(course_code):
+    """Return (year, semester) strings for a course code, or ('', '')."""
+    for y, sems in CURRICULUM.items():
+        for s, courses in sems.items():
+            for c in courses:
+                if c["code"] == course_code:
+                    return y, s
+    return "", ""
+
+
+def broadcast_new_upload(file_data):
+    """
+    Broadcast a "new material uploaded" alert to ALL active users.
+
+    file_data (dict) should contain:
+      • course_code   : e.g. "ECEg3201"        (required)
+      • course_name   : full name              (optional — auto-derived)
+      • material_type : "note" | "mid" | "final" | "assignment" | "test" | "video"
+      • title         : display name of the file/folder
+      • kind          : "material" | "video"   (default: "material")
+    """
+    try:
+        active_users = get_active_users()
+    except Exception:
+        log.exception("broadcast_new_upload: failed to get active users")
+        return
+
+    if not active_users:
+        log.info("broadcast_new_upload: no active users to notify")
+        return
+
+    course_code = file_data.get("course_code", "")
+    course_name = file_data.get("course_name") or course_display(course_code) or course_code
+    material_type = (file_data.get("material_type") or "").upper()
+    title = file_data.get("title") or "Untitled"
+    kind = file_data.get("kind", "material")
+
+    year, semester = _find_year_sem_for_course(course_code)
+
+    type_emoji = {
+        "NOTE": "📝",
+        "ASSIGNMENT": "📄",
+        "MID": "📝",
+        "MID EXAM": "📝",
+        "FINAL": "📝",
+        "FINAL EXAM": "📝",
+        "TEST": "⏳",
+        "VIDEO": "📺",
+    }.get(material_type, "📁")
+
+    lines = [
+        "🔔 <b>NEW MATERIAL UPLOADED!</b> 📚",
+        "",
+        f"📖 <b>Course:</b> {escape_md(course_name)}",
+    ]
+    if year and semester:
+        sem_label = "Semester I" if semester == "1" else "Semester II"
+        lines.append(f"🎓 <b>Year/Semester:</b> Year {year} · {sem_label}")
+    lines.append(f"📁 <b>Type:</b> {type_emoji} {escape_md(material_type)}")
+    lines.append(f"📝 <b>Title:</b> {escape_md(title)}")
+    lines.append("")
+    lines.append("Tap below to access it directly in the portal! 👇")
+
+    text = "\n".join(lines)
+
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton(
+            "📥 View Material",
+            web_app=WebAppInfo(url=WEBAPP_URL),
+        )
+    )
+
+    log.info(
+        "Broadcasting new %s '%s' (%s) → %d users",
+        kind, title, course_code, len(active_users),
+    )
+    enqueue_notify(active_users, text, markup)
 
 
 PENDING_VIDEOS = {}
@@ -458,7 +662,25 @@ def save_material_batch(course_code, mat_type, files, title):
             })
         return True
 
-    return update_json(DATA_FILE, mutator) is not None
+    ok = update_json(DATA_FILE, mutator) is not None
+
+    if ok:
+        # Fire the platform-wide broadcast
+        try:
+            threading.Thread(
+                target=broadcast_new_upload,
+                args=({
+                    "course_code": course_code,
+                    "material_type": mat_type,
+                    "title": title,
+                    "kind": "material",
+                },),
+                daemon=True,
+            ).start()
+        except Exception:
+            log.exception("Failed to schedule broadcast for new material")
+
+    return ok
 
 
 def delete_material_by_index(course_code, mat_type, index):
@@ -489,7 +711,24 @@ def add_approved_video(course_code, title, url):
         })
         return True
 
-    return update_json(VIDEOS_FILE, mutator) is not None
+    ok = update_json(VIDEOS_FILE, mutator) is not None
+
+    if ok:
+        try:
+            threading.Thread(
+                target=broadcast_new_upload,
+                args=({
+                    "course_code": course_code,
+                    "material_type": "video",
+                    "title": title,
+                    "kind": "video",
+                },),
+                daemon=True,
+            ).start()
+        except Exception:
+            log.exception("Failed to schedule broadcast for new video")
+
+    return ok
 
 
 def bump_stat(course_code, kind, name):
@@ -505,8 +744,6 @@ def bump_stat(course_code, kind, name):
 #  INLINE KEYBOARDS
 # ==========================================================================
 def main_menu_keyboard():
-    # "Find Materials" removed per update request.
-    # Remaining buttons realigned into a clean 2-column row.
     markup = InlineKeyboardMarkup()
     markup.row(
         InlineKeyboardButton("🚀 Open ASTU ECE Portal",
@@ -758,6 +995,17 @@ def process_update_single_file(message, sess_id, abs_index):
 # ==========================================================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    # Register this user for broadcast notifications
+    try:
+        register_user({
+            "id": message.from_user.id,
+            "username": message.from_user.username,
+            "first_name": message.from_user.first_name,
+            "last_name": message.from_user.last_name,
+        }, source="bot")
+    except Exception:
+        log.exception("Failed to register user on /start")
+
     parts = message.text.split(maxsplit=1)
     if len(parts) > 1 and parts[1].startswith("g_"):
         payload = parts[1][2:]
@@ -812,7 +1060,7 @@ def send_help(message):
         "/setevent /clearevents\n"
         "/addfile /updatefile /deletefile\n"
         "/addvideo /deletevideo\n"
-        "/stats"
+        "/stats /broadcast"
     )
     bot.send_message(message.chat.id, text, parse_mode="HTML")
 
@@ -835,6 +1083,7 @@ def admin_stats(message):
     n_mat = sum(len(v) for v in mats.values()) if isinstance(mats, dict) else 0
     n_vid = sum(len(v) for v in vids.values()) if isinstance(vids, dict) else 0
     n_sub = len({uid for uids in (subs or {}).values() for uid in uids})
+    total_u, active_u, inactive_u = get_user_stats()
 
     top = sorted(
         ((k, v) for k, v in (stats or {}).items() if isinstance(v, int)),
@@ -843,15 +1092,53 @@ def admin_stats(message):
 
     lines = [
         "📊 <b>Bot Stats</b>",
+        f"👥 Registered users: <b>{total_u}</b>",
+        f"✅ Active (will receive broadcasts): <b>{active_u}</b>",
+        f"🚫 Inactive (blocked the bot): {inactive_u}",
+        "",
         f"📁 Material files: {n_mat}",
         f"📺 Video tutorials: {n_vid}",
-        f"🔔 Unique subscribers: {n_sub}",
+        f"🔔 Unique course subscribers: {n_sub}",
     ]
     if top:
         lines.append("\n🔥 <b>Top 5 most-opened:</b>")
         for k, v in top:
             lines.append(f"• {escape_md(k)} — {v}")
     bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
+
+
+@bot.message_handler(commands=['broadcast'])
+def admin_broadcast(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        bot.reply_to(
+            message,
+            "Usage: <code>/broadcast Your message here</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    body = parts[1].strip()
+    active_users = get_active_users()
+    if not active_users:
+        bot.reply_to(message, "ℹ️ No active users to broadcast to.")
+        return
+
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("🚀 Open Portal",
+                             web_app=WebAppInfo(url=WEBAPP_URL))
+    )
+    text = f"📢 <b>Announcement</b>\n\n{escape_md(body)}"
+
+    enqueue_notify(active_users, text, markup)
+    bot.reply_to(
+        message,
+        f"✅ Broadcast queued for <b>{len(active_users)}</b> active users.",
+        parse_mode="HTML",
+    )
 
 
 @bot.message_handler(commands=['setexam'])
@@ -1657,7 +1944,6 @@ def getMessage():
 
 @app.route('/')
 def webhook():
-    # UptimeRobot-friendly health check endpoint.
     return "Bot is awake and running!", 200
 
 
