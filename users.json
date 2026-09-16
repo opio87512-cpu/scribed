@@ -74,5 +74,16 @@
         "last_active": "2026-09-16T09:06:54",
         "active": true,
         "source": "callback"
+    },
+    "8043168255": {
+        "user_id": "8043168255",
+        "username": "N_iifat",
+        "first_name": "\ud83c\uddf3 \ud83c\udde6 \ud83d\ude4c\ud83c\uddee\u200c\ud83c\uddeb \ud83c\uddee",
+        "last_name": "...",
+        "full_name": "\ud83c\uddf3 \ud83c\udde6 \ud83d\ude4c\ud83c\uddee\u200c\ud83c\uddeb \ud83c\uddee ...",
+        "joined_at": "2026-09-16T09:10:05",
+        "last_active": "2026-09-16T09:10:05",
+        "active": true,
+        "source": "bot"
     }
 }
