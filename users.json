@@ -1,13 +1,14 @@
 {
     "8429521561": {
-        "id": "8429521561",
+        "user_id": "8429521561",
         "username": "pede_7",
         "first_name": "Pedestrian",
         "last_name": "",
-        "joined": "Sep 16, 2026 - 08:29",
-        "last_seen": "Sep 16, 2026 - 08:36",
+        "full_name": "Pedestrian",
+        "joined_at": "Sep 16, 2026 - 08:29",
+        "last_active": "2026-09-16T08:45:04",
         "active": true,
-        "source": "webapp"
+        "source": "bot"
     },
     "8686632366": {
         "id": "8686632366",
