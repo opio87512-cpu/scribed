@@ -52,5 +52,16 @@
         "last_active": "2026-09-16T08:50:45",
         "active": true,
         "source": "webapp"
+    },
+    "2093172989": {
+        "user_id": "2093172989",
+        "username": "Sw939766",
+        "first_name": "Sibhat",
+        "last_name": "",
+        "full_name": "Sibhat",
+        "joined_at": "2026-09-16T09:05:59",
+        "last_active": "2026-09-16T09:05:59",
+        "active": true,
+        "source": "bot"
     }
 }
