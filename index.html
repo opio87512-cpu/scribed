@@ -846,11 +846,51 @@
             return name ? (code + ' · ' + name) : code;
         }
 
-        // ---------- SAFE EXTERNAL LINK OPENER ----------
+        // ---------- SAFE LINK ROUTER ----------
+        // Telegram deep links (t.me/*, telegram.me/*) must go through
+        // tg.openTelegramLink() so they open natively INSIDE Telegram.
+        // Using tg.openLink() on those causes the OS to bounce out to
+        // the browser (Chrome) and then back to Telegram.
+        // Non-Telegram URLs (YouTube, PDFs, etc.) still go through
+        // tg.openLink() so they open in the OS browser.
+        function isTelegramLink(url) {
+            if (!url) return false;
+            return /^https?:\/\/(t\.me|telegram\.me|telegram\.dog)\//i.test(url);
+        }
+
         function openFileInExternalWindow(url) {
             if (!url) return;
+            const wa = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+
+            if (isTelegramLink(url)) {
+                // Native Telegram handling — stays inside the WebApp.
+                try {
+                    if (wa && typeof wa.openTelegramLink === 'function') {
+                        wa.openTelegramLink(url);
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('tg.openTelegramLink failed, falling back:', err);
+                }
+                // Fallback for older clients without openTelegramLink.
+                try {
+                    if (wa && typeof wa.openLink === 'function') {
+                        wa.openLink(url);
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('tg.openLink fallback failed:', err);
+                }
+                try {
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                } catch (err) {
+                    console.error('window.open fallback failed:', err);
+                }
+                return;
+            }
+
+            // Non-Telegram external URL → open in the OS browser.
             try {
-                const wa = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
                 if (wa && typeof wa.openLink === 'function') {
                     wa.openLink(url);
                     return;
@@ -1051,7 +1091,7 @@
             let html = '<h4 style="margin-bottom:10px;">Existing News (' + allNews.length + ')</h4>';
             allNews.forEach(item => {
                 html += '<div class="material-card"><div class="material-info"><span class="material-name">📢 ' + esc(item.title) + '</span><span class="material-type">' + esc(item.date || '') + '</span></div>'
-                    + '<div class="card-actions"><a class="dl-btn" href="' + esc(item.link || '#') + '" target="_blank"><i class="fa-brands fa-telegram"></i></a>'
+                    + '<div class="card-actions"><a class="dl-btn" href="' + esc(item.link || '#') + '" target="_blank" rel="noopener"><i class="fa-brands fa-telegram"></i></a>'
                     + '<button class="fav-btn" style="color:#ff3b30; font-size:16px;" data-action="delete-news" data-id="' + esc(item.id) + '"><i class="fa-solid fa-trash-can"></i></button></div></div>';
             });
             container.innerHTML = html;
@@ -1133,6 +1173,9 @@
         }
 
         // ---------- GLOBAL LINK GUARD ----------
+        // Intercepts any anchor that would otherwise trigger Telegram's default
+        // deep-link handling (which closes the WebApp). Routes through our
+        // router so Telegram stays open and links are handled natively.
         document.addEventListener('click', function (e) {
             const link = e.target.closest('a[href]');
             if (!link) return;
@@ -1140,10 +1183,10 @@
             const href = link.getAttribute('href') || '';
             if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('data:')) return;
 
-            const isBotDeepLink = href.indexOf('t.me/' + BOT_USERNAME + '?start=') !== -1;
-            const isExternal    = /^https?:\/\//i.test(href) && !/^https?:\/\/t\.me\//i.test(href);
+            const isTmeLink  = /^https?:\/\/(t\.me|telegram\.me|telegram\.dog)\//i.test(href);
+            const isExternal = /^https?:\/\//i.test(href) && !isTmeLink;
 
-            if (isBotDeepLink || isExternal) {
+            if (isTmeLink || isExternal) {
                 e.preventDefault();
                 e.stopPropagation();
                 openFileInExternalWindow(href);
@@ -2208,12 +2251,12 @@
         document.getElementById('lbSearch').addEventListener('input', debounce(() => renderLeaderboard()));
 
         function checkWhatsNew() {
-            const currentVersion = "v3.2";
+            const currentVersion = "v3.3";
             const userVersion = localStorage.getItem('astu_ece_version');
             if (userVersion !== currentVersion) document.getElementById('whatsNewModal').style.display = 'flex';
         }
         window.closeWhatsNew = function() {
-            localStorage.setItem('astu_ece_version', "v3.2");
+            localStorage.setItem('astu_ece_version', "v3.3");
             document.getElementById('whatsNewModal').style.display = 'none';
         };
         setTimeout(checkWhatsNew, 500);
