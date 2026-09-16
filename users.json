@@ -96,5 +96,16 @@
         "last_active": "2026-09-16T09:17:06",
         "active": true,
         "source": "webapp"
+    },
+    "6044738442": {
+        "user_id": "6044738442",
+        "username": "",
+        "first_name": "Hermi",
+        "last_name": "Kibrom",
+        "full_name": "Hermi Kibrom",
+        "joined_at": "2026-09-16T09:56:37",
+        "last_active": "2026-09-16T09:56:37",
+        "active": true,
+        "source": "bot"
     }
 }
