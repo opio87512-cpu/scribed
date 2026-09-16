@@ -140,5 +140,16 @@
         "last_active": "2026-09-16T11:07:05",
         "active": true,
         "source": "bot"
+    },
+    "1239686745": {
+        "user_id": "1239686745",
+        "username": "a_swaggy_king",
+        "first_name": "Abel",
+        "last_name": "",
+        "full_name": "Abel",
+        "joined_at": "2026-09-16T12:17:01",
+        "last_active": "2026-09-16T12:17:01",
+        "active": true,
+        "source": "bot"
     }
 }
