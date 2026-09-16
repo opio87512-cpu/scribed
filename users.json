@@ -49,8 +49,8 @@
         "last_name": "",
         "full_name": "T",
         "joined_at": "2026-09-16T08:50:36",
-        "last_active": "2026-09-16T08:50:36",
+        "last_active": "2026-09-16T08:50:45",
         "active": true,
-        "source": "bot"
+        "source": "webapp"
     }
 }
