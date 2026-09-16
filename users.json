@@ -118,5 +118,16 @@
         "last_active": "2026-09-16T10:19:55",
         "active": true,
         "source": "webapp"
+    },
+    "8976510273": {
+        "user_id": "8976510273",
+        "username": "Ephrem_028",
+        "first_name": "Ephy",
+        "last_name": "G",
+        "full_name": "Ephy G",
+        "joined_at": "2026-09-16T10:37:06",
+        "last_active": "2026-09-16T10:37:06",
+        "active": true,
+        "source": "bot"
     }
 }
