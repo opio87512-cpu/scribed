@@ -1,5 +1,6 @@
 import os
 import io
+import csv
 import json
 import base64
 import hmac
@@ -9,7 +10,7 @@ import threading
 import logging
 import html as html_lib
 from queue import Queue
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import parse_qsl
 
 import requests
@@ -96,6 +97,35 @@ USERS_FILE = "users.json"
 
 
 # ==========================================================================
+#  TIME HELPERS
+# ==========================================================================
+def _now_iso():
+    """Current UTC time as ISO string (machine-friendly, sortable)."""
+    return datetime.utcnow().isoformat(timespec="seconds")
+
+
+def _now_pretty():
+    """Current UTC time as a human-readable string."""
+    return datetime.utcnow().strftime("%b %d, %Y - %H:%M")
+
+
+def _parse_iso(s):
+    """Best-effort ISO / legacy string parser. Returns datetime or None."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        pass
+    for fmt in ("%b %d, %Y - %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except Exception:
+            continue
+    return None
+
+
+# ==========================================================================
 #  SECURITY HELPERS
 # ==========================================================================
 def escape_md(text):
@@ -152,7 +182,6 @@ def get_auth_user():
         init_data = request.headers.get("X-Telegram-Init-Data")
     user = verify_init_data(init_data)
     if user:
-        # Fire-and-forget registration so every Mini App open counts
         try:
             threading.Thread(
                 target=register_user, args=(user, "webapp"), daemon=True
@@ -167,26 +196,37 @@ def is_admin(user):
 
 
 # ==========================================================================
-#  USER TRACKING (for broadcast notifications)
+#  USER TRACKING + ANALYTICS
 # ==========================================================================
 def register_user(user, source="bot"):
-    """Register or refresh a user in users.json."""
+    """
+    Register or refresh a user in users.json.
+
+    Stores: user_id, username, full_name, joined_at, last_active, active.
+    Safe to call on every interaction — cheap and idempotent.
+    """
     if not user or not user.get("id"):
         return
     uid = str(user["id"])
-    now = datetime.now().strftime("%b %d, %Y - %H:%M")
+    now = _now_iso()
+
+    first = (user.get("first_name") or "").strip()
+    last = (user.get("last_name") or "").strip()
+    full_name = (first + " " + last).strip() or user.get("username") or f"User {uid}"
+    username = user.get("username") or ""
 
     def mutator(data):
         if not isinstance(data, dict):
             data = {}
         existing = data.get(uid, {})
         data[uid] = {
-            "id": uid,
-            "username": user.get("username") or existing.get("username", ""),
-            "first_name": user.get("first_name") or existing.get("first_name", ""),
-            "last_name": user.get("last_name") or existing.get("last_name", ""),
-            "joined": existing.get("joined", now),
-            "last_seen": now,
+            "user_id": uid,
+            "username": username or existing.get("username", ""),
+            "first_name": first or existing.get("first_name", ""),
+            "last_name": last or existing.get("last_name", ""),
+            "full_name": full_name or existing.get("full_name", ""),
+            "joined_at": existing.get("joined_at") or existing.get("joined") or now,
+            "last_active": now,
             "active": True,
             "source": source,
         }
@@ -198,8 +238,31 @@ def register_user(user, source="bot"):
         log.exception("register_user failed for %s", uid)
 
 
+def touch_user(uid, source="interaction"):
+    """
+    Update last_active for a user without touching other fields.
+    Cheap enough to call on every bot interaction.
+    """
+    uid = str(uid)
+    now = _now_iso()
+
+    def mutator(data):
+        if not isinstance(data, dict):
+            return False
+        if uid not in data:
+            return False
+        data[uid]["last_active"] = now
+        data[uid]["active"] = True
+        data[uid]["source"] = source
+        return True
+
+    try:
+        update_json(USERS_FILE, mutator)
+    except Exception:
+        pass
+
+
 def mark_user_inactive(uid):
-    """Mark a user as inactive (they blocked the bot)."""
     uid = str(uid)
 
     def mutator(data):
@@ -215,7 +278,7 @@ def mark_user_inactive(uid):
 
 
 def get_active_users():
-    """Return a list of active user chat_ids (ints)."""
+    """Return a list of active user chat_ids (ints) for broadcasting."""
     data = load_json(USERS_FILE)
     if not isinstance(data, dict):
         return []
@@ -233,6 +296,117 @@ def get_user_stats():
     total = len(data)
     active = sum(1 for v in data.values() if isinstance(v, dict) and v.get("active", True))
     return total, active, total - active
+
+
+def get_user_analytics():
+    """
+    Returns a rich analytics dict:
+      {
+        total, active_flag, inactive_flag,
+        active_today, active_7d, active_30d,
+        new_today, new_7d,
+        recent: [list of most recent joins with pretty info]
+      }
+    """
+    data = load_json(USERS_FILE)
+    if not isinstance(data, dict):
+        data = {}
+
+    now = datetime.utcnow()
+    cutoff_today = now - timedelta(hours=24)
+    cutoff_7d = now - timedelta(days=7)
+    cutoff_30d = now - timedelta(days=30)
+
+    total = len(data)
+    active_flag = 0
+    inactive_flag = 0
+    active_today = 0
+    active_7d = 0
+    active_30d = 0
+    new_today = 0
+    new_7d = 0
+
+    entries = []
+    for uid, info in data.items():
+        if not isinstance(info, dict):
+            continue
+        if info.get("active", True):
+            active_flag += 1
+        else:
+            inactive_flag += 1
+
+        last = _parse_iso(info.get("last_active"))
+        joined = _parse_iso(info.get("joined_at") or info.get("joined"))
+
+        if last:
+            if last >= cutoff_today:
+                active_today += 1
+            if last >= cutoff_7d:
+                active_7d += 1
+            if last >= cutoff_30d:
+                active_30d += 1
+
+        if joined:
+            if joined >= cutoff_today:
+                new_today += 1
+            if joined >= cutoff_7d:
+                new_7d += 1
+
+        entries.append({
+            "user_id": uid,
+            "username": info.get("username", ""),
+            "full_name": info.get("full_name") or (
+                (info.get("first_name", "") + " " + info.get("last_name", "")).strip()
+            ) or "Unknown",
+            "joined_at": info.get("joined_at") or info.get("joined") or "",
+            "last_active": info.get("last_active") or "",
+            "active": bool(info.get("active", True)),
+            "joined_dt": joined,
+        })
+
+    entries.sort(key=lambda e: e["joined_dt"] or datetime.min, reverse=True)
+
+    return {
+        "total": total,
+        "active_flag": active_flag,
+        "inactive_flag": inactive_flag,
+        "active_today": active_today,
+        "active_7d": active_7d,
+        "active_30d": active_30d,
+        "new_today": new_today,
+        "new_7d": new_7d,
+        "recent": entries[:10],
+        "all": entries,
+    }
+
+
+def build_users_csv():
+    """Return the users.json content as a CSV string (UTF-8)."""
+    analytics = get_user_analytics()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "user_id", "username", "full_name",
+        "joined_at", "last_active", "active", "source",
+    ])
+
+    raw = load_json(USERS_FILE)
+    if isinstance(raw, dict):
+        for uid, info in raw.items():
+            if not isinstance(info, dict):
+                continue
+            writer.writerow([
+                info.get("user_id", uid),
+                "@" + info["username"] if info.get("username") else "",
+                info.get("full_name") or (
+                    (info.get("first_name", "") + " " + info.get("last_name", "")).strip()
+                ),
+                info.get("joined_at") or info.get("joined") or "",
+                info.get("last_active") or "",
+                "yes" if info.get("active", True) else "no",
+                info.get("source", ""),
+            ])
+    return buf.getvalue()
 
 
 # ==========================================================================
@@ -370,15 +544,6 @@ _notify_queue = Queue()
 
 
 def _notify_worker():
-    """
-    Background broadcaster.
-
-    Safety mechanisms:
-      • ~22 msgs/sec via time.sleep(0.045) — safely under Telegram's ~30/sec cap.
-      • On 429 "Too Many Requests" we back off 5s and retry the single message once.
-      • On "Forbidden: bot was blocked" we mark the user inactive in users.json
-        so future broadcasts skip them.
-    """
     while True:
         job = None
         try:
@@ -397,7 +562,7 @@ def _notify_worker():
                         reply_markup=markup, disable_web_page_preview=True,
                     )
                     sent += 1
-                    time.sleep(0.045)  # ~22 messages/sec
+                    time.sleep(0.045)
 
                 except telebot.apihelper.ApiTelegramException as e:
                     msg = str(e).lower()
@@ -483,7 +648,6 @@ def notify_all_subscribers(title, date_str, link):
 #  NEW-UPLOAD BROADCAST  →  every registered user
 # ==========================================================================
 def _find_year_sem_for_course(course_code):
-    """Return (year, semester) strings for a course code, or ('', '')."""
     for y, sems in CURRICULUM.items():
         for s, courses in sems.items():
             for c in courses:
@@ -493,16 +657,6 @@ def _find_year_sem_for_course(course_code):
 
 
 def broadcast_new_upload(file_data):
-    """
-    Broadcast a "new material uploaded" alert to ALL active users.
-
-    file_data (dict) should contain:
-      • course_code   : e.g. "ECEg3201"        (required)
-      • course_name   : full name              (optional — auto-derived)
-      • material_type : "note" | "mid" | "final" | "assignment" | "test" | "video"
-      • title         : display name of the file/folder
-      • kind          : "material" | "video"   (default: "material")
-    """
     try:
         active_users = get_active_users()
     except Exception:
@@ -522,14 +676,10 @@ def broadcast_new_upload(file_data):
     year, semester = _find_year_sem_for_course(course_code)
 
     type_emoji = {
-        "NOTE": "📝",
-        "ASSIGNMENT": "📄",
-        "MID": "📝",
-        "MID EXAM": "📝",
-        "FINAL": "📝",
-        "FINAL EXAM": "📝",
-        "TEST": "⏳",
-        "VIDEO": "📺",
+        "NOTE": "📝", "ASSIGNMENT": "📄",
+        "MID": "📝", "MID EXAM": "📝",
+        "FINAL": "📝", "FINAL EXAM": "📝",
+        "TEST": "⏳", "VIDEO": "📺",
     }.get(material_type, "📁")
 
     lines = [
@@ -592,7 +742,7 @@ def _stamp(d):
 
 
 # ==========================================================================
-#  CURRICULUM — Year 2 Sem 2 + Year 3 (both semesters)
+#  CURRICULUM
 # ==========================================================================
 CURRICULUM = {
     "2": {
@@ -630,7 +780,6 @@ CURRICULUM = {
 
 
 def course_display(code):
-    """Return 'CODE — Course Title' or just the code if unknown."""
     if not code:
         return ""
     for _, sems in CURRICULUM.items():
@@ -665,7 +814,6 @@ def save_material_batch(course_code, mat_type, files, title):
     ok = update_json(DATA_FILE, mutator) is not None
 
     if ok:
-        # Fire the platform-wide broadcast
         try:
             threading.Thread(
                 target=broadcast_new_upload,
@@ -995,7 +1143,6 @@ def process_update_single_file(message, sess_id, abs_index):
 # ==========================================================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    # Register this user for broadcast notifications
     try:
         register_user({
             "id": message.from_user.id,
@@ -1060,7 +1207,7 @@ def send_help(message):
         "/setevent /clearevents\n"
         "/addfile /updatefile /deletefile\n"
         "/addvideo /deletevideo\n"
-        "/stats /broadcast"
+        "/stats /users /export_users /broadcast"
     )
     bot.send_message(message.chat.id, text, parse_mode="HTML")
 
@@ -1071,42 +1218,107 @@ def cancel_cmd(message):
     bot.reply_to(message, "✅ Cancelled.")
 
 
-@bot.message_handler(commands=['stats'])
+# ---------- ADMIN: Analytics dashboard ----------
+def _render_analytics_message(a):
+    """Build the HTML text for /stats and /users."""
+    lines = [
+        "📊 <b>ASTU ECE Bot Analytics</b>",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "👥 <b>Users</b>",
+        f"• Total registered: <b>{a['total']}</b>",
+        f"• Active flag: <b>{a['active_flag']}</b>  ·  Inactive: {a['inactive_flag']}",
+        "",
+        "🔥 <b>Activity</b>",
+        f"• Active in last 24h: <b>{a['active_today']}</b>",
+        f"• Active in last 7 days: <b>{a['active_7d']}</b>",
+        f"• Active in last 30 days: {a['active_30d']}",
+        "",
+        "🆕 <b>New signups</b>",
+        f"• Today: <b>{a['new_today']}</b>",
+        f"• This week: <b>{a['new_7d']}</b>",
+    ]
+
+    recent = a.get("recent", [])
+    if recent:
+        lines.append("")
+        lines.append("🕒 <b>Recently joined</b>")
+        for u in recent[:5]:
+            handle = "@" + u["username"] if u["username"] else "—"
+            name = u["full_name"] or "Unknown"
+            joined = u["joined_at"] or "—"
+            lines.append(
+                f"• {escape_md(name)} ({escape_md(handle)})\n"
+                f"   <code>{escape_md(u['user_id'])}</code> · {escape_md(joined)}"
+            )
+
+    lines.append("")
+    lines.append("Use /export_users to download the full list as CSV.")
+    return "\n".join(lines)
+
+
+@bot.message_handler(commands=['stats', 'users'])
 def admin_stats(message):
     if message.from_user.id not in ADMIN_IDS:
         return
-    mats = load_json(DATA_FILE)
-    vids = load_json(VIDEOS_FILE)
-    subs = load_json(SUBS_FILE)
-    stats = load_json(STATS_FILE)
+    # Refresh the caller's own activity stamp
+    try:
+        touch_user(message.from_user.id, source="bot")
+    except Exception:
+        pass
 
-    n_mat = sum(len(v) for v in mats.values()) if isinstance(mats, dict) else 0
-    n_vid = sum(len(v) for v in vids.values()) if isinstance(vids, dict) else 0
-    n_sub = len({uid for uids in (subs or {}).values() for uid in uids})
-    total_u, active_u, inactive_u = get_user_stats()
-
-    top = sorted(
-        ((k, v) for k, v in (stats or {}).items() if isinstance(v, int)),
-        key=lambda x: x[1], reverse=True,
-    )[:5]
-
-    lines = [
-        "📊 <b>Bot Stats</b>",
-        f"👥 Registered users: <b>{total_u}</b>",
-        f"✅ Active (will receive broadcasts): <b>{active_u}</b>",
-        f"🚫 Inactive (blocked the bot): {inactive_u}",
-        "",
-        f"📁 Material files: {n_mat}",
-        f"📺 Video tutorials: {n_vid}",
-        f"🔔 Unique course subscribers: {n_sub}",
-    ]
-    if top:
-        lines.append("\n🔥 <b>Top 5 most-opened:</b>")
-        for k, v in top:
-            lines.append(f"• {escape_md(k)} — {v}")
-    bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
+    analytics = get_user_analytics()
+    bot.send_message(
+        message.chat.id,
+        _render_analytics_message(analytics),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
+@bot.message_handler(commands=['export_users'])
+def admin_export_users(message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+
+    analytics = get_user_analytics()
+    if analytics["total"] == 0:
+        bot.reply_to(message, "ℹ️ No users registered yet.")
+        return
+
+    try:
+        csv_text = build_users_csv()
+    except Exception as e:
+        log.exception("export_users failed")
+        bot.reply_to(message, f"⚠️ Failed to build CSV: {e}")
+        return
+
+    filename = f"astu_ece_users_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.csv"
+    bio = io.BytesIO(csv_text.encode("utf-8"))
+    bio.name = filename
+
+    caption = (
+        f"📄 <b>User Export</b>\n"
+        f"• Total: <b>{analytics['total']}</b>\n"
+        f"• Active (24h): <b>{analytics['active_today']}</b>\n"
+        f"• Active (7d): <b>{analytics['active_7d']}</b>\n"
+        f"• New today: <b>{analytics['new_today']}</b>"
+    )
+
+    try:
+        bot.send_document(
+            message.chat.id,
+            bio,
+            caption=caption,
+            parse_mode="HTML",
+            visible_file_name=filename,
+        )
+    except Exception as e:
+        log.exception("send_document for export failed")
+        bot.reply_to(message, f"⚠️ Failed to send CSV: {e}")
+
+
+# ---------- ADMIN: Broadcast ----------
 @bot.message_handler(commands=['broadcast'])
 def admin_broadcast(message):
     if message.from_user.id not in ADMIN_IDS:
@@ -1141,6 +1353,7 @@ def admin_broadcast(message):
     )
 
 
+# ---------- ADMIN: other commands ----------
 @bot.message_handler(commands=['setexam'])
 def admin_set_exam(message):
     if message.from_user.id not in ADMIN_IDS:
@@ -1372,6 +1585,12 @@ def handle_query(call):
             )
         except Exception:
             pass
+
+    # Refresh last_active on every button press
+    try:
+        touch_user(call.from_user.id, source="callback")
+    except Exception:
+        pass
 
     data = call.data
 
@@ -1784,6 +2003,11 @@ def handle_title_input(message):
 def fallback_text(message):
     if (message.text or "").startswith('/'):
         return
+    # Silent tracking (don't spam users)
+    try:
+        touch_user(message.from_user.id, source="text")
+    except Exception:
+        pass
     bot.reply_to(message,
                  "🤖 I don't understand that. Try /help, or open the portal "
                  "with /start.")
