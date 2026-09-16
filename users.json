@@ -129,5 +129,16 @@
         "last_active": "2026-09-16T10:37:06",
         "active": true,
         "source": "bot"
+    },
+    "1748022523": {
+        "user_id": "1748022523",
+        "username": "Bahru0554",
+        "first_name": "Bahrudin",
+        "last_name": "",
+        "full_name": "Bahrudin",
+        "joined_at": "2026-09-16T11:07:05",
+        "last_active": "2026-09-16T11:07:05",
+        "active": true,
+        "source": "bot"
     }
 }
