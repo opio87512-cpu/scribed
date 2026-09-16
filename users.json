@@ -85,5 +85,16 @@
         "last_active": "2026-09-16T09:13:00",
         "active": true,
         "source": "webapp"
+    },
+    "8247433937": {
+        "user_id": "8247433937",
+        "username": "Kepa97",
+        "first_name": "\"...\"",
+        "last_name": "",
+        "full_name": "\"...\"",
+        "joined_at": "2026-09-16T09:16:53",
+        "last_active": "2026-09-16T09:16:53",
+        "active": true,
+        "source": "bot"
     }
 }
