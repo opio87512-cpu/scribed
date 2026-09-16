@@ -104,7 +104,6 @@
         .toolbar-row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
         .toolbar-row .sort-select { width: auto; flex: 1; padding: 10px 12px; font-size: 13px; border-radius: 20px; background: var(--sec-bg); border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 2px 8px rgba(0,0,0,0.05); font-weight: 600; color: var(--btn-color); }
 
-        /* ===== MATERIAL CARD — FIXED LAYOUT ===== */
         .material-card {
             background: var(--sec-bg); padding: 15px; border-radius: 14px; margin-bottom: 12px;
             display: flex; justify-content: space-between; align-items: center;
@@ -137,7 +136,6 @@
             flex: 0 0 auto;
             flex-shrink: 0;
         }
-        /* Safety net: any direct child block inside a material card also wraps cleanly */
         .material-card > div { min-width: 0; }
         .material-card > div > div { word-break: break-word; overflow-wrap: anywhere; }
 
@@ -667,26 +665,67 @@
 
     <!-- HELP -->
     <div id="helpSection" class="section card-container">
-        <h3 style="margin-top:0; text-align:center;"><i class="fa-solid fa-circle-question" style="color:var(--btn-color)"></i> Help & FAQ</h3>
+        <h3 style="margin-top:0; text-align:center;"><i class="fa-solid fa-circle-question" style="color:var(--btn-color)"></i> Help &amp; FAQ</h3>
+        <p style="font-size:12px; color:var(--hint-color); text-align:center; margin-top:-6px; margin-bottom:16px;">Everything you need to know about using the ASTU ECE Portal.</p>
+
         <details class="filter-accordion" style="margin-bottom:10px;">
-            <summary>How do I get notifications? <i class="fa-solid fa-chevron-down"></i></summary>
-            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Go to Find Materials or Video Tutorials, select your course, and click the "Notify Me" button. You'll get a direct message when new files are added!</div>
+            <summary><i class="fa-solid fa-rocket" style="margin-right:6px; color:var(--btn-color)"></i> Getting Started <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                This portal is your one-stop hub for ASTU ECE course materials — notes, assignments, mid &amp; final exams, and tutorial videos for Year 2 Sem 2 and Year 3. Open the <b>Menu</b> button at the top right to see all the tools. Tap any card (Find Materials, Video Tutorials, GPA Calculator, Minesweeper, etc.) to jump into that section. Use the <b>Menu</b> button or your phone's back gesture to return to the home screen at any time.
+            </div>
         </details>
+
         <details class="filter-accordion" style="margin-bottom:10px;">
-            <summary>What is the bell icon at the top? <i class="fa-solid fa-chevron-down"></i></summary>
-            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">The bell shows all official announcements — old ones stay there forever. A red badge shows unread items. Tap "Open Post" to read the full announcement on Telegram.</div>
+            <summary><i class="fa-solid fa-book" style="margin-right:6px; color:var(--btn-color)"></i> Finding Files <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Open <b>Find Materials</b> from the Menu. Use the <b>search bar</b> to look for any file name, course code, or course title. Tap the <b>Filter</b> accordion to narrow results by Year → Semester → Course → Type (Note, Assignment, Mid, Final, Test). Results appear as <b>folders</b> — tap a folder to see the files inside, then tap <b>Open</b> to download. To go back to the folder list, tap <b>Back to Folders</b>. You can also sort by <b>Newest First</b> or <b>Oldest First</b> using the dropdown.
+            </div>
         </details>
+
         <details class="filter-accordion" style="margin-bottom:10px;">
-            <summary>I found a broken file. What do I do? <i class="fa-solid fa-chevron-down"></i></summary>
-            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Click the red ⚠️ icon next to any material or video. It will automatically send a report with your comment to the admins so they can fix it.</div>
+            <summary><i class="fa-solid fa-star" style="margin-right:6px; color:#ffb300"></i> Favorites (Stars) <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Tap the <b>star icon</b> on any folder, file, or video to save it. Favorites are stored on your Telegram account, so they follow you across every device you log into — phone, tablet, desktop. To see everything you've saved, open <b>Saved Favorites</b> from the Menu. From there you can search, browse saved folders, and re-open files with one tap. Tap the star again to remove a favorite.
+            </div>
         </details>
+
         <details class="filter-accordion" style="margin-bottom:10px;">
-            <summary>Are my favorites saved? <i class="fa-solid fa-chevron-down"></i></summary>
-            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">Yes! Your favorites are saved to your Telegram account, so they follow you across all your devices.</div>
+            <summary><i class="fa-solid fa-bell" style="margin-right:6px; color:var(--btn-color)"></i> Notifications &amp; Updates <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                The <b>bell icon</b> at the top shows all official announcements from the admins — old ones stay there forever, and a red badge tells you how many are unread. Tap any announcement to open the full post on Telegram.<br><br>
+                To get a <b>direct message</b> whenever new files or videos are added to a course, open that course's filter and tap <b>Notify Me of New Files</b>. You'll get a private DM from the bot the moment something new appears — no need to check the app manually.
+            </div>
         </details>
+
         <details class="filter-accordion" style="margin-bottom:10px;">
-            <summary>How do I flag a mine? <i class="fa-solid fa-chevron-down"></i></summary>
-            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px;">On <b>PC</b>: right-click a tile. On <b>mobile</b>: tap the flag icon in the toolbar to switch to Flag Mode, then tap tiles — or simply long-press a tile.</div>
+            <summary><i class="fa-solid fa-bomb" style="margin-right:6px; color:var(--btn-color)"></i> 3D Minesweeper <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Open <b>Minesweeper</b> from the Menu. Pick your difficulty: <b>Easy</b> (8×8, 10 mines), <b>Medium</b> (16×16, 40 mines), or <b>Hard</b> (30×16, 99 mines).<br><br>
+                <b>Your first tap is always safe</b> — the game places mines only after you've chosen your starting tile, and it never puts a mine on that tile or its 8 neighbors. Reveal a numbered tile and it tells you how many mines are touching it. Reveal a blank tile and the whole empty area opens up automatically. Clear every safe tile to win.<br><br>
+                <b>To flag a mine:</b><br>
+                • <b>On PC:</b> right-click any tile.<br>
+                • <b>On mobile:</b> tap the <b>Flag Mode</b> button in the toolbar (it lights up yellow), then tap tiles to place flags. Tap the button again to return to normal reveal mode. Or just <b>long-press</b> any tile.<br><br>
+                Tap the <b>Restart</b> button any time to start a fresh board.
+            </div>
+        </details>
+
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-cloud-arrow-up" style="margin-right:6px; color:var(--btn-color)"></i> Uploading &amp; Contributing <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Have good notes, past papers, or a helpful YouTube lecture? We'd love to add them!<br><br>
+                <b>From the app:</b> open <b>Upload Files</b> from the Menu, pick the Year → Semester → Course → Type, then select your files (you can select multiple at once). Tap <b>Upload to Admin</b> — our team reviews every submission before it goes live.<br><br>
+                <b>From Telegram chat:</b> open the bot, tap <b>Upload Material</b>, and follow the same steps. You can send files one by one or as a batch.<br><br>
+                <b>Suggest a video:</b> use the <b>Suggest a Tutorial Link</b> card on the home screen, paste the YouTube URL, and submit it for review.
+            </div>
+        </details>
+
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px; color:#ff3b30"></i> Troubleshooting <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                <b>A file won't open?</b> Make sure you have a stable internet connection and enough storage on your phone. Some files (especially large PDFs) may take a few seconds to load from Telegram.<br><br>
+                <b>Found a broken or wrong file?</b> Tap the red <b>⚠️ warning icon</b> next to that item, type a short note about the problem, and send it. The admins get your report instantly and can fix or replace the file. Every report helps the whole community.<br><br>
+                <b>Something else not working?</b> Open <b>Rate &amp; Feedback</b> from the Menu and tell us what happened — we read every message.
+            </div>
         </details>
     </div>
 
@@ -805,6 +844,25 @@
         function courseDisplay(code) {
             const name = getCourseName(code);
             return name ? (code + ' · ' + name) : code;
+        }
+
+        // ---------- SAFE EXTERNAL LINK OPENER ----------
+        function openFileInExternalWindow(url) {
+            if (!url) return;
+            try {
+                const wa = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+                if (wa && typeof wa.openLink === 'function') {
+                    wa.openLink(url);
+                    return;
+                }
+            } catch (err) {
+                console.warn('tg.openLink failed, falling back to window.open:', err);
+            }
+            try {
+                window.open(url, '_blank', 'noopener,noreferrer');
+            } catch (err) {
+                console.error('window.open failed:', err);
+            }
         }
 
         async function api(path, opts) {
@@ -1063,10 +1121,34 @@
                 else if (action === 'open-fav-folder') { e.preventDefault(); openFavFolder(el.dataset.folderName); }
                 else if (action === 'toggle-fav') { e.stopPropagation(); e.preventDefault(); toggleFav(el.dataset.favId, el.dataset.title, el.dataset.url, el.dataset.type, el.dataset.meta); }
                 else if (action === 'report') { e.stopPropagation(); e.preventDefault(); reportIssue(el.dataset.rtype, el.dataset.course, el.dataset.title); }
-                else if (action === 'track-open') { trackOpen(el.dataset.course, el.dataset.kind, el.dataset.name); }
+                else if (action === 'track-open') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const url = el.getAttribute('href') || el.href || '';
+                    if (url) openFileInExternalWindow(url);
+                    trackOpen(el.dataset.course, el.dataset.kind, el.dataset.name);
+                }
                 else if (action === 'delete-news') { e.stopPropagation(); e.preventDefault(); deleteNewsItem(el.dataset.id); }
             });
         }
+
+        // ---------- GLOBAL LINK GUARD ----------
+        document.addEventListener('click', function (e) {
+            const link = e.target.closest('a[href]');
+            if (!link) return;
+
+            const href = link.getAttribute('href') || '';
+            if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('data:')) return;
+
+            const isBotDeepLink = href.indexOf('t.me/' + BOT_USERNAME + '?start=') !== -1;
+            const isExternal    = /^https?:\/\//i.test(href) && !/^https?:\/\/t\.me\//i.test(href);
+
+            if (isBotDeepLink || isExternal) {
+                e.preventDefault();
+                e.stopPropagation();
+                openFileInExternalWindow(href);
+            }
+        }, true);
 
         window.backToFolders = function () {
             try {
@@ -1209,7 +1291,7 @@
                         + '<div class="card-actions">'
                         + '<button class="fav-btn" style="color:#ff3b30; opacity: 0.6; font-size:16px;" data-action="report" data-rtype="Material" data-course="' + esc(item.course) + '" data-title="' + esc(item.name) + '"><i class="fa-solid fa-triangle-exclamation"></i></button>'
                         + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(item.name) + '" data-url="' + esc(deepLink) + '" data-type="material" data-meta="' + esc(courseLine) + ' • ' + esc(item.type.toUpperCase()) + '"><i class="' + starClass + '"></i></button>'
-                        + '<a class="dl-btn" href="' + esc(deepLink) + '" target="_blank" data-action="track-open" data-course="' + esc(item.course) + '" data-kind="' + esc(item.type) + '" data-name="' + esc(item.name) + '">Open</a>'
+                        + '<a class="dl-btn" href="' + esc(deepLink) + '" target="_blank" rel="noopener" data-action="track-open" data-course="' + esc(item.course) + '" data-kind="' + esc(item.type) + '" data-name="' + esc(item.name) + '">Open</a>'
                         + '</div></div>';
                 });
                 container.innerHTML = bannerHtml + html;
@@ -1382,7 +1464,7 @@
                         html += '<div class="material-card"><div class="material-info"><span class="material-name">📄 ' + esc(fav.title) + '</span>'
                             + '<span class="material-type" style="text-transform:none;">' + esc(fav.meta) + '</span></div>'
                             + '<div class="card-actions"><button class="fav-btn" data-action="toggle-fav" data-fav-id="' + esc(fav.id) + '" data-title="' + esc(fav.title) + '" data-url="' + esc(fav.url) + '" data-type="material" data-meta="' + esc(fav.meta) + '"><i class="fa-solid fa-star"></i></button>'
-                            + '<a class="dl-btn" href="' + esc(fav.url) + '" target="_blank">Open</a></div></div>';
+                            + '<a class="dl-btn" href="' + esc(fav.url) + '" target="_blank" rel="noopener" data-action="track-open" data-course="" data-kind="favorite" data-name="' + esc(fav.title) + '">Open</a></div></div>';
                     } else if (fav.type === 'video') {
                         html += generateVideoCard({ title: fav.title, url: fav.url }, fav.meta, fav.id.split('_').pop());
                     } else if (fav.type === 'folder') {
@@ -2126,12 +2208,12 @@
         document.getElementById('lbSearch').addEventListener('input', debounce(() => renderLeaderboard()));
 
         function checkWhatsNew() {
-            const currentVersion = "v3.1";
+            const currentVersion = "v3.2";
             const userVersion = localStorage.getItem('astu_ece_version');
             if (userVersion !== currentVersion) document.getElementById('whatsNewModal').style.display = 'flex';
         }
         window.closeWhatsNew = function() {
-            localStorage.setItem('astu_ece_version', "v3.1");
+            localStorage.setItem('astu_ece_version', "v3.2");
             document.getElementById('whatsNewModal').style.display = 'none';
         };
         setTimeout(checkWhatsNew, 500);
