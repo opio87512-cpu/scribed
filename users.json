@@ -41,5 +41,16 @@
         "last_active": "2026-09-16T08:47:23",
         "active": true,
         "source": "bot"
+    },
+    "7844586469": {
+        "user_id": "7844586469",
+        "username": "",
+        "first_name": "T",
+        "last_name": "",
+        "full_name": "T",
+        "joined_at": "2026-09-16T08:50:36",
+        "last_active": "2026-09-16T08:50:36",
+        "active": true,
+        "source": "bot"
     }
 }
