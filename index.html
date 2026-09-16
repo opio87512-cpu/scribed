@@ -180,8 +180,8 @@
         .course-row input, .course-row select, .cgpa-row input, .cgpa-row select { padding: 12px 8px; font-size: 14px; border-radius: 8px; }
         .remove-btn { background: #ff3b30; color: white; width: auto; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; box-shadow: none; font-size: 16px; }
 
-        #resultsContainer { transition: opacity 0.2s ease; }
-        #resultsContainer .empty-state { animation: fadeIn 0.25s ease; }
+        #resultsContainer, #videoResultsContainer { transition: opacity 0.2s ease; }
+        #resultsContainer .empty-state, #videoResultsContainer .empty-state { animation: fadeIn 0.25s ease; }
 
         /* ============ GOOGLE-STYLE MINESWEEPER ============ */
         #gameSection { padding: 0; }
@@ -552,6 +552,9 @@
                 <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
                 <div class="form-group"><label>Semester</label><select id="vidSem" disabled><option value="">Select Semester...</option></select></div>
                 <div class="form-group"><label>Course</label><select id="vidCourse" disabled><option value="">Select Course...</option></select></div>
+                <button type="button" id="clearVideoFiltersBtn" class="action-btn" style="background: var(--bg-color); color: #ff3b30; border: 1px solid #ff3b30; box-shadow: none; margin-top: 6px;">
+                    <i class="fa-solid fa-trash-can"></i> Clear Filters
+                </button>
             </div>
         </details>
         <div id="videoResultsContainer"></div>
@@ -943,6 +946,7 @@
         let activeFolderContext = null;
         let activeFavFolder = null;
         let filters = { year: '', sem: '', course: '', type: '' };
+        let videoFilters = { year: '', sem: '', course: '' };
         let lastSeenNewsId = localStorage.getItem('astu_ece_last_seen_news') || null;
         let pendingRemoteThumbs = [];
 
@@ -1038,7 +1042,6 @@
                     data.events.forEach(ev => {
                         const targetDate = ev.end || ev.date;
 
-                        // Accurate days left calculation (ignores time of day)
                         const today = new Date();
                         today.setHours(0,0,0,0);
                         const target = new Date(targetDate);
@@ -1051,7 +1054,6 @@
                             const c2 = urgent ? '#ff7a7a' : '#ffcc00';
                             const shadow = urgent ? 'rgba(255, 59, 48, 0.22)' : 'rgba(255, 179, 0, 0.22)';
 
-                            // Format the start and end dates with day names
                             const displayStart = formatDateWithDay(ev.start);
                             const displayEnd = formatDateWithDay(ev.end);
                             const dateDisplay = ev.start && ev.end
@@ -1468,7 +1470,7 @@
             const container = document.getElementById('videoResultsContainer');
             const searchEl = document.getElementById('globalVidSearch');
             const searchQ = (searchEl ? searchEl.value : '').toLowerCase();
-            const filterCourse = document.getElementById('vidCourse').value;
+            const filterCourse = videoFilters.course;
             const sortOrder = document.getElementById('vidSortOrder').value;
             let html = ""; let count = 0; let allVidsFlat = [];
             for (const [courseCode, vids] of Object.entries(allVideos)) {
@@ -2109,7 +2111,6 @@
             filters.year = findYear.value;
 
             if (!findYear.value) {
-                // Cascading reset: clear everything below Year
                 rebuildSemesterSelect(findSem, '');
                 findSem.value = '';
                 filters.sem = '';
@@ -2181,21 +2182,68 @@
         document.getElementById('clearFiltersBtn').addEventListener('click', clearFilters);
 
         const vidYear = document.getElementById('vidYear'), vidSem = document.getElementById('vidSem'), vidCourse = document.getElementById('vidCourse');
-        vidYear.onchange = () => {
-            rebuildSemesterSelect(vidSem, vidYear.value);
-            vidCourse.innerHTML = '<option value="">Select Course...</option>'; vidCourse.disabled = true;
-            renderVideos();
-        };
-        vidSem.onchange = () => {
+
+        // ---------- Shared helper: reset Video Course dropdown ----------
+        function resetVideoCourse() {
             vidCourse.innerHTML = '<option value="">Select Course...</option>';
-            const courses = (curriculum[vidYear.value] && curriculum[vidYear.value][vidSem.value]) || [];
-            if (vidYear.value && vidSem.value && courses.length) {
-                courses.forEach(c => vidCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
-                vidCourse.disabled = false;
-            } else vidCourse.disabled = true;
+            vidCourse.disabled = true;
+            videoFilters.course = '';
+        }
+
+        // ---------- Video Academic Year ----------
+        vidYear.onchange = () => {
+            videoFilters.year = vidYear.value;
+
+            if (!vidYear.value) {
+                rebuildSemesterSelect(vidSem, '');
+                vidSem.value = '';
+                videoFilters.sem = '';
+                resetVideoCourse();
+            } else {
+                rebuildSemesterSelect(vidSem, vidYear.value);
+                vidSem.value = '';
+                videoFilters.sem = '';
+                resetVideoCourse();
+            }
             renderVideos();
         };
-        vidCourse.onchange = renderVideos;
+
+        // ---------- Video Semester ----------
+        vidSem.onchange = () => {
+            videoFilters.sem = vidSem.value;
+            resetVideoCourse();
+
+            if (vidSem.value) {
+                const courses = (curriculum[videoFilters.year] && curriculum[videoFilters.year][videoFilters.sem]) || [];
+                if (courses.length) {
+                    courses.forEach(c => vidCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
+                    vidCourse.disabled = false;
+                }
+            }
+            renderVideos();
+        };
+
+        // ---------- Video Course ----------
+        vidCourse.onchange = () => {
+            videoFilters.course = vidCourse.value;
+            renderVideos();
+        };
+
+        // ---------- Clear Video Filters ----------
+        function clearVideoFilters() {
+            videoFilters = { year: '', sem: '', course: '' };
+
+            vidYear.value = '';
+            vidSem.innerHTML = '<option value="">Select Semester...</option>';
+            vidSem.value = '';
+            vidSem.disabled = true;
+            vidCourse.innerHTML = '<option value="">Select Course...</option>';
+            vidCourse.value = '';
+            vidCourse.disabled = true;
+
+            renderVideos();
+        }
+        document.getElementById('clearVideoFiltersBtn').addEventListener('click', clearVideoFilters);
 
         const subVidYear = document.getElementById('subVidYear'), subVidSem = document.getElementById('subVidSem'), subVidCourse = document.getElementById('subVidCourse'), vidTitle = document.getElementById('vidTitle'), vidUrl = document.getElementById('vidUrl'), subVidBtn = document.getElementById('subVidBtn');
         subVidYear.onchange = () => {
