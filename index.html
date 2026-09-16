@@ -847,12 +847,6 @@
         }
 
         // ---------- SAFE LINK ROUTER ----------
-        // Telegram deep links (t.me/*, telegram.me/*) must go through
-        // tg.openTelegramLink() so they open natively INSIDE Telegram.
-        // Using tg.openLink() on those causes the OS to bounce out to
-        // the browser (Chrome) and then back to Telegram.
-        // Non-Telegram URLs (YouTube, PDFs, etc.) still go through
-        // tg.openLink() so they open in the OS browser.
         function isTelegramLink(url) {
             if (!url) return false;
             return /^https?:\/\/(t\.me|telegram\.me|telegram\.dog)\//i.test(url);
@@ -863,7 +857,6 @@
             const wa = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
 
             if (isTelegramLink(url)) {
-                // Native Telegram handling — stays inside the WebApp.
                 try {
                     if (wa && typeof wa.openTelegramLink === 'function') {
                         wa.openTelegramLink(url);
@@ -872,7 +865,6 @@
                 } catch (err) {
                     console.warn('tg.openTelegramLink failed, falling back:', err);
                 }
-                // Fallback for older clients without openTelegramLink.
                 try {
                     if (wa && typeof wa.openLink === 'function') {
                         wa.openLink(url);
@@ -889,7 +881,6 @@
                 return;
             }
 
-            // Non-Telegram external URL → open in the OS browser.
             try {
                 if (wa && typeof wa.openLink === 'function') {
                     wa.openLink(url);
@@ -996,6 +987,23 @@
             catch (e) { document.getElementById('videoResultsContainer').innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><br>Error loading data.</div>'; }
         }
 
+        // Helper to format YYYY-MM-DD into "Wednesday, YYYY-MM-DD"
+        function formatDateWithDay(dateStr) {
+            if (!dateStr) return '';
+            try {
+                const parts = dateStr.split('-');
+                if (parts.length !== 3) return dateStr;
+                const year = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                const day = parseInt(parts[2], 10);
+                const dateObj = new Date(year, month, day);
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                return days[dateObj.getDay()] + ', ' + dateStr;
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
         async function loadDashboardWidgets() {
             const container = document.getElementById('dashboardWidgets');
             try {
@@ -1022,13 +1030,27 @@
                 if (data.events && data.events.length > 0) {
                     data.events.forEach(ev => {
                         const targetDate = ev.end || ev.date;
-                        const daysLeft = Math.ceil((new Date(targetDate) - new Date()) / (1000 * 60 * 60 * 24));
+                        
+                        // Accurate days left calculation (ignores time of day)
+                        const today = new Date(); 
+                        today.setHours(0,0,0,0);
+                        const target = new Date(targetDate); 
+                        target.setHours(0,0,0,0);
+                        const daysLeft = Math.round((target - today) / (1000 * 60 * 60 * 24));
+
                         if (daysLeft >= 0) {
                             const urgent = daysLeft <= 3;
                             const c1 = urgent ? '#ff3b30' : '#ffb300';
                             const c2 = urgent ? '#ff7a7a' : '#ffcc00';
                             const shadow = urgent ? 'rgba(255, 59, 48, 0.22)' : 'rgba(255, 179, 0, 0.22)';
-                            const dateDisplay = ev.start && ev.end ? (ev.start === ev.end ? ev.end : ev.start + ' to ' + ev.end) : targetDate;
+                            
+                            // Format the start and end dates with day names
+                            const displayStart = formatDateWithDay(ev.start);
+                            const displayEnd = formatDateWithDay(ev.end);
+                            const dateDisplay = ev.start && ev.end 
+                                ? (ev.start === ev.end ? displayEnd : displayStart + ' to ' + displayEnd) 
+                                : formatDateWithDay(targetDate);
+
                             html += '<div style="background: linear-gradient(135deg, ' + c1 + ', ' + c2 + '); color: white; padding: 12px 16px; border-radius: 16px; margin-bottom: 15px; font-weight: 600; box-shadow: 0 10px 22px ' + shadow + '; display: flex; justify-content: space-between; align-items: center; gap: 10px;">'
                                 + '<div style="min-width:0;">'
                                 + '<div style="font-size: 15px; word-break: break-word; overflow-wrap: anywhere;"><i class="fa-solid fa-calendar-day"></i> ' + esc(ev.title) + '</div>'
@@ -1172,10 +1194,6 @@
             });
         }
 
-        // ---------- GLOBAL LINK GUARD ----------
-        // Intercepts any anchor that would otherwise trigger Telegram's default
-        // deep-link handling (which closes the WebApp). Routes through our
-        // router so Telegram stays open and links are handled natively.
         document.addEventListener('click', function (e) {
             const link = e.target.closest('a[href]');
             if (!link) return;
