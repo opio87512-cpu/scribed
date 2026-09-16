@@ -152,5 +152,16 @@
         "last_active": "2026-09-16T12:17:20",
         "active": true,
         "source": "webapp"
+    },
+    "7767861848": {
+        "user_id": "7767861848",
+        "username": "The_Mercy_of_God",
+        "first_name": "Grace &",
+        "last_name": "Peace",
+        "full_name": "Grace & Peace",
+        "joined_at": "2026-09-16T13:15:16",
+        "last_active": "2026-09-16T13:15:16",
+        "active": true,
+        "source": "bot"
     }
 }
