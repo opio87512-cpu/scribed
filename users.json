@@ -30,5 +30,16 @@
         "last_active": "2026-09-16T08:47:11",
         "active": true,
         "source": "bot"
+    },
+    "8244142809": {
+        "user_id": "8244142809",
+        "username": "Kakaaamilan",
+        "first_name": "Kaka 30",
+        "last_name": "",
+        "full_name": "Kaka 30",
+        "joined_at": "2026-09-16T08:47:23",
+        "last_active": "2026-09-16T08:47:23",
+        "active": true,
+        "source": "bot"
     }
 }
