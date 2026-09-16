@@ -180,6 +180,9 @@
         .course-row input, .course-row select, .cgpa-row input, .cgpa-row select { padding: 12px 8px; font-size: 14px; border-radius: 8px; }
         .remove-btn { background: #ff3b30; color: white; width: auto; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; box-shadow: none; font-size: 16px; }
 
+        #resultsContainer { transition: opacity 0.2s ease; }
+        #resultsContainer .empty-state { animation: fadeIn 0.25s ease; }
+
         /* ============ GOOGLE-STYLE MINESWEEPER ============ */
         #gameSection { padding: 0; }
         .ms-app {
@@ -523,6 +526,9 @@
                 <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option></select></div>
                 <div class="form-group"><label>Course</label><select id="findCourse" disabled><option value="">Select Course...</option></select></div>
                 <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
+                <button type="button" id="clearFiltersBtn" class="action-btn" style="background: var(--bg-color); color: #ff3b30; border: 1px solid #ff3b30; box-shadow: none; margin-top: 6px;">
+                    <i class="fa-solid fa-trash-can"></i> Clear Filters
+                </button>
             </div>
         </details>
         <div id="resultsContainer"></div>
@@ -678,7 +684,7 @@
         <details class="filter-accordion" style="margin-bottom:10px;">
             <summary><i class="fa-solid fa-book" style="margin-right:6px; color:var(--btn-color)"></i> Finding Files <i class="fa-solid fa-chevron-down"></i></summary>
             <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
-                Open <b>Find Materials</b> from the Menu. Use the <b>search bar</b> to look for any file name, course code, or course title. Tap the <b>Filter</b> accordion to narrow results by Year → Semester → Course → Type (Note, Assignment, Mid, Final, Test). Results appear as <b>folders</b> — tap a folder to see the files inside, then tap <b>Open</b> to download. To go back to the folder list, tap <b>Back to Folders</b>. You can also sort by <b>Newest First</b> or <b>Oldest First</b> using the dropdown.
+                Open <b>Find Materials</b> from the Menu. Use the <b>search bar</b> to look for any file name, course code, or course title. Tap the <b>Filter</b> accordion to narrow results by Year → Semester → Course → Type (Note, Assignment, Mid, Final, Test). Results appear as <b>folders</b> — tap a folder to see the files inside, then tap <b>Open</b> to download. To go back to the folder list, tap <b>Back to Folders</b>. You can also sort by <b>Newest First</b> or <b>Oldest First</b> using the dropdown. If you get stuck on "No materials found," just tap <b>🗑 Clear Filters</b> to reset everything.
             </div>
         </details>
 
@@ -936,6 +942,7 @@
         let favorites = [];
         let activeFolderContext = null;
         let activeFavFolder = null;
+        let filters = { year: '', sem: '', course: '', type: '' };
         let lastSeenNewsId = localStorage.getItem('astu_ece_last_seen_news') || null;
         let pendingRemoteThumbs = [];
 
@@ -1030,11 +1037,11 @@
                 if (data.events && data.events.length > 0) {
                     data.events.forEach(ev => {
                         const targetDate = ev.end || ev.date;
-                        
+
                         // Accurate days left calculation (ignores time of day)
-                        const today = new Date(); 
+                        const today = new Date();
                         today.setHours(0,0,0,0);
-                        const target = new Date(targetDate); 
+                        const target = new Date(targetDate);
                         target.setHours(0,0,0,0);
                         const daysLeft = Math.round((target - today) / (1000 * 60 * 60 * 24));
 
@@ -1043,12 +1050,12 @@
                             const c1 = urgent ? '#ff3b30' : '#ffb300';
                             const c2 = urgent ? '#ff7a7a' : '#ffcc00';
                             const shadow = urgent ? 'rgba(255, 59, 48, 0.22)' : 'rgba(255, 179, 0, 0.22)';
-                            
+
                             // Format the start and end dates with day names
                             const displayStart = formatDateWithDay(ev.start);
                             const displayEnd = formatDateWithDay(ev.end);
-                            const dateDisplay = ev.start && ev.end 
-                                ? (ev.start === ev.end ? displayEnd : displayStart + ' to ' + displayEnd) 
+                            const dateDisplay = ev.start && ev.end
+                                ? (ev.start === ev.end ? displayEnd : displayStart + ' to ' + displayEnd)
                                 : formatDateWithDay(targetDate);
 
                             html += '<div style="background: linear-gradient(135deg, ' + c1 + ', ' + c2 + '); color: white; padding: 12px 16px; border-radius: 16px; margin-bottom: 15px; font-weight: 600; box-shadow: 0 10px 22px ' + shadow + '; display: flex; justify-content: space-between; align-items: center; gap: 10px;">'
@@ -1279,8 +1286,8 @@
             const container = document.getElementById('resultsContainer');
             const searchEl = document.getElementById('globalMatSearch');
             const searchQ = (searchEl ? searchEl.value : '').toLowerCase();
-            const filterCourse = document.getElementById('findCourse').value;
-            const filterType = document.getElementById('findType').value;
+            const filterCourse = filters.course;
+            const filterType = filters.type;
             const sortOrder = document.getElementById('matSortOrder').value;
 
             let html = ""; let totalFiles = 0; let grouped = {};
@@ -2085,24 +2092,93 @@
         fileInput.onchange = () => { submitBtn.disabled = !fileInput.files.length; };
 
         const findYear = document.getElementById('findYear'), findSem = document.getElementById('findSem'), findCourse = document.getElementById('findCourse'), findType = document.getElementById('findType');
+
+        // ---------- Shared helper: reset Course + Type dropdowns ----------
+        function resetCourseAndType() {
+            findCourse.innerHTML = '<option value="">Select Course...</option>';
+            findCourse.disabled = true;
+            filters.course = '';
+            findType.value = '';
+            findType.disabled = true;
+            filters.type = '';
+        }
+
+        // ---------- Academic Year ----------
         findYear.onchange = () => {
             activeFolderContext = null;
-            rebuildSemesterSelect(findSem, findYear.value);
-            findCourse.innerHTML = '<option value="">Select Course...</option>'; findCourse.disabled = true;
-            findType.disabled = true; renderMaterials();
+            filters.year = findYear.value;
+
+            if (!findYear.value) {
+                // Cascading reset: clear everything below Year
+                rebuildSemesterSelect(findSem, '');
+                findSem.value = '';
+                filters.sem = '';
+                resetCourseAndType();
+            } else {
+                rebuildSemesterSelect(findSem, findYear.value);
+                findSem.value = '';
+                filters.sem = '';
+                resetCourseAndType();
+            }
+            renderMaterials();
         };
+
+        // ---------- Semester ----------
         findSem.onchange = () => {
             activeFolderContext = null;
-            findCourse.innerHTML = '<option value="">Select Course...</option>';
-            const courses = (curriculum[findYear.value] && curriculum[findYear.value][findSem.value]) || [];
-            if (findYear.value && findSem.value && courses.length) {
-                courses.forEach(c => findCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
-                findCourse.disabled = false;
-            } else findCourse.disabled = true;
-            findType.disabled = true; renderMaterials();
+            filters.sem = findSem.value;
+            resetCourseAndType();
+
+            if (findSem.value) {
+                const courses = (curriculum[filters.year] && curriculum[filters.year][filters.sem]) || [];
+                if (courses.length) {
+                    courses.forEach(c => findCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
+                    findCourse.disabled = false;
+                }
+            }
+            renderMaterials();
         };
-        findCourse.onchange = () => { activeFolderContext = null; findType.disabled = !findCourse.value; renderMaterials(); };
-        findType.onchange = () => { activeFolderContext = null; renderMaterials(); };
+
+        // ---------- Course ----------
+        findCourse.onchange = () => {
+            activeFolderContext = null;
+            filters.course = findCourse.value;
+
+            if (!findCourse.value) {
+                findType.value = '';
+                findType.disabled = true;
+                filters.type = '';
+            } else {
+                findType.disabled = false;
+            }
+            renderMaterials();
+        };
+
+        // ---------- Material Type ----------
+        findType.onchange = () => {
+            activeFolderContext = null;
+            filters.type = findType.value;
+            renderMaterials();
+        };
+
+        // ---------- Clear Filters ----------
+        function clearFilters() {
+            filters = { year: '', sem: '', course: '', type: '' };
+            activeFolderContext = null;
+
+            findYear.value = '';
+            findSem.innerHTML = '<option value="">Select Semester...</option>';
+            findSem.value = '';
+            findSem.disabled = true;
+            findCourse.innerHTML = '<option value="">Select Course...</option>';
+            findCourse.value = '';
+            findCourse.disabled = true;
+            findType.value = '';
+            findType.disabled = true;
+
+            renderMaterials();
+        }
+        document.getElementById('clearFiltersBtn').addEventListener('click', clearFilters);
 
         const vidYear = document.getElementById('vidYear'), vidSem = document.getElementById('vidSem'), vidCourse = document.getElementById('vidCourse');
         vidYear.onchange = () => {
