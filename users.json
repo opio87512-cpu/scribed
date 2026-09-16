@@ -148,8 +148,8 @@
         "last_name": "",
         "full_name": "Abel",
         "joined_at": "2026-09-16T12:17:01",
-        "last_active": "2026-09-16T12:17:01",
+        "last_active": "2026-09-16T12:17:20",
         "active": true,
-        "source": "bot"
+        "source": "webapp"
     }
 }
