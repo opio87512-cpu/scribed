@@ -163,5 +163,16 @@
         "last_active": "2026-09-16T13:15:41",
         "active": true,
         "source": "webapp"
+    },
+    "5539480092": {
+        "user_id": "5539480092",
+        "username": "bu11123",
+        "first_name": "Maverick",
+        "last_name": "",
+        "full_name": "Maverick",
+        "joined_at": "2026-09-17T07:19:27",
+        "last_active": "2026-09-17T07:19:27",
+        "active": true,
+        "source": "bot"
     }
 }
