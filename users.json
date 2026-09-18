@@ -174,5 +174,16 @@
         "last_active": "2026-09-17T07:19:52",
         "active": true,
         "source": "webapp"
+    },
+    "6400682698": {
+        "user_id": "6400682698",
+        "username": "Hababoo",
+        "first_name": "Habaaboo",
+        "last_name": "",
+        "full_name": "Habaaboo",
+        "joined_at": "2026-09-18T15:13:31",
+        "last_active": "2026-09-18T15:13:31",
+        "active": true,
+        "source": "bot"
     }
 }
