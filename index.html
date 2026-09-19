@@ -11,29 +11,33 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
-            --bg-color: var(--tg-theme-bg-color, #f3f2f8);
-            --text-color: var(--tg-theme-text-color, #000000);
-            --hint-color: var(--tg-theme-hint-color, #8e8e93);
-            --link-color: var(--tg-theme-link-color, #007aff);
+            /* --- DARK THEME OVERRIDES FOR BACKGROUND --- */
+            --bg-color: transparent; /* Transparent so the Liverpool image shows through */
+            --text-color: #ffffff;
+            --hint-color: #b0b0b0;
+            --link-color: #3b82f6;
             --btn-color: var(--tg-theme-button-color, #007aff);
             --btn-text: var(--tg-theme-button-text-color, #ffffff);
-            --sec-bg: var(--tg-theme-secondary-bg-color, #ffffff);
-            --shadow-soft: 0 1px 0 rgba(255,255,255,0.55) inset,
-                           0 8px 22px rgba(0,0,0,0.09),
-                           0 2px 5px rgba(0,0,0,0.04);
-            --shadow-press: 0 1px 0 rgba(255,255,255,0.55) inset,
-                            0 2px 6px rgba(0,0,0,0.10);
+            --sec-bg: rgba(20, 20, 20, 0.88); /* Dark translucent cards */
+            --shadow-soft: 0 1px 0 rgba(255,255,255,0.05) inset,
+                           0 8px 22px rgba(0,0,0,0.5),
+                           0 2px 5px rgba(0,0,0,0.3);
+            --shadow-press: 0 1px 0 rgba(255,255,255,0.05) inset,
+                            0 2px 6px rgba(0,0,0,0.4);
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            padding: 15px; margin: 0; background: var(--bg-color); color: var(--text-color);
+            padding: 15px; margin: 0; color: var(--text-color);
             -webkit-font-smoothing: antialiased;
+            /* --- LIVERPOOL BACKGROUND IMAGE --- */
+            background: linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.65)), url('background.jpg') no-repeat center center fixed;
+            background-size: cover;
         }
         .top-navbar {
             display: flex; justify-content: space-between; align-items: center;
             margin-bottom: 20px; padding: 8px 12px; background: var(--sec-bg);
             border-radius: 16px; box-shadow: var(--shadow-soft);
-            border: 1px solid rgba(255,255,255,0.4);
+            border: 1px solid rgba(255,255,255,0.1);
         }
         .top-navbar .nav-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
         .nav-menu-btn {
@@ -53,7 +57,7 @@
             background: var(--sec-bg); padding: 18px 14px; border-radius: 18px;
             box-shadow: var(--shadow-soft);
             text-align: center; cursor: pointer; user-select: none;
-            border: 1px solid rgba(255,255,255,0.55);
+            border: 1px solid rgba(255,255,255,0.1);
             transition: transform 0.18s ease, box-shadow 0.18s ease;
             will-change: transform;
         }
@@ -65,19 +69,19 @@
         .section.active { display: block; }
         .card-container {
             background: var(--sec-bg); padding: 18px; border-radius: 18px;
-            box-shadow: var(--shadow-soft); border: 1px solid rgba(255,255,255,0.5);
+            box-shadow: var(--shadow-soft); border: 1px solid rgba(255,255,255,0.1);
             margin-bottom: 15px;
         }
         details.filter-accordion {
             background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px;
-            box-shadow: var(--shadow-soft); border: 1px solid rgba(255,255,255,0.45); overflow: hidden;
+            box-shadow: var(--shadow-soft); border: 1px solid rgba(255,255,255,0.1); overflow: hidden;
         }
         details.filter-accordion summary { padding: 16px; font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; color: var(--btn-color); user-select: none; }
         details.filter-accordion summary::-webkit-details-marker { display: none; }
         details.filter-accordion .filter-content { padding: 0 16px 16px 16px; }
         .form-group { margin-bottom: 16px; }
         label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; color: var(--text-color); }
-        select, input, textarea, button { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid rgba(142, 142, 147, 0.2); font-size: 15px; box-sizing: border-box; background: var(--bg-color); color: var(--text-color); outline: none; transition: 0.2s; font-family: inherit; }
+        select, input, textarea, button { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid rgba(142, 142, 147, 0.3); font-size: 15px; box-sizing: border-box; background: var(--bg-color); color: var(--text-color); outline: none; transition: 0.2s; font-family: inherit; }
         select:focus, input:focus, textarea:focus { border-color: var(--btn-color); background: var(--sec-bg); box-shadow: 0 0 0 3px rgba(0,122,255,0.15); }
         select:disabled, input:disabled, textarea:disabled { opacity: 0.5; }
         .star-rating { display: flex; flex-direction: row-reverse; justify-content: center; margin-bottom: 20px; }
@@ -100,16 +104,16 @@
         button:disabled { opacity: 0.6; box-shadow: none; }
         .search-box { position: relative; margin-bottom: 15px; }
         .search-box i { position: absolute; left: 14px; top: 16px; color: var(--hint-color); }
-        .search-box input { padding-left: 40px; border-radius: 20px; font-weight: 500; background: var(--sec-bg); border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .search-box input { padding-left: 40px; border-radius: 20px; font-weight: 500; background: var(--sec-bg); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
         .toolbar-row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
-        .toolbar-row .sort-select { width: auto; flex: 1; padding: 10px 12px; font-size: 13px; border-radius: 20px; background: var(--sec-bg); border: 1px solid rgba(0,0,0,0.05); box-shadow: 0 2px 8px rgba(0,0,0,0.05); font-weight: 600; color: var(--btn-color); }
+        .toolbar-row .sort-select { width: auto; flex: 1; padding: 10px 12px; font-size: 13px; border-radius: 20px; background: var(--sec-bg); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.05); font-weight: 600; color: var(--btn-color); }
 
         .material-card {
             background: var(--sec-bg); padding: 15px; border-radius: 14px; margin-bottom: 12px;
             display: flex; justify-content: space-between; align-items: center;
             gap: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.07), 0 1px 0 rgba(255,255,255,0.5) inset;
-            border: 1px solid rgba(255,255,255,0.4);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2), 0 1px 0 rgba(255,255,255,0.05) inset;
+            border: 1px solid rgba(255,255,255,0.1);
             min-width: 0;
         }
         .material-info {
@@ -145,8 +149,8 @@
         .folder-card {
             background: var(--sec-bg); border-radius: 18px; margin-bottom: 20px;
             display: block; overflow: hidden;
-            box-shadow: 0 8px 22px rgba(0,0,0,0.09), 0 1px 0 rgba(255,255,255,0.5) inset;
-            border: 1px solid rgba(255,255,255,0.5);
+            box-shadow: 0 8px 22px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.05) inset;
+            border: 1px solid rgba(255,255,255,0.1);
             cursor: pointer;
         }
         .folder-thumb { position: relative; width: 100%; padding-top: 38%; background: linear-gradient(135deg, var(--btn-color), #00c6ff); display: flex; align-items: center; justify-content: center; overflow: hidden; }
@@ -163,7 +167,7 @@
         .folder-meta { font-size: 12px; color: var(--hint-color); font-weight: 600; text-transform: uppercase; word-break: break-word; overflow-wrap: anywhere; }
         .folder-date { font-size: 11px; color: var(--hint-color); font-weight: 500; text-transform: none; margin-top: 1px; }
         .folder-actions { display: flex; align-items: center; gap: 12px; padding-top: 2px; flex-shrink: 0; }
-        .yt-card { display: block; background: var(--sec-bg); border-radius: 18px; margin-bottom: 20px; overflow: hidden; text-decoration: none; color: var(--text-color); box-shadow: 0 8px 22px rgba(0,0,0,0.09), 0 1px 0 rgba(255,255,255,0.5) inset; border: 1px solid rgba(255,255,255,0.45); }
+        .yt-card { display: block; background: var(--sec-bg); border-radius: 18px; margin-bottom: 20px; overflow: hidden; text-decoration: none; color: var(--text-color); box-shadow: 0 8px 22px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.05) inset; border: 1px solid rgba(255,255,255,0.1); }
         .yt-thumb { position: relative; width: 100%; padding-top: 56.25%; background: #000; display: block; overflow: hidden; }
         .yt-thumb img { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.9; display: block; }
         .yt-thumb.playlist-placeholder { background: linear-gradient(135deg, #ff0000, #ff7a7a); }
@@ -380,7 +384,7 @@
         @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999; display: none; justify-content: center; align-items: center; padding: 20px; animation: fadeIn 0.3s ease; }
-        .modal-content { background: var(--sec-bg); padding: 24px; border-radius: 20px; width: 100%; max-width: 320px; box-shadow: 0 22px 40px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.6) inset; border: 1px solid rgba(255,255,255,0.45); }
+        .modal-content { background: var(--sec-bg); padding: 24px; border-radius: 20px; width: 100%; max-width: 320px; box-shadow: 0 22px 40px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.1) inset; border: 1px solid rgba(255,255,255,0.1); }
         .modal-content h3 { margin-top: 0; margin-bottom: 12px; color: var(--text-color); display: flex; align-items: center; gap: 8px; font-size: 18px; }
         .modal-content p { color: var(--hint-color); font-size: 14px; margin-bottom: 15px; line-height: 1.4; }
         .modal-content ul { padding-left: 20px; margin-bottom: 20px; font-size: 14px; color: var(--text-color); line-height: 1.5; }
