@@ -498,7 +498,7 @@
             <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
             <div class="form-group"><label>Semester</label><select id="upSem" required disabled><option value="">Select Semester...</option></select></div>
             <div class="form-group"><label>Course</label><select id="upCourse" required disabled><option value="">Select Course...</option></select></div>
-            <div class="form-group"><label>Material Type</label><select id="upType" required disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
+            <div class="form-group"><label>Material Type</label><select id="upType" required disabled><option value="">Select Type...</option><option value="outline">📋 Course Outline</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
             <div class="form-group">
                 <label>Select Files <small style="color:var(--hint-color)">(You can select multiple!)</small></label>
                 <input type="file" id="fileInput" multiple required disabled>
@@ -525,7 +525,7 @@
                 <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
                 <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option></select></div>
                 <div class="form-group"><label>Course</label><select id="findCourse" disabled><option value="">Select Course...</option></select></div>
-                <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
+                <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="outline">📋 Course Outline</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
                 <button type="button" id="clearFiltersBtn" class="action-btn" style="background: var(--bg-color); color: #ff3b30; border: 1px solid #ff3b30; box-shadow: none; margin-top: 6px;">
                     <i class="fa-solid fa-trash-can"></i> Clear Filters
                 </button>
@@ -687,7 +687,7 @@
         <details class="filter-accordion" style="margin-bottom:10px;">
             <summary><i class="fa-solid fa-book" style="margin-right:6px; color:var(--btn-color)"></i> Finding Files <i class="fa-solid fa-chevron-down"></i></summary>
             <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
-                Open <b>Find Materials</b> from the Menu. Use the <b>search bar</b> to look for any file name, course code, or course title. Tap the <b>Filter</b> accordion to narrow results by Year → Semester → Course → Type (Note, Assignment, Mid, Final, Test). Results appear as <b>folders</b> — tap a folder to see the files inside, then tap <b>Open</b> to download. To go back to the folder list, tap <b>Back to Folders</b>. You can also sort by <b>Newest First</b> or <b>Oldest First</b> using the dropdown. If you get stuck on "No materials found," just tap <b>🗑 Clear Filters</b> to reset everything.
+                Open <b>Find Materials</b> from the Menu. Use the <b>search bar</b> to look for any file name, course code, or course title. Tap the <b>Filter</b> accordion to narrow results by Year → Semester → Course → Type (Course Outline, Note, Assignment, Mid, Final, Test). Results appear as <b>folders</b> — tap a folder to see the files inside, then tap <b>Open</b> to download. To go back to the folder list, tap <b>Back to Folders</b>. You can also sort by <b>Newest First</b> or <b>Oldest First</b> using the dropdown. If you get stuck on "No materials found," just tap <b>🗑 Clear Filters</b> to reset everything.
             </div>
         </details>
 
