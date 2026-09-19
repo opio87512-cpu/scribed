@@ -680,6 +680,7 @@ def broadcast_new_upload(file_data):
         "MID": "📝", "MID EXAM": "📝",
         "FINAL": "📝", "FINAL EXAM": "📝",
         "TEST": "⏳", "VIDEO": "📺",
+        "OUTLINE": "📋", "COURSE OUTLINE": "📋",
     }.get(material_type, "📁")
 
     lines = [
@@ -954,6 +955,9 @@ def subject_keyboard(year, semester, action):
 
 def material_type_keyboard(course_code, action):
     markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("📋 Course Outline", callback_data=f"{action}m_{course_code}_outline"),
+    )
     markup.row(
         InlineKeyboardButton("📝 Note", callback_data=f"{action}m_{course_code}_note"),
         InlineKeyboardButton("📄 Assignment", callback_data=f"{action}m_{course_code}_assignment"),
