@@ -26,11 +26,10 @@ from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 
 # ==========================================================================
-#  CONFIGURATION
+# CONFIGURATION
 # ==========================================================================
 TOKEN = os.environ["BOT_TOKEN"]
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
-
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "opio87512-cpu/scribed")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
@@ -55,26 +54,27 @@ WEBAPP_URL = os.environ.get(
 )
 
 # ==========================================================================
-#  LOGGING
+# LOGGING
 # ==========================================================================
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 log = logging.getLogger("astu")
 
 # ==========================================================================
-#  FLASK + CORS
+# FLASK + CORS
 # ==========================================================================
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # ==========================================================================
-#  BOT
+# BOT
 # ==========================================================================
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
 # ==========================================================================
-#  GITHUB MUTEX + READ CACHE
+# GITHUB MUTEX + READ CACHE
 # ==========================================================================
 _gh_lock = threading.RLock()
 _read_cache = {}
@@ -82,7 +82,7 @@ _cache_lock = threading.Lock()
 CACHE_TTL = 60
 
 # ==========================================================================
-#  FILE NAMES
+# FILE NAMES
 # ==========================================================================
 DATA_FILE = "materials.json"
 VIDEOS_FILE = "videos.json"
@@ -95,9 +95,8 @@ STATS_FILE = "stats.json"
 REQUESTS_FILE = "requests.json"
 USERS_FILE = "users.json"
 
-
 # ==========================================================================
-#  TIME HELPERS
+# TIME HELPERS
 # ==========================================================================
 def _now_iso():
     """Current UTC time as ISO string (machine-friendly, sortable)."""
@@ -126,7 +125,7 @@ def _parse_iso(s):
 
 
 # ==========================================================================
-#  SECURITY HELPERS
+# SECURITY HELPERS
 # ==========================================================================
 def escape_md(text):
     return html_lib.escape(str(text if text is not None else ""))
@@ -147,9 +146,11 @@ def verify_init_data(init_data, max_age=86400):
     data_check_string = "\n".join(
         f"{k}={v}" for k, v in sorted(parsed.items())
     )
+
     secret_key = hmac.new(
         b"WebAppData", TOKEN.encode(), hashlib.sha256
     ).digest()
+
     computed = hmac.new(
         secret_key, data_check_string.encode(), hashlib.sha256
     ).hexdigest()
@@ -161,6 +162,7 @@ def verify_init_data(init_data, max_age=86400):
         auth_date = int(parsed.get("auth_date", "0"))
     except ValueError:
         return None
+
     if time.time() - auth_date > max_age:
         return None
 
@@ -172,14 +174,18 @@ def verify_init_data(init_data, max_age=86400):
 
 def get_auth_user():
     init_data = None
+
     if request.is_json:
         body = request.get_json(silent=True)
         if isinstance(body, dict):
             init_data = body.get("initData")
+
     if not init_data:
         init_data = request.form.get("initData")
+
     if not init_data:
         init_data = request.headers.get("X-Telegram-Init-Data")
+
     user = verify_init_data(init_data)
     if user:
         try:
@@ -196,20 +202,19 @@ def is_admin(user):
 
 
 # ==========================================================================
-#  USER TRACKING + ANALYTICS
+# USER TRACKING + ANALYTICS
 # ==========================================================================
 def register_user(user, source="bot"):
     """
     Register or refresh a user in users.json.
-
     Stores: user_id, username, full_name, joined_at, last_active, active.
     Safe to call on every interaction — cheap and idempotent.
     """
     if not user or not user.get("id"):
         return
+
     uid = str(user["id"])
     now = _now_iso()
-
     first = (user.get("first_name") or "").strip()
     last = (user.get("last_name") or "").strip()
     full_name = (first + " " + last).strip() or user.get("username") or f"User {uid}"
@@ -233,7 +238,7 @@ def register_user(user, source="bot"):
         return True
 
     try:
-        update_json(USERS_FILE, mutator)
+        update_json(USERS_FILE, mutator, default={})
     except Exception:
         log.exception("register_user failed for %s", uid)
 
@@ -257,7 +262,7 @@ def touch_user(uid, source="interaction"):
         return True
 
     try:
-        update_json(USERS_FILE, mutator)
+        update_json(USERS_FILE, mutator, default={})
     except Exception:
         pass
 
@@ -272,14 +277,14 @@ def mark_user_inactive(uid):
         return False
 
     try:
-        update_json(USERS_FILE, mutator)
+        update_json(USERS_FILE, mutator, default={})
     except Exception:
         log.exception("mark_user_inactive failed for %s", uid)
 
 
 def get_active_users():
     """Return a list of active user chat_ids (ints) for broadcasting."""
-    data = load_json(USERS_FILE)
+    data = load_json(USERS_FILE, {})
     if not isinstance(data, dict):
         return []
     return [
@@ -290,7 +295,7 @@ def get_active_users():
 
 def get_user_stats():
     """Return (total, active, inactive) counts."""
-    data = load_json(USERS_FILE)
+    data = load_json(USERS_FILE, {})
     if not isinstance(data, dict):
         return 0, 0, 0
     total = len(data)
@@ -301,14 +306,14 @@ def get_user_stats():
 def get_user_analytics():
     """
     Returns a rich analytics dict:
-      {
-        total, active_flag, inactive_flag,
-        active_today, active_7d, active_30d,
-        new_today, new_7d,
-        recent: [list of most recent joins with pretty info]
-      }
+    {
+      total, active_flag, inactive_flag,
+      active_today, active_7d, active_30d,
+      new_today, new_7d,
+      recent: [list of most recent joins with pretty info]
+    }
     """
-    data = load_json(USERS_FILE)
+    data = load_json(USERS_FILE, {})
     if not isinstance(data, dict):
         data = {}
 
@@ -325,11 +330,12 @@ def get_user_analytics():
     active_30d = 0
     new_today = 0
     new_7d = 0
-
     entries = []
+
     for uid, info in data.items():
         if not isinstance(info, dict):
             continue
+
         if info.get("active", True):
             active_flag += 1
         else:
@@ -390,7 +396,7 @@ def build_users_csv():
         "joined_at", "last_active", "active", "source",
     ])
 
-    raw = load_json(USERS_FILE)
+    raw = load_json(USERS_FILE, {})
     if isinstance(raw, dict):
         for uid, info in raw.items():
             if not isinstance(info, dict):
@@ -410,7 +416,7 @@ def build_users_csv():
 
 
 # ==========================================================================
-#  GITHUB STORAGE
+# GITHUB STORAGE
 # ==========================================================================
 def _github_headers():
     return {
@@ -430,24 +436,25 @@ def _load_json_unlocked(filename):
     try:
         resp = _gh_request("GET", filename, params={"ref": GITHUB_BRANCH})
         if resp.status_code == 200:
-            content_b64 = resp.json()["content"]
-            decoded = base64.b64decode(content_b64).decode("utf-8")
-            return json.loads(decoded) if decoded.strip() else {}
+            content_b64 = resp.json().get("content", "")
+            decoded = base64.b64decode(content_b64).decode("utf-8") if content_b64 else ""
+            return json.loads(decoded) if decoded.strip() else None
         if resp.status_code == 404:
-            return {}
+            return None
         log.warning(
             "GitHub load failed for %s: %s %s",
             filename, resp.status_code, resp.text[:200],
         )
-        return {}
+        return None
     except Exception as e:
         log.exception("GitHub load error for %s: %s", filename, e)
-        return {}
+        return None
 
 
 def _save_json_unlocked(filename, data, retries=3):
     content_str = json.dumps(data, indent=4)
     encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+
     for attempt in range(retries):
         try:
             sha = None
@@ -468,6 +475,7 @@ def _save_json_unlocked(filename, data, retries=3):
             put_resp = _gh_request("PUT", filename, json=payload)
             if put_resp.status_code in (200, 201):
                 return True
+
             if put_resp.status_code in (409, 422):
                 log.warning(
                     "GitHub conflict on %s (attempt %d), retrying",
@@ -475,6 +483,7 @@ def _save_json_unlocked(filename, data, retries=3):
                 )
                 time.sleep(0.5 * (attempt + 1))
                 continue
+
             log.warning(
                 "GitHub save failed for %s: %s %s",
                 filename, put_resp.status_code, put_resp.text[:200],
@@ -483,6 +492,7 @@ def _save_json_unlocked(filename, data, retries=3):
         except Exception as e:
             log.exception("GitHub save error for %s: %s", filename, e)
             time.sleep(0.5)
+
     return False
 
 
@@ -507,38 +517,62 @@ def _cache_invalidate(filename=None):
             _read_cache.clear()
 
 
-def load_json(filename):
+def load_json(filename, default=None):
     cached = _cache_get(filename)
     if cached is not None:
         return cached
+
     with _gh_lock:
         data = _load_json_unlocked(filename)
-    _cache_set(filename, data)
-    return data
+        if data is None:
+            if isinstance(default, list):
+                data = list(default)
+            elif isinstance(default, dict):
+                data = dict(default)
+            else:
+                data = {}
+        _cache_set(filename, data)
+        return data
 
 
 def save_json(filename, data):
     with _gh_lock:
         ok = _save_json_unlocked(filename, data)
-    if ok:
-        _cache_invalidate(filename)
-    return ok
+        if ok:
+            _cache_invalidate(filename)
+        return ok
 
 
-def update_json(filename, mutator, retries=3):
+def update_json(filename, mutator, default=None, retries=3):
     with _gh_lock:
         for attempt in range(retries):
-            data = _load_json_unlocked(filename)
+            raw = _load_json_unlocked(filename)
+            if raw is None:
+                if isinstance(default, list):
+                    data = list(default)
+                elif isinstance(default, dict):
+                    data = dict(default)
+                else:
+                    data = {}
+            else:
+                data = raw
+
             result = mutator(data)
+
+            if result is False:
+                return False
+
             if _save_json_unlocked(filename, data):
                 _cache_invalidate(filename)
-                return result
+                return result if result is not None else True
+
             time.sleep(0.5 * (attempt + 1))
-        return None
+
+    return None
 
 
 # ==========================================================================
-#  BACKGROUND WORKERS
+# BACKGROUND WORKERS
 # ==========================================================================
 _notify_queue = Queue()
 
@@ -550,6 +584,7 @@ def _notify_worker():
             job = _notify_queue.get()
             if job is None:
                 continue
+
             chat_ids, text, markup = job
             sent = 0
             blocked = 0
@@ -563,7 +598,6 @@ def _notify_worker():
                     )
                     sent += 1
                     time.sleep(0.045)
-
                 except telebot.apihelper.ApiTelegramException as e:
                     msg = str(e).lower()
                     if "too many requests" in msg or "retry" in msg or "429" in msg:
@@ -593,7 +627,6 @@ def _notify_worker():
                     else:
                         failed += 1
                         log.warning("notify to %s failed: %s", uid, e)
-
                 except Exception as e:
                     failed += 1
                     log.warning("notify to %s error: %s", uid, e)
@@ -623,9 +656,10 @@ def enqueue_notify(chat_ids, text, markup=None):
 
 def notify_all_subscribers(title, date_str, link):
     try:
-        all_subs = load_json(SUBS_FILE)
+        all_subs = load_json(SUBS_FILE, {})
     except Exception:
         return
+
     notified = set()
     for _, uids in (all_subs or {}).items():
         for uid in uids:
@@ -636,6 +670,7 @@ def notify_all_subscribers(title, date_str, link):
     markup.row(InlineKeyboardButton(
         "🚀 Open App", web_app=WebAppInfo(url=WEBAPP_URL)
     ))
+
     text = (
         f"📢 <b>New Announcement</b>\n\n"
         f"📌 <b>{escape_md(title)}</b>\n"
@@ -645,7 +680,7 @@ def notify_all_subscribers(title, date_str, link):
 
 
 # ==========================================================================
-#  NEW-UPLOAD BROADCAST  →  every registered user
+# NEW-UPLOAD BROADCAST → every registered user
 # ==========================================================================
 def _find_year_sem_for_course(course_code):
     for y, sems in CURRICULUM.items():
@@ -672,7 +707,6 @@ def broadcast_new_upload(file_data):
     material_type = (file_data.get("material_type") or "").upper()
     title = file_data.get("title") or "Untitled"
     kind = file_data.get("kind", "material")
-
     year, semester = _find_year_sem_for_course(course_code)
 
     type_emoji = {
@@ -688,9 +722,11 @@ def broadcast_new_upload(file_data):
         "",
         f"📖 <b>Course:</b> {escape_md(course_name)}",
     ]
+
     if year and semester:
         sem_label = "Semester I" if semester == "1" else "Semester II"
         lines.append(f"🎓 <b>Year/Semester:</b> Year {year} · {sem_label}")
+
     lines.append(f"📁 <b>Type:</b> {type_emoji} {escape_md(material_type)}")
     lines.append(f"📝 <b>Title:</b> {escape_md(title)}")
     lines.append("")
@@ -743,7 +779,7 @@ def _stamp(d):
 
 
 # ==========================================================================
-#  CURRICULUM
+# CURRICULUM
 # ==========================================================================
 CURRICULUM = {
     "2": {
@@ -792,7 +828,7 @@ def course_display(code):
 
 
 # ==========================================================================
-#  MATERIAL HELPERS
+# MATERIAL HELPERS
 # ==========================================================================
 def save_material_batch(course_code, mat_type, files, title):
     now = datetime.now().strftime("%b %d, %Y - %H:%M")
@@ -812,8 +848,7 @@ def save_material_batch(course_code, mat_type, files, title):
             })
         return True
 
-    ok = update_json(DATA_FILE, mutator) is not None
-
+    ok = update_json(DATA_FILE, mutator, default={}) is not None
     if ok:
         try:
             threading.Thread(
@@ -828,7 +863,6 @@ def save_material_batch(course_code, mat_type, files, title):
             ).start()
         except Exception:
             log.exception("Failed to schedule broadcast for new material")
-
     return ok
 
 
@@ -845,7 +879,7 @@ def delete_material_by_index(course_code, mat_type, index):
             return True
         return False
 
-    ok = update_json(DATA_FILE, mutator)
+    ok = update_json(DATA_FILE, mutator, default={})
     if ok:
         return removed_holder.get("item", {}).get("name", "File")
     return None
@@ -860,8 +894,7 @@ def add_approved_video(course_code, title, url):
         })
         return True
 
-    ok = update_json(VIDEOS_FILE, mutator) is not None
-
+    ok = update_json(VIDEOS_FILE, mutator, default={}) is not None
     if ok:
         try:
             threading.Thread(
@@ -876,7 +909,6 @@ def add_approved_video(course_code, title, url):
             ).start()
         except Exception:
             log.exception("Failed to schedule broadcast for new video")
-
     return ok
 
 
@@ -886,11 +918,11 @@ def bump_stat(course_code, kind, name):
         data[key] = int(data.get(key, 0)) + 1
         return True
 
-    update_json(STATS_FILE, mutator)
+    update_json(STATS_FILE, mutator, default={})
 
 
 # ==========================================================================
-#  INLINE KEYBOARDS
+# INLINE KEYBOARDS
 # ==========================================================================
 def main_menu_keyboard():
     markup = InlineKeyboardMarkup()
@@ -933,6 +965,7 @@ def semester_keyboard(year, action):
         "f": "main_find", "u": "main_upload", "a": "back_main",
         "d": "back_main", "v": "back_main", "p": "back_main",
     }.get(action, "back_main")
+
     markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data=back_target))
     return markup
 
@@ -956,17 +989,25 @@ def subject_keyboard(year, semester, action):
 def material_type_keyboard(course_code, action):
     markup = InlineKeyboardMarkup()
     markup.row(
-        InlineKeyboardButton("📋 Course Outline", callback_data=f"{action}m_{course_code}_outline"),
+        InlineKeyboardButton("📋 Course Outline",
+                             callback_data=f"{action}m_{course_code}_outline"),
     )
     markup.row(
-        InlineKeyboardButton("📝 Note", callback_data=f"{action}m_{course_code}_note"),
-        InlineKeyboardButton("📄 Assignment", callback_data=f"{action}m_{course_code}_assignment"),
+        InlineKeyboardButton("📝 Note",
+                             callback_data=f"{action}m_{course_code}_note"),
+        InlineKeyboardButton("📄 Assignment",
+                             callback_data=f"{action}m_{course_code}_assignment"),
     )
     markup.row(
-        InlineKeyboardButton("📝 Mid Exam", callback_data=f"{action}m_{course_code}_mid"),
-        InlineKeyboardButton("📝 Final Exam", callback_data=f"{action}m_{course_code}_final"),
+        InlineKeyboardButton("📝 Mid Exam",
+                             callback_data=f"{action}m_{course_code}_mid"),
+        InlineKeyboardButton("📝 Final Exam",
+                             callback_data=f"{action}m_{course_code}_final"),
     )
-    markup.row(InlineKeyboardButton("⏳ Test", callback_data=f"{action}m_{course_code}_test"))
+    markup.row(
+        InlineKeyboardButton("⏳ Test",
+                             callback_data=f"{action}m_{course_code}_test")
+    )
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
     return markup
 
@@ -978,7 +1019,7 @@ def finish_upload_keyboard():
 
 
 def build_delete_list(course_code, material_type):
-    materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
+    materials = load_json(DATA_FILE, {}).get(f"{course_code}_{material_type}", [])
     markup = InlineKeyboardMarkup()
     if materials:
         for idx, item in enumerate(materials):
@@ -987,7 +1028,7 @@ def build_delete_list(course_code, material_type):
                 callback_data=f"delitem_{course_code}_{material_type}_{idx}",
             ))
         text = (f"Select the file you want to delete for "
-                f"{course_display(course_code)} ({material_type.upper()}):")
+                f"{course_display(course_code)} ({material_type.upper()}): ")
     else:
         text = f"✅ No files remain for {course_display(course_code)} ({material_type.upper()})."
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
@@ -995,7 +1036,7 @@ def build_delete_list(course_code, material_type):
 
 
 def group_by_title(course_code, material_type):
-    materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
+    materials = load_json(DATA_FILE, {}).get(f"{course_code}_{material_type}", [])
     groups = {}
     for idx, item in enumerate(materials):
         title = item.get("title") or item.get("name") or "Untitled"
@@ -1020,7 +1061,7 @@ def build_update_folder_list(course_code, material_type):
                 callback_data=f"updfolder_{sess_id}",
             ))
         text = (f"Select the folder you want to UPDATE for "
-                f"{course_display(course_code)} ({material_type.upper()}):")
+                f"{course_display(course_code)} ({material_type.upper()}): ")
     else:
         text = f"✅ No files found for {course_display(course_code)} ({material_type.upper()}) to update."
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
@@ -1032,13 +1073,14 @@ def build_update_folder_detail(sess_id):
     if not sess:
         return "⚠️ This update session has expired. Please run /updatefile again.", None
 
-    data = load_json(DATA_FILE)
+    data = load_json(DATA_FILE, {})
     key = f"{sess['course_code']}_{sess['material_type']}"
     materials = data.get(key, [])
 
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("🔁 Replace Entire Folder",
                                     callback_data=f"updwhole_{sess_id}"))
+
     valid = [i for i in sess["indices"] if i < len(materials)]
     for pos, abs_idx in enumerate(valid):
         item = materials[abs_idx]
@@ -1046,7 +1088,9 @@ def build_update_folder_detail(sess_id):
             f"✏️ Update: {item.get('name', 'File')}",
             callback_data=f"upditem_{sess_id}_{pos}",
         ))
+
     markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
+
     text = (
         f"📁 <b>{escape_md(sess['title'])}</b>\n"
         f"Course: {escape_md(course_display(sess['course_code']))} • "
@@ -1086,15 +1130,17 @@ def process_update_whole(chat_id, files, state):
         data[key] = materials
         return True
 
-    if update_json(DATA_FILE, mutator) is not None:
+    if update_json(DATA_FILE, mutator, default={}) is not None:
         bot.send_message(chat_id, f"✅ Folder \"{title}\" replaced with {len(files)} new file(s)!")
     else:
         bot.send_message(chat_id, "⚠️ Failed to save the update to GitHub. Please try again.")
+
     UPDATE_SESSIONS.pop(sess_id, None)
 
 
 def process_update_single_file(message, sess_id, abs_index):
     chat_id = message.chat.id
+
     if message.content_type == 'document':
         file_id = message.document.file_id
         file_name = message.document.file_name or "document.pdf"
@@ -1132,18 +1178,19 @@ def process_update_single_file(message, sess_id, abs_index):
         result_holder["name"] = item["name"]
         return True
 
-    ok = update_json(DATA_FILE, mutator)
+    ok = update_json(DATA_FILE, mutator, default={})
     if ok is None:
         bot.send_message(chat_id, "⚠️ That file no longer exists.")
     elif ok:
         bot.send_message(chat_id, f"✅ Successfully updated \"{result_holder.get('name', 'item')}\"!")
     else:
         bot.send_message(chat_id, "⚠️ Failed to save the update to GitHub. Please try again.")
+
     UPDATE_SESSIONS.pop(sess_id, None)
 
 
 # ==========================================================================
-#  COMMAND HANDLERS
+# COMMAND HANDLERS
 # ==========================================================================
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -1165,7 +1212,7 @@ def send_welcome(message):
             course_code, material_type, idx_str = segments
             try:
                 idx = int(idx_str)
-                materials = load_json(DATA_FILE).get(
+                materials = load_json(DATA_FILE, {}).get(
                     f"{course_code}_{material_type}", []
                 )
                 if 0 <= idx < len(materials):
@@ -1231,7 +1278,7 @@ def _render_analytics_message(a):
         "",
         "👥 <b>Users</b>",
         f"• Total registered: <b>{a['total']}</b>",
-        f"• Active flag: <b>{a['active_flag']}</b>  ·  Inactive: {a['inactive_flag']}",
+        f"• Active flag: <b>{a['active_flag']}</b> · Inactive: {a['inactive_flag']}",
         "",
         "🔥 <b>Activity</b>",
         f"• Active in last 24h: <b>{a['active_today']}</b>",
@@ -1265,7 +1312,7 @@ def _render_analytics_message(a):
 def admin_stats(message):
     if message.from_user.id not in ADMIN_IDS:
         return
-    # Refresh the caller's own activity stamp
+
     try:
         touch_user(message.from_user.id, source="bot")
     except Exception:
@@ -1315,7 +1362,7 @@ def admin_export_users(message):
             bio,
             caption=caption,
             parse_mode="HTML",
-            visible_file_name=filename,
+            filename=filename,
         )
     except Exception as e:
         log.exception("send_document for export failed")
@@ -1327,6 +1374,7 @@ def admin_export_users(message):
 def admin_broadcast(message):
     if message.from_user.id not in ADMIN_IDS:
         return
+
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
         bot.reply_to(
@@ -1347,8 +1395,8 @@ def admin_broadcast(message):
         InlineKeyboardButton("🚀 Open Portal",
                              web_app=WebAppInfo(url=WEBAPP_URL))
     )
-    text = f"📢 <b>Announcement</b>\n\n{escape_md(body)}"
 
+    text = f"📢 <b>Announcement</b>\n\n{escape_md(body)}"
     enqueue_notify(active_users, text, markup)
     bot.reply_to(
         message,
@@ -1362,18 +1410,20 @@ def admin_broadcast(message):
 def admin_set_exam(message):
     if message.from_user.id not in ADMIN_IDS:
         return
+
     parts = message.text.split(maxsplit=3)
     if len(parts) < 4:
         bot.reply_to(message,
                      "Usage: /setexam [CourseCode] [YYYY-MM-DD] [Exam Title]")
         return
+
     code, date_str, title = parts[1], parts[2], parts[3]
 
     def mutator(data):
         data[code] = {"date": date_str, "title": title}
         return True
 
-    update_json(EXAMS_FILE, mutator)
+    update_json(EXAMS_FILE, mutator, default={})
     bot.reply_to(message, f"✅ Countdown for '{title}' ({code}) set to {date_str}.")
 
 
@@ -1381,24 +1431,28 @@ def admin_set_exam(message):
 def admin_delete_exam(message):
     if message.from_user.id not in ADMIN_IDS:
         return
+
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         bot.reply_to(message, "Usage: /deleteexam [CourseCode]")
         return
+
     code = parts[1]
 
     def mutator(data):
         data.pop(code, None)
         return True
 
-    update_json(EXAMS_FILE, mutator)
+    update_json(EXAMS_FILE, mutator, default={})
     bot.reply_to(message, f"✅ Countdown for {code} removed.")
 
 
 def _publish_news(title, link):
+    holder = {}
+
     def mutator(data):
         if not isinstance(data, list):
-            data = []
+            return False
         item = {
             "id": os.urandom(4).hex(),
             "title": title,
@@ -1407,19 +1461,23 @@ def _publish_news(title, link):
         }
         data.insert(0, item)
         del data[20:]
-        return item
+        holder["item"] = item
+        return True
 
-    result = update_json(NEWS_FILE, mutator)
-    if result:
-        notify_all_subscribers(result["title"], result["date"], result["link"])
-    return result
+    ok = update_json(NEWS_FILE, mutator, default=[])
+    if ok and holder.get("item"):
+        item = holder["item"]
+        notify_all_subscribers(item["title"], item["date"], item["link"])
+        return item
+    return None
 
 
 @bot.message_handler(commands=['setnews'])
 def admin_set_news(message):
     if message.from_user.id not in ADMIN_IDS:
         return
-    raw = message.text.replace("/setnews", "").strip()
+
+    raw = message.text.replace("/setnews", "", 1).strip()
     link, title = None, raw
 
     if message.reply_to_message and getattr(message.reply_to_message, "forward_from_chat", None):
@@ -1457,10 +1515,12 @@ def admin_set_news(message):
 def admin_delete_news(message):
     if message.from_user.id not in ADMIN_IDS:
         return
-    news_list = load_json(NEWS_FILE)
+
+    news_list = load_json(NEWS_FILE, [])
     if not isinstance(news_list, list) or not news_list:
         bot.reply_to(message, "ℹ️ No news to delete.")
         return
+
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         markup = InlineKeyboardMarkup()
@@ -1472,12 +1532,19 @@ def admin_delete_news(message):
         bot.reply_to(message, "Select the news item you want to delete:",
                      reply_markup=markup)
         return
+
     nid = parts[1].strip()
 
     def mutator(data):
-        return [n for n in (data if isinstance(data, list) else []) if n.get("id") != nid]
+        if not isinstance(data, list):
+            return False
+        for i, n in enumerate(data):
+            if n.get("id") == nid:
+                data.pop(i)
+                return True
+        return False
 
-    update_json(NEWS_FILE, mutator)
+    update_json(NEWS_FILE, mutator, default=[])
     bot.reply_to(message, "✅ News item removed.")
 
 
@@ -1493,21 +1560,23 @@ def admin_clear_news(message):
 def admin_set_event(message):
     if message.from_user.id not in ADMIN_IDS:
         return
+
     parts = message.text.split(maxsplit=3)
     if len(parts) < 4:
         bot.reply_to(message,
                      "Usage: /setevent [Start] [End] [Title]\n"
                      "(Use the same date twice for a one-day event.)")
         return
+
     start_date, end_date, title = parts[1], parts[2], parts[3]
 
     def mutator(data):
         if not isinstance(data, list):
-            data = []
+            return False
         data.append({"start": start_date, "end": end_date, "title": title})
         return True
 
-    update_json(EVENTS_FILE, mutator)
+    update_json(EVENTS_FILE, mutator, default=[])
     bot.reply_to(message, f"✅ Event '{title}' set from {start_date} to {end_date}.")
 
 
@@ -1555,28 +1624,35 @@ def admin_delete_file_start(message):
 def admin_delete_video_start(message):
     if message.from_user.id not in ADMIN_IDS:
         return
-    data = load_json(VIDEOS_FILE)
+
+    data = load_json(VIDEOS_FILE, {})
     if not data:
         bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
         return
+
     markup = InlineKeyboardMarkup()
     has_videos = False
+
     for course_code, vids in data.items():
+        if not isinstance(vids, list):
+            continue
         for idx, v in enumerate(vids):
             has_videos = True
             markup.row(InlineKeyboardButton(
                 f"❌ [{course_display(course_code)}] {v.get('title', 'Video')}",
                 callback_data=f"delvid_{course_code}_{idx}",
             ))
+
     if not has_videos:
         bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
         return
+
     bot.send_message(message.chat.id, "Select the video you want to delete:",
                      reply_markup=markup)
 
 
 # ==========================================================================
-#  CALLBACK HANDLERS
+# CALLBACK HANDLERS
 # ==========================================================================
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -1590,7 +1666,6 @@ def handle_query(call):
         except Exception:
             pass
 
-    # Refresh last_active on every button press
     try:
         touch_user(call.from_user.id, source="callback")
     except Exception:
@@ -1655,7 +1730,7 @@ def handle_query(call):
         material_type = parts[2]
 
         if action == 'f':
-            materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
+            materials = load_json(DATA_FILE, {}).get(f"{course_code}_{material_type}", [])
             if not materials:
                 bot.send_message(call.message.chat.id,
                                  f"ℹ️ No {material_type.upper()} files available yet for {course_display(course_code)}.")
@@ -1675,6 +1750,7 @@ def handle_query(call):
                 bot.delete_message(call.message.chat.id, call.message.message_id)
             except Exception:
                 pass
+
             label = "Upload" if action == 'u' else "Admin save"
             msg = bot.send_message(
                 call.message.chat.id,
@@ -1693,7 +1769,7 @@ def handle_query(call):
             })
 
         elif action == 'd':
-            materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
+            materials = load_json(DATA_FILE, {}).get(f"{course_code}_{material_type}", [])
             if not materials:
                 bot.send_message(call.message.chat.id,
                                  f"ℹ️ No files found under {course_display(course_code)} ({material_type.upper()}) to delete.")
@@ -1763,10 +1839,12 @@ def handle_query(call):
                                       "This update session expired. Run /updatefile again.",
                                       show_alert=True)
             return
+
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
         except Exception:
             pass
+
         msg = bot.send_message(
             call.message.chat.id,
             f"🔁 <b>Replacing folder \"{escape_md(sess['title'])}\"</b>\n\n"
@@ -1792,11 +1870,14 @@ def handle_query(call):
                                       "This update session expired. Run /updatefile again.",
                                       show_alert=True)
             return
+
         abs_index = sess["indices"][pos]
+
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
         except Exception:
             pass
+
         msg = bot.send_message(call.message.chat.id,
                                "📥 Send the new file (or photo) to replace this item:")
         bot.register_next_step_handler(msg, process_update_single_file, sess_id, abs_index)
@@ -1808,6 +1889,8 @@ def handle_query(call):
 
         def mutator(vdata):
             arr = vdata.get(course_code, [])
+            if not isinstance(arr, list):
+                return False
             if 0 <= idx < len(arr):
                 removed_holder["item"] = arr.pop(idx)
                 if not arr:
@@ -1815,7 +1898,7 @@ def handle_query(call):
                 return True
             return False
 
-        ok = update_json(VIDEOS_FILE, mutator)
+        ok = update_json(VIDEOS_FILE, mutator, default={})
         if ok:
             _edit(f"✅ Deleted video: {escape_md(removed_holder.get('item', {}).get('title', 'Video'))}")
         else:
@@ -1825,13 +1908,19 @@ def handle_query(call):
         if call.from_user.id not in ADMIN_IDS:
             bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
             return
+
         nid = data.split('_', 1)[1]
 
         def mutator(ndata):
-            return [n for n in (ndata if isinstance(ndata, list) else [])
-                    if n.get("id") != nid]
+            if not isinstance(ndata, list):
+                return False
+            for i, n in enumerate(ndata):
+                if n.get("id") == nid:
+                    ndata.pop(i)
+                    return True
+            return False
 
-        update_json(NEWS_FILE, mutator)
+        update_json(NEWS_FILE, mutator, default=[])
         _edit("✅ News item deleted.")
 
     elif data.startswith("approve_vid_"):
@@ -1840,6 +1929,7 @@ def handle_query(call):
         if not v_data:
             bot.answer_callback_query(call.id, "Request expired or already handled.")
             return
+
         for admin in ADMIN_IDS:
             try:
                 bot.send_message(
@@ -1852,6 +1942,7 @@ def handle_query(call):
                 )
             except Exception:
                 pass
+
         try:
             bot.edit_message_reply_markup(chat_id=call.message.chat.id,
                                           message_id=call.message.message_id,
@@ -1880,6 +1971,7 @@ def handle_query(call):
         if not up:
             bot.answer_callback_query(call.id, "Request expired or already handled.")
             return
+
         for admin in ADMIN_IDS:
             try:
                 bot.send_message(
@@ -1889,6 +1981,7 @@ def handle_query(call):
                 )
             except Exception:
                 pass
+
         try:
             bot.send_message(
                 up["chat_id"],
@@ -1898,6 +1991,7 @@ def handle_query(call):
             )
         except Exception:
             pass
+
         try:
             bot.edit_message_reply_markup(chat_id=call.message.chat.id,
                                           message_id=call.message.message_id,
@@ -1933,13 +2027,14 @@ def handle_query(call):
 
 
 # ==========================================================================
-#  MESSAGE HANDLERS
+# MESSAGE HANDLERS
 # ==========================================================================
 @bot.message_handler(content_types=['document', 'photo'])
 def handle_media(message):
     chat_id = message.chat.id
     if chat_id not in UPLOAD_STATES:
         return
+
     state = UPLOAD_STATES[chat_id]
     if state.get("awaiting_title"):
         return
@@ -1983,13 +2078,14 @@ def handle_media(message):
 @bot.message_handler(
     content_types=['text'],
     func=lambda m: UPLOAD_STATES.get(m.chat.id, {}).get("awaiting_title")
-                   and not (m.text or "").startswith('/'),
+    and not (m.text or "").startswith('/'),
 )
 def handle_title_input(message):
     chat_id = message.chat.id
     state = UPLOAD_STATES.get(chat_id)
     if not state:
         return
+
     title = (message.text or "").strip()
     if not title:
         bot.send_message(chat_id, "Please send a non-empty title.")
@@ -1998,6 +2094,7 @@ def handle_title_input(message):
     state["title"] = title
     state["awaiting_title"] = False
     files = state["files"]
+
     bot.send_message(chat_id, f"🔄 Saving \"{title}\" ({len(files)} file(s))...")
     process_files(chat_id, files, state, message.from_user, title=title)
     UPLOAD_STATES.pop(chat_id, None)
@@ -2007,11 +2104,12 @@ def handle_title_input(message):
 def fallback_text(message):
     if (message.text or "").startswith('/'):
         return
-    # Silent tracking (don't spam users)
+
     try:
         touch_user(message.from_user.id, source="text")
     except Exception:
         pass
+
     bot.reply_to(message,
                  "🤖 I don't understand that. Try /help, or open the portal "
                  "with /start.")
@@ -2021,6 +2119,7 @@ def process_admin_add_video(message, course_code):
     if not message.text:
         bot.reply_to(message, "⚠️ Please send text only. Start over with /addvideo")
         return
+
     parts = message.text.strip().split('\n', 1)
     if len(parts) != 2:
         bot.reply_to(message,
@@ -2030,10 +2129,11 @@ def process_admin_add_video(message, course_code):
         return
 
     title, url = parts[0].strip(), parts[1].strip()
+
     if add_approved_video(course_code, title, url):
         bot.reply_to(message, f"✅ Added video '{title}' to {course_display(course_code)}!")
         try:
-            subs = load_json(SUBS_FILE).get(course_code, [])
+            subs = load_json(SUBS_FILE, {}).get(course_code, [])
             if subs:
                 markup = InlineKeyboardMarkup()
                 markup.row(InlineKeyboardButton(
@@ -2101,7 +2201,7 @@ def process_files(chat_id, files, state, user, title=None):
                              f"{course_display(course_code)} ({material_type.upper()})!")
             send_as_album(chat_id, files, caption=title)
             try:
-                subs = load_json(SUBS_FILE).get(course_code, [])
+                subs = load_json(SUBS_FILE, {}).get(course_code, [])
                 if subs:
                     markup = InlineKeyboardMarkup()
                     markup.row(InlineKeyboardButton(
@@ -2129,12 +2229,14 @@ def process_files(chat_id, files, state, user, title=None):
             "chat_id": chat_id,
             "username": user.username or "Student",
         })
+
         admin_text = (
             f"📥 New Chat Upload (Batch of {len(files)} files)\n"
             f"From: @{user.username or 'Student'}\n\n"
             f"Course: {course_display(course_code)}\n"
             f"Type: {material_type.upper()}"
         )
+
         for admin in ADMIN_IDS:
             try:
                 bot.send_message(admin, admin_text)
@@ -2150,13 +2252,14 @@ def process_files(chat_id, files, state, user, title=None):
                 bot.send_message(admin, "Review this batch upload:", reply_markup=markup)
             except Exception:
                 pass
+
         bot.send_message(chat_id,
                          f"✅ Thank you! Your batch of {len(files)} file(s) "
                          f"has been sent for review.")
 
 
 # ==========================================================================
-#  FLASK — WEBHOOK + HEALTH CHECK
+# FLASK — WEBHOOK + HEALTH CHECK
 # ==========================================================================
 @app.route('/' + TOKEN, methods=['POST'])
 def getMessage():
@@ -2164,6 +2267,7 @@ def getMessage():
         incoming = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if not hmac.compare_digest(incoming, WEBHOOK_SECRET):
             return "forbidden", 403
+
     json_string = request.get_data().decode('utf-8')
     update = telebot.types.Update.de_json(json_string)
     bot.process_new_updates([update])
@@ -2185,7 +2289,7 @@ def api_health():
 
 
 # ==========================================================================
-#  FLASK — WEBAPP API
+# FLASK — WEBAPP API
 # ==========================================================================
 @app.route('/api/config', methods=['GET'])
 def api_config():
@@ -2201,94 +2305,148 @@ def api_curriculum():
 
 @app.route('/api/materials', methods=['GET'])
 def get_materials():
-    data = load_json(DATA_FILE)
-    
-    # Inject the direct_pdf_url into each item
+    data = load_json(DATA_FILE, {})
+
+    base_url = request.host_url.rstrip("/")
+
     for key, items in data.items():
-        # Key format is "COURSE_CODE_MATERIAL_TYPE" (e.g., "ECEg2202_note")
-        parts = key.split('_')
-        course_code = parts[0]
-        mat_type = parts[1] if len(parts) > 1 else 'unknown'
-        
+        if not isinstance(items, list):
+            continue
+        if "_" not in key:
+            continue
+
+        course_code, mat_type = key.split("_", 1)
+
         for idx, item in enumerate(items):
             if item.get("content_type") == "document":
-                # Point this to our new proxy endpoint
-                item["direct_pdf_url"] = f"/api/serve_pdf/{course_code}/{mat_type}/{idx}"
+                item["direct_pdf_url"] = f"{base_url}/api/serve_pdf/{course_code}/{mat_type}/{idx}"
             else:
                 item["direct_pdf_url"] = ""
-                
+
     return jsonify(data), 200
 
 
 @app.route('/api/serve_pdf/<course_code>/<mat_type>/<int:idx>', methods=['GET'])
 def serve_pdf(course_code, mat_type, idx):
-    # 1. Find the file record in the database
-    materials = load_json(DATA_FILE).get(f"{course_code}_{mat_type}", [])
+    """
+    Securely streams a PDF/document from Telegram Bot API storage.
+    Supports HTTP Range requests for PDF.js progressive loading.
+    """
+    materials = load_json(DATA_FILE, {}).get(f"{course_code}_{mat_type}", [])
+
     if idx < 0 or idx >= len(materials):
         return jsonify({"error": "File not found"}), 404
 
-    file_id = materials[idx].get("file_id")
+    item = materials[idx]
+    file_id = item.get("file_id")
+
     if not file_id:
         return jsonify({"error": "Invalid file record"}), 400
 
-    # 2. Get the file path from Telegram securely
     try:
         file_info = bot.get_file(file_id)
         file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
     except Exception as e:
-        log.error(f"Failed to get file info for {file_id}: {e}")
+        log.error("serve_pdf get_file failed for %s: %s", file_id, e)
         return jsonify({"error": "Failed to fetch file from Telegram"}), 500
 
-    # 3. Stream the file back to the client (pdf.js)
-    try:
-        req = requests.get(file_url, stream=True)
-        if req.status_code != 200:
-            return jsonify({"error": "Failed to download file from Telegram"}), 500
+    upstream_headers = {}
+    range_header = request.headers.get("Range")
+    if range_header:
+        upstream_headers["Range"] = range_header
 
-        # Assuming it's a PDF. You can adjust content_type if needed.
-        return Response(
-            stream_with_context(req.iter_content(chunk_size=1024)),
-            content_type="application/pdf"
+    try:
+        upstream = requests.get(
+            file_url,
+            stream=True,
+            headers=upstream_headers,
+            timeout=(10, 60),
         )
     except Exception as e:
-        log.error(f"Failed to stream PDF: {e}")
-        return jsonify({"error": "Internal server error"}), 500
+        log.error("serve_pdf upstream request failed: %s", e)
+        return jsonify({"error": "Failed to download file from Telegram"}), 502
+
+    if upstream.status_code not in (200, 206):
+        upstream.close()
+        return jsonify({
+            "error": "Failed to download file from Telegram",
+            "status": upstream.status_code,
+        }), 502
+
+    safe_name = (item.get("name") or "document.pdf").strip()
+    safe_name = safe_name.replace('"', "'").replace("\n", " ").replace("\r", " ")
+    if not safe_name:
+        safe_name = "document.pdf"
+
+    content_type = "application/pdf"
+    if item.get("content_type") == "photo":
+        content_type = "image/jpeg"
+
+    response_headers = {
+        "Content-Type": content_type,
+        "Content-Disposition": f'inline; filename="{safe_name}"',
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+    }
+
+    for header_name in ("Content-Length", "Content-Range", "Last-Modified", "ETag"):
+        value = upstream.headers.get(header_name)
+        if value:
+            response_headers[header_name] = value
+
+    def generate():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    return Response(
+        stream_with_context(generate()),
+        status=upstream.status_code,
+        headers=response_headers,
+    )
 
 
 @app.route('/api/videos', methods=['GET'])
 def get_videos():
-    return jsonify(load_json(VIDEOS_FILE)), 200
+    return jsonify(load_json(VIDEOS_FILE, {})), 200
 
 
 @app.route('/api/exams', methods=['GET'])
 def get_exams():
-    return jsonify(load_json(EXAMS_FILE)), 200
+    return jsonify(load_json(EXAMS_FILE, {})), 200
 
 
 @app.route('/api/dashboard', methods=['GET'])
 def get_dashboard():
-    news = load_json(NEWS_FILE)
+    news = load_json(NEWS_FILE, [])
     if isinstance(news, dict):
         if news.get("text") or news.get("image"):
             news = [{
                 "id": "legacy",
                 "title": news.get("text", "Announcement"),
-                "link": "#", "date": "",
+                "link": "#",
+                "date": "",
             }]
         else:
             news = []
     if not isinstance(news, list):
         news = []
 
-    events = load_json(EVENTS_FILE)
+    events = load_json(EVENTS_FILE, [])
     if isinstance(events, dict):
         events = []
+
     return jsonify({"news": news, "events": events}), 200
 
 
 @app.route('/api/leaderboard', methods=['GET'])
 def api_leaderboard():
-    stats = load_json(STATS_FILE) or {}
+    stats = load_json(STATS_FILE, {}) or {}
     top = sorted(
         ((k, v) for k, v in stats.items() if isinstance(v, int)),
         key=lambda x: x[1], reverse=True,
@@ -2301,12 +2459,15 @@ def api_track_open():
     user = get_auth_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+
     body = request.get_json(silent=True) or {}
     course = body.get("course")
     kind = body.get("kind")
     name = body.get("name")
+
     if not (course and kind and name):
         return jsonify({"error": "Missing fields"}), 400
+
     threading.Thread(target=bump_stat, args=(course, kind, name), daemon=True).start()
     return jsonify({"status": "ok"}), 200
 
@@ -2329,6 +2490,7 @@ def handle_webapp_upload():
     file_bytes = file.read()
     if not file_bytes:
         return jsonify({"error": "Empty file"}), 400
+
     if len(file_bytes) > 45 * 1024 * 1024:
         return jsonify({"error": "File exceeds 45 MB limit"}), 413
 
@@ -2340,6 +2502,7 @@ def handle_webapp_upload():
 
     file_id = None
     used_admin = None
+
     for admin in ADMIN_IDS:
         try:
             msg = bot.send_document(
@@ -2347,7 +2510,7 @@ def handle_webapp_upload():
                 io.BytesIO(file_bytes),
                 caption=admin_text,
                 parse_mode="HTML",
-                visible_file_name=file.filename,
+                filename=file.filename,
             )
             file_id = msg.document.file_id
             used_admin = admin
@@ -2376,6 +2539,7 @@ def handle_webapp_upload():
         InlineKeyboardButton("✅ Approve", callback_data=f"approve_upload_{req_id}"),
         InlineKeyboardButton("❌ Reject", callback_data=f"reject_upload_{req_id}"),
     )
+
     for admin in ADMIN_IDS:
         try:
             bot.send_message(
@@ -2401,12 +2565,13 @@ def handle_video_upload():
     course = body.get('course')
     title = body.get('title')
     url = body.get('url')
+
     if not (course and title and url):
         return jsonify({"error": "Invalid data"}), 400
 
     username = user.get("username") or user.get("first_name", "Student")
-
     req_id = os.urandom(4).hex()
+
     PENDING_VIDEOS[req_id] = _stamp({
         "course": course, "title": title, "url": url, "username": username,
     })
@@ -2417,6 +2582,7 @@ def handle_video_upload():
         f"Title: {escape_md(title)}\n"
         f"URL: {escape_md(url)}"
     )
+
     markup = InlineKeyboardMarkup()
     markup.row(
         InlineKeyboardButton("✅ Approve Video",
@@ -2424,6 +2590,7 @@ def handle_video_upload():
         InlineKeyboardButton("❌ Reject",
                              callback_data=f"reject_vid_{req_id}"),
     )
+
     for admin in ADMIN_IDS:
         try:
             bot.send_message(admin, admin_text, parse_mode="HTML",
@@ -2439,15 +2606,20 @@ def handle_subscribe():
     user = get_auth_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+
     uid = str(user["id"])
     body = request.get_json(silent=True) or {}
     course = body.get("course")
     is_subbing = bool(body.get("subscribe", True))
+
     if not course:
         return jsonify({"error": "Missing course"}), 400
 
     def mutator(data):
-        arr = data.setdefault(course, [])
+        arr = data.get(course)
+        if not isinstance(arr, list):
+            arr = []
+            data[course] = arr
         if is_subbing and uid not in arr:
             arr.append(uid)
         elif not is_subbing and uid in arr:
@@ -2456,7 +2628,7 @@ def handle_subscribe():
             data.pop(course, None)
         return True
 
-    update_json(SUBS_FILE, mutator)
+    update_json(SUBS_FILE, mutator, default={})
     return jsonify({"status": "success"}), 200
 
 
@@ -2465,8 +2637,9 @@ def get_subs():
     user = get_auth_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+
     uid = str(user["id"])
-    subs = load_json(SUBS_FILE)
+    subs = load_json(SUBS_FILE, {})
     return jsonify([c for c, users in (subs or {}).items() if uid in users]), 200
 
 
@@ -2475,8 +2648,9 @@ def get_favorites():
     user = get_auth_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+
     uid = str(user["id"])
-    favs = load_json(FAVS_FILE)
+    favs = load_json(FAVS_FILE, {})
     return jsonify(favs.get(uid, []) if isinstance(favs, dict) else []), 200
 
 
@@ -2485,9 +2659,11 @@ def toggle_favorite():
     user = get_auth_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+
     uid = str(user["id"])
     body = request.get_json(silent=True) or {}
     item = body.get("item")
+
     if not item or not item.get("id"):
         return jsonify({"error": "Invalid item"}), 400
 
@@ -2497,19 +2673,25 @@ def toggle_favorite():
         if not isinstance(data, dict):
             data = {}
         user_favs = data.setdefault(uid, [])
+        if not isinstance(user_favs, list):
+            user_favs = []
+            data[uid] = user_favs
+
         existing = next(
             (i for i, f in enumerate(user_favs) if f.get("id") == item["id"]),
             None,
         )
+
         if existing is not None:
             user_favs.pop(existing)
             action_holder["action"] = "removed"
         else:
             user_favs.append(item)
             action_holder["action"] = "added"
+
         return True
 
-    update_json(FAVS_FILE, mutator)
+    update_json(FAVS_FILE, mutator, default={})
     return jsonify({"status": "ok", "action": action_holder.get("action")}), 200
 
 
@@ -2521,14 +2703,17 @@ def api_post_news():
 
     title = (request.form.get('title') or '').strip()
     link = (request.form.get('link') or '').strip()
+
     if not title or not link:
         return jsonify({"error": "Title and link are required"}), 400
+
     if not (link.startswith("https://t.me/") or link.startswith("http://t.me/")):
         return jsonify({"error": "Link must be a t.me URL"}), 400
 
     item = _publish_news(title, link)
     if not item:
         return jsonify({"error": "Failed to save"}), 500
+
     return jsonify({"status": "success", "item": item}), 200
 
 
@@ -2537,15 +2722,21 @@ def api_delete_news():
     user = get_auth_user()
     if not is_admin(user):
         return jsonify({"error": "Unauthorized"}), 403
+
     nid = (request.get_json(silent=True) or {}).get("id")
     if not nid:
         return jsonify({"error": "Missing id"}), 400
 
     def mutator(data):
-        return [n for n in (data if isinstance(data, list) else [])
-                if n.get("id") != nid]
+        if not isinstance(data, list):
+            return False
+        for i, n in enumerate(data):
+            if n.get("id") == nid:
+                data.pop(i)
+                return True
+        return False
 
-    update_json(NEWS_FILE, mutator)
+    update_json(NEWS_FILE, mutator, default=[])
     return jsonify({"status": "success"}), 200
 
 
@@ -2554,6 +2745,7 @@ def api_clear_news():
     user = get_auth_user()
     if not is_admin(user):
         return jsonify({"error": "Unauthorized"}), 403
+
     save_json(NEWS_FILE, [])
     return jsonify({"status": "success"}), 200
 
@@ -2567,31 +2759,37 @@ def handle_feedback():
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"error": "Feedback must be a JSON object"}), 400
+
     raw_rating = body.get("rating")
     if isinstance(raw_rating, bool) or not isinstance(raw_rating, (int, str)):
         return jsonify({"error": "Choose a whole-number rating from 1 to 5"}), 400
+
     try:
         rating = int(raw_rating)
     except (ValueError, TypeError):
         return jsonify({"error": "Choose a whole-number rating from 1 to 5"}), 400
+
     if not 1 <= rating <= 5:
         return jsonify({"error": "Choose a rating from 1 to 5"}), 400
+
     msg_content = body.get("message", "")
     username = user.get("username") or user.get("first_name", "Student")
     uid = user.get("id")
-
     stars = "⭐" * max(0, min(5, rating))
+
     admin_text = (
         f"📝 <b>New Bot Feedback</b>\n\n"
         f"👤 From: {escape_md(username)} (<code>{escape_md(uid)}</code>)\n"
         f"🌟 Rating: {stars} ({rating}/5)\n\n"
         f"💬 <b>Message:</b>\n{escape_md(msg_content)}"
     )
+
     for admin in ADMIN_IDS:
         try:
             bot.send_message(admin, admin_text, parse_mode="HTML")
         except Exception:
             pass
+
     return jsonify({"status": "success"}), 200
 
 
@@ -2606,6 +2804,7 @@ def handle_report_issue():
     course = body.get('course', 'Unknown')
     title = body.get('title', 'Unknown')
     comment = (body.get('comment') or '').strip()
+
     username = user.get("username") or user.get("first_name", "Student")
     uid = user.get("id")
 
@@ -2613,6 +2812,7 @@ def handle_report_issue():
         f"\n💬 <b>Student Comment:</b>\n<i>{escape_md(comment)}</i>"
         if comment else "\n💬 <b>Student Comment:</b>\n<i>No comment provided.</i>"
     )
+
     admin_text = (
         f"⚠️ <b>Issue Reported</b>\n\n"
         f"👤 From: {escape_md(username)} (<code>{escape_md(uid)}</code>)\n"
@@ -2621,11 +2821,13 @@ def handle_report_issue():
         f"📄 Title: {escape_md(title)}\n"
         f"{comment_block}"
     )
+
     for admin in ADMIN_IDS:
         try:
             bot.send_message(admin, admin_text, parse_mode="HTML")
         except Exception:
             pass
+
     return jsonify({"status": "success"}), 200
 
 
@@ -2638,6 +2840,7 @@ def handle_request_resource():
     body = request.get_json(silent=True) or {}
     course = (body.get("course") or "").strip()
     detail = (body.get("detail") or "").strip()
+
     if not course and not detail:
         return jsonify({"error": "Provide a course or detail"}), 400
 
@@ -2658,7 +2861,7 @@ def handle_request_resource():
         del data[50:]
         return True
 
-    update_json(REQUESTS_FILE, mutator)
+    update_json(REQUESTS_FILE, mutator, default=[])
 
     admin_text = (
         f"🙋 <b>Resource Request</b>\n\n"
@@ -2666,20 +2869,23 @@ def handle_request_resource():
         f"📚 Course: {escape_md(course_display(course) or '—')}\n"
         f"📝 Detail: {escape_md(detail or '—')}"
     )
+
     for admin in ADMIN_IDS:
         try:
             bot.send_message(admin, admin_text, parse_mode="HTML")
         except Exception:
             pass
+
     return jsonify({"status": "success"}), 200
 
 
 # ==========================================================================
-#  ENTRY POINT
+# ENTRY POINT
 # ==========================================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     render_url = os.environ.get("RENDER_EXTERNAL_URL")
+
     if render_url:
         try:
             bot.remove_webhook()
@@ -2690,4 +2896,5 @@ if __name__ == "__main__":
             log.info("Webhook set: %s", render_url)
         except Exception as e:
             log.exception("Failed to set webhook: %s", e)
+
     app.run(host="0.0.0.0", port=port)
