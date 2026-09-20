@@ -521,6 +521,8 @@
             <select class="sort-select" id="matSortOrder" onchange="activeFolderContext=null; renderMaterials();">
                 <option value="new">🕒 Newest First</option>
                 <option value="old">⏳ Oldest First</option>
+                <option value="az">🔤 Alphabetical (A-Z)</option>
+                <option value="za">🔤 Alphabetical (Z-A)</option>
             </select>
         </div>
         <details class="filter-accordion">
@@ -548,6 +550,8 @@
             <select class="sort-select" id="vidSortOrder" onchange="renderVideos()">
                 <option value="new">🕒 Newest First</option>
                 <option value="old">⏳ Oldest First</option>
+                <option value="az">🔤 Alphabetical (A-Z)</option>
+                <option value="za">🔤 Alphabetical (Z-A)</option>
             </select>
         </div>
         <details class="filter-accordion">
@@ -1378,6 +1382,17 @@
                 const folderName = activeFolderContext.folderName;
                 const items = grouped[key] && grouped[key][folderName];
                 if (!items) { activeFolderContext = null; renderMaterials(); return; }
+                
+                // --- ADDED SORTING FOR FILES ONLY ---
+                const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+                items.sort((a, b) => {
+                    if (sortOrder === 'az') return collator.compare(a.name || '', b.name || '');
+                    if (sortOrder === 'za') return collator.compare(b.name || '', a.name || '');
+                    if (sortOrder === 'old') return parseDateAdded(a.date_added) - parseDateAdded(b.date_added);
+                    return parseDateAdded(b.date_added) - parseDateAdded(a.date_added); // Default: Newest First
+                });
+                // -------------------------------------
+
                 html += '<button type="button" class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="window.backToFolders()"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>';
                 html += '<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px; word-break: break-word; overflow-wrap: anywhere;">📁 ' + esc(folderName) + ' <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(' + items.length + ' files)</span></div>';
                 items.forEach(item => {
@@ -1412,6 +1427,7 @@
                     folderList.push({ key, course, type, folderName, items, folderDate, sortKey: parseDateAdded(folderDate) });
                 }
             }
+            // Folders ALWAYS stay sorted by date, ignoring the A-Z/Z-A selection
             folderList.sort((a, b) => sortOrder === 'old' ? (a.sortKey - b.sortKey) : (b.sortKey - a.sortKey));
 
             folderList.forEach(folder => {
@@ -1516,7 +1532,17 @@
                     allVidsFlat.push({ v, courseCode, idx, sortKey: parseDateAdded(v.date_added) });
                 });
             }
-            allVidsFlat.sort((a, b) => sortOrder === 'old' ? (a.sortKey - b.sortKey) : (b.sortKey - a.sortKey));
+            
+            // --- UPDATED SORTING FOR VIDEOS (A-Z / Z-A SUPPORT) ---
+            const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+            allVidsFlat.sort((a, b) => {
+                if (sortOrder === 'az') return collator.compare(a.v.title || '', b.v.title || '');
+                if (sortOrder === 'za') return collator.compare(b.v.title || '', a.v.title || '');
+                if (sortOrder === 'old') return a.sortKey - b.sortKey;
+                return b.sortKey - a.sortKey; // Default: Newest First
+            });
+            // -------------------------------------------------------
+
             pendingRemoteThumbs = [];
             allVidsFlat.forEach(item => { html += generateVideoCard(item.v, item.courseCode, item.idx); count++; });
             let bannerHtml = "";
