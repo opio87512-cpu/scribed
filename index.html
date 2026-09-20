@@ -8,6 +8,8 @@
     <meta http-equiv="Expires" content="0">
     <title>ASTU ECE Portal</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- PDF.js Library added here -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
@@ -29,7 +31,6 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             padding: 15px; margin: 0; color: var(--text-color);
             -webkit-font-smoothing: antialiased;
-            /* --- LIVERPOOL BACKGROUND IMAGE --- */
             background: linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.65)), url('background.jpg') no-repeat center center fixed;
             background-size: cover;
         }
@@ -143,7 +144,7 @@
         .material-card > div { min-width: 0; }
         .material-card > div > div { word-break: break-word; overflow-wrap: anywhere; }
 
-        .dl-btn { background: var(--bg-color); color: var(--btn-color); text-decoration: none; font-weight: 600; font-size: 13px; padding: 8px 14px; border-radius: 8px; }
+        .dl-btn { background: var(--bg-color); color: var(--btn-color); text-decoration: none; font-weight: 600; font-size: 13px; padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
         .fav-btn { background: none; border: none; font-size: 18px; color: #ffb300; padding: 5px; width: auto; cursor: pointer; box-shadow: none; }
         .fav-btn.unstarred { color: var(--hint-color); opacity: 0.5; }
         .folder-card {
@@ -391,6 +392,30 @@
         .modal-content li { margin-bottom: 10px; }
         .admin-only { display: none; }
         .error-banner { background:#ffebee; color:#c62828; padding:12px 14px; border-radius:12px; margin-bottom:15px; font-size:13px; display:flex; gap:8px; align-items:center; }
+
+        /* ============ PDF VIEWER STYLES ============ */
+        #pdf-viewer-view {
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #1a1a1a; z-index: 99999; flex-direction: column;
+        }
+        .pdf-toolbar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 15px; background: #2a2a2a; color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5); flex-shrink: 0;
+        }
+        .pdf-toolbar button {
+            background: var(--btn-color); color: white; border: none;
+            padding: 8px 16px; border-radius: 8px; font-weight: bold;
+            cursor: pointer; width: auto; font-size: 14px;
+        }
+        .pdf-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pdf-canvas-wrap {
+            flex: 1; overflow: auto; display: flex; justify-content: center;
+            padding: 15px; -webkit-overflow-scrolling: touch;
+        }
+        #pdf-canvas {
+            max-width: 100%; height: auto; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -695,7 +720,7 @@
         <details class="filter-accordion" style="margin-bottom:10px;">
             <summary><i class="fa-solid fa-book" style="margin-right:6px; color:var(--btn-color)"></i> Finding Files <i class="fa-solid fa-chevron-down"></i></summary>
             <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
-                Open <b>Find Materials</b> from the Menu. Use the <b>search bar</b> to look for any file name, course code, or course title. Tap the <b>Filter</b> accordion to narrow results by Year → Semester → Course → Type (Course Outline, Note, Assignment, Mid, Final, Test). Results appear as <b>folders</b> — tap a folder to see the files inside, then tap <b>Open</b> to download. To go back to the folder list, tap <b>Back to Folders</b>. You can also sort by <b>Newest First</b> or <b>Oldest First</b> using the dropdown. If you get stuck on "No materials found," just tap <b>🗑 Clear Filters</b> to reset everything.
+                Open <b>Find Materials</b> from the Menu. Use the <b>search bar</b> to look for any file name, course code, or course title. Tap the <b>Filter</b> accordion to narrow results by Year → Semester → Course → Type (Course Outline, Note, Assignment, Mid, Final, Test). Results appear as <b>folders</b> — tap a folder to see the files inside, then tap <b>Open</b> to download. To go back to the folder list, tap <b>Back to Folders</b>. You can also sort by <b>Newest First</b>, <b>Oldest First</b>, or <b>Alphabetical (A-Z / Z-A)</b> using the dropdown. If you get stuck on "No materials found," just tap <b>🗑 Clear Filters</b> to reset everything.
             </div>
         </details>
 
@@ -787,6 +812,20 @@
         </form>
     </div>
 
+    <!-- PDF VIEWER VIEW (HIDDEN BY DEFAULT) -->
+    <div id="pdf-viewer-view">
+        <!-- Toolbar -->
+        <div class="pdf-toolbar">
+            <button onclick="prevPage()" id="pdf-prev-btn"><i class="fa-solid fa-chevron-left"></i> Prev</button>
+            <span style="font-size: 14px; font-weight: 600;">Page <span id="page-num">1</span> / <span id="page-count">--</span></span>
+            <button onclick="nextPage()" id="pdf-next-btn">Next <i class="fa-solid fa-chevron-right"></i></button>
+        </div>
+        <!-- Canvas Area -->
+        <div class="pdf-canvas-wrap" id="pdf-canvas-wrap">
+            <canvas id="pdf-canvas"></canvas>
+        </div>
+    </div>
+
     <script>
     (function() {
         "use strict";
@@ -799,14 +838,17 @@
         const BOT_USERNAME = "astuece2026_bot";
         const INIT_DATA = tg.initData || "";
 
+        // Save the default back button behavior
+        const defaultBackButtonAction = function() {
+            try {
+                if (typeof activeFolderContext !== 'undefined') activeFolderContext = null;
+                if (typeof activeFavFolder !== 'undefined') activeFavFolder = null;
+            } catch (_) {}
+            window.openMenuHub();
+        };
+
         if (tg.BackButton) {
-            tg.BackButton.onClick(function() {
-                try {
-                    if (typeof activeFolderContext !== 'undefined') activeFolderContext = null;
-                    if (typeof activeFavFolder !== 'undefined') activeFavFolder = null;
-                } catch (_) {}
-                window.openMenuHub();
-            });
+            tg.BackButton.onClick(defaultBackButtonAction);
             tg.BackButton.hide();
         }
 
@@ -1383,33 +1425,35 @@
                 const items = grouped[key] && grouped[key][folderName];
                 if (!items) { activeFolderContext = null; renderMaterials(); return; }
                 
-                // --- ADDED SORTING FOR FILES ONLY ---
                 const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
                 items.sort((a, b) => {
                     if (sortOrder === 'az') return collator.compare(a.name || '', b.name || '');
                     if (sortOrder === 'za') return collator.compare(b.name || '', a.name || '');
                     if (sortOrder === 'old') return parseDateAdded(a.date_added) - parseDateAdded(b.date_added);
-                    return parseDateAdded(b.date_added) - parseDateAdded(a.date_added); // Default: Newest First
+                    return parseDateAdded(b.date_added) - parseDateAdded(a.date_added);
                 });
-                // -------------------------------------
 
                 html += '<button type="button" class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="window.backToFolders()"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>';
                 html += '<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px; word-break: break-word; overflow-wrap: anywhere;">📁 ' + esc(folderName) + ' <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(' + items.length + ' files)</span></div>';
+                
                 items.forEach(item => {
-                    const deepLink = 'https://t.me/' + BOT_USERNAME + '?start=g_' + item.course + '_' + item.type + '_' + item.originalIdx;
+                    // NOTE: Uses the direct_pdf_url injected by the backend
+                    const pdfUrl = item.direct_pdf_url || '#';
+                    
                     const favId = 'mat_' + item.course + '_' + item.type + '_' + item.originalIdx;
                     const isStarred = isFav(favId);
                     const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
                     const dateAdded = item.date_added ? ' • Added: ' + item.date_added : '';
                     const courseLine = courseDisplay(item.course);
+                    
                     html += '<div class="material-card"><div class="material-info">'
                         + '<span class="material-name">📄 ' + esc(item.name) + '</span>'
                         + '<span class="material-type" style="text-transform:none;">' + esc(courseLine) + '</span>'
                         + '<span class="material-type">' + esc(item.type.toUpperCase()) + esc(dateAdded) + '</span></div>'
                         + '<div class="card-actions">'
                         + '<button class="fav-btn" style="color:#ff3b30; opacity: 0.6; font-size:16px;" data-action="report" data-rtype="Material" data-course="' + esc(item.course) + '" data-title="' + esc(item.name) + '"><i class="fa-solid fa-triangle-exclamation"></i></button>'
-                        + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(item.name) + '" data-url="' + esc(deepLink) + '" data-type="material" data-meta="' + esc(courseLine) + ' • ' + esc(item.type.toUpperCase()) + '"><i class="' + starClass + '"></i></button>'
-                        + '<a class="dl-btn" href="' + esc(deepLink) + '" target="_blank" rel="noopener" data-action="track-open" data-course="' + esc(item.course) + '" data-kind="' + esc(item.type) + '" data-name="' + esc(item.name) + '">Open</a>'
+                        + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(item.name) + '" data-url="' + esc(pdfUrl) + '" data-type="material" data-meta="' + esc(courseLine) + ' • ' + esc(item.type.toUpperCase()) + '"><i class="' + starClass + '"></i></button>'
+                        + '<button class="dl-btn" onclick="openPdf(\'' + esc(pdfUrl) + '\')">Open</button>'
                         + '</div></div>';
                 });
                 container.innerHTML = bannerHtml + html;
@@ -1427,7 +1471,6 @@
                     folderList.push({ key, course, type, folderName, items, folderDate, sortKey: parseDateAdded(folderDate) });
                 }
             }
-            // Folders ALWAYS stay sorted by date, ignoring the A-Z/Z-A selection
             folderList.sort((a, b) => sortOrder === 'old' ? (a.sortKey - b.sortKey) : (b.sortKey - a.sortKey));
 
             folderList.forEach(folder => {
@@ -1533,15 +1576,13 @@
                 });
             }
             
-            // --- UPDATED SORTING FOR VIDEOS (A-Z / Z-A SUPPORT) ---
             const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
             allVidsFlat.sort((a, b) => {
                 if (sortOrder === 'az') return collator.compare(a.v.title || '', b.v.title || '');
                 if (sortOrder === 'za') return collator.compare(b.v.title || '', a.v.title || '');
                 if (sortOrder === 'old') return a.sortKey - b.sortKey;
-                return b.sortKey - a.sortKey; // Default: Newest First
+                return b.sortKey - a.sortKey;
             });
-            // -------------------------------------------------------
 
             pendingRemoteThumbs = [];
             allVidsFlat.forEach(item => { html += generateVideoCard(item.v, item.courseCode, item.idx); count++; });
@@ -1593,7 +1634,7 @@
                         html += '<div class="material-card"><div class="material-info"><span class="material-name">📄 ' + esc(fav.title) + '</span>'
                             + '<span class="material-type" style="text-transform:none;">' + esc(fav.meta) + '</span></div>'
                             + '<div class="card-actions"><button class="fav-btn" data-action="toggle-fav" data-fav-id="' + esc(fav.id) + '" data-title="' + esc(fav.title) + '" data-url="' + esc(fav.url) + '" data-type="material" data-meta="' + esc(fav.meta) + '"><i class="fa-solid fa-star"></i></button>'
-                            + '<a class="dl-btn" href="' + esc(fav.url) + '" target="_blank" rel="noopener" data-action="track-open" data-course="" data-kind="favorite" data-name="' + esc(fav.title) + '">Open</a></div></div>';
+                            + '<button class="dl-btn" onclick="openPdf(\'' + esc(fav.url) + '\')">Open</button></div></div>';
                     } else if (fav.type === 'video') {
                         html += generateVideoCard({ title: fav.title, url: fav.url }, fav.meta, fav.id.split('_').pop());
                     } else if (fav.type === 'folder') {
@@ -2031,6 +2072,130 @@
                 msApplyRevealedBorders();
             }
         });
+
+        // ==================== PDF VIEWER LOGIC ====================
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let pdfDoc = null,
+            pageNum = 1,
+            pageRendering = false,
+            pageNumPending = null,
+            canvas = document.getElementById('pdf-canvas'),
+            ctx = canvas.getContext('2d');
+
+        window.openPdf = function(url) {
+            // Prepend RENDER_URL if it's a relative path from our backend
+            let finalUrl = url;
+            if (url && url.startsWith('/api/')) {
+                finalUrl = RENDER_URL + url;
+            }
+
+            // Hide the current active section
+            const activeSection = document.querySelector('.section.active');
+            if (activeSection) activeSection.style.display = 'none';
+            
+            // Show PDF Viewer
+            document.getElementById('pdf-viewer-view').style.display = 'flex';
+            
+            // Telegram Back Button Logic
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.BackButton.offClick(defaultBackButtonAction);
+                window.Telegram.WebApp.BackButton.onClick(closePdf);
+                window.Telegram.WebApp.BackButton.show();
+            }
+            
+            // Load the PDF
+            loadPdf(finalUrl);
+        };
+
+        window.closePdf = function() {
+            // Hide PDF Viewer
+            document.getElementById('pdf-viewer-view').style.display = 'none';
+            
+            // Show the previous section
+            const activeSection = document.querySelector('.section.active');
+            if (activeSection) activeSection.style.display = 'block';
+            
+            // Restore Telegram Back Button
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.BackButton.offClick(closePdf);
+                window.Telegram.WebApp.BackButton.onClick(defaultBackButtonAction);
+                window.Telegram.WebApp.BackButton.hide();
+            }
+            
+            // Clean up PDF memory
+            pdfDoc = null;
+            pageNum = 1;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        };
+
+        function loadPdf(url) {
+            pdfjsLib.getDocument(url).promise.then(function(pdfDoc_) {
+                pdfDoc = pdfDoc_;
+                document.getElementById('page-count').textContent = pdfDoc.numPages;
+                renderPage(pageNum);
+            }).catch(function(error) {
+                console.error("Error loading PDF:", error);
+                if (window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.showAlert("⚠️ Failed to load PDF. The link might be invalid or expired.");
+                }
+                closePdf();
+            });
+        }
+
+        function renderPage(num) {
+            pageRendering = true;
+            
+            pdfDoc.getPage(num).then(function(page) {
+                // Calculate scale to fit mobile screen width
+                const viewport = page.getViewport({ scale: 1 });
+                const containerWidth = document.getElementById('pdf-canvas-wrap').clientWidth - 30; // minus padding
+                const scale = containerWidth / viewport.width;
+                const scaledViewport = page.getViewport({ scale: scale });
+
+                canvas.height = scaledViewport.height;
+                canvas.width = scaledViewport.width;
+
+                const renderContext = {
+                    canvasContext: ctx,
+                    viewport: scaledViewport
+                };
+                
+                const renderTask = page.render(renderContext);
+
+                // Wait for rendering to finish
+                renderTask.promise.then(function() {
+                    pageRendering = false;
+                    if (pageNumPending !== null) {
+                        renderPage(pageNumPending);
+                        pageNumPending = null;
+                    }
+                });
+            });
+
+            document.getElementById('page-num').textContent = num;
+        }
+
+        function queueRenderPage(num) {
+            if (pageRendering) {
+                pageNumPending = num;
+            } else {
+                renderPage(num);
+            }
+        }
+
+        window.prevPage = function() {
+            if (pageNum <= 1) return;
+            pageNum--;
+            queueRenderPage(pageNum);
+        };
+
+        window.nextPage = function() {
+            if (pdfDoc && pageNum >= pdfDoc.numPages) return;
+            pageNum++;
+            queueRenderPage(pageNum);
+        };
+        // ==========================================================
 
         // ---------- GPA ----------
         const ASTU_GRADES = { "A+": 4.0, "A": 4.0, "A-": 3.75, "B+": 3.5, "B": 3.0, "B-": 2.75, "C+": 2.5, "C": 2.0, "C-": 1.75, "D": 1.0, "F": 0.0 };
