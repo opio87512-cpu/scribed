@@ -395,27 +395,34 @@
 
         /* ============ PDF VIEWER STYLES ============ */
         #pdf-viewer-view {
-            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh;
             background: #1a1a1a; z-index: 99999; flex-direction: column;
         }
-        .pdf-toolbar {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 10px 15px; background: #2a2a2a; color: white;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.5); flex-shrink: 0;
+        .pdf-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #2a2a2a; color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.5); flex-shrink: 0; }
+        .pdf-toolbar button, #pdf-searchbar button {
+            background: var(--btn-color); color: #fff; border: none; padding: 0; width: 36px; height: 36px;
+            border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; flex-shrink: 0;
         }
-        .pdf-toolbar button {
-            background: var(--btn-color); color: white; border: none;
-            padding: 8px 16px; border-radius: 8px; font-weight: bold;
-            cursor: pointer; width: auto; font-size: 14px;
+        .pdf-toolbar button:active, #pdf-searchbar button:active { transform: scale(0.94); }
+        .pdf-toolbar .pdf-sp { flex: 1; }
+        .pdf-toolbar input, #pdf-searchbar input {
+            width: 52px; padding: 6px 4px; height: 36px; text-align: center; font-size: 14px;
+            background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 8px;
         }
-        .pdf-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .pdf-canvas-wrap {
-            flex: 1; overflow: auto; display: flex; justify-content: center;
-            padding: 15px; -webkit-overflow-scrolling: touch;
-        }
-        #pdf-canvas {
-            max-width: 100%; height: auto; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-radius: 4px;
-        }
+        #pdf-searchbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #2a2a2a; border-top: 1px solid #3a3a3a; color: #b0b0b0; font-size: 13px; }
+        #pdf-searchbar[hidden] { display: none; }
+        #pdf-searchbar input { flex: 1; width: auto; text-align: left; padding: 6px 10px; }
+        .pdf-toolbar .pdf-lbl { font-size: 13px; min-width: 42px; text-align: center; }
+        .pdf-canvas-wrap { flex: 1; overflow: auto; position: relative; padding: 12px; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
+        #pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 10px; width: max-content; min-width: 100%; transform-origin: 50% 0; }
+        .pdf-page { position: relative; flex: none; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-radius: 2px; overflow: hidden; }
+        .pdf-page canvas { position: absolute; inset: 0; display: block; }
+        .pdf-text { position: absolute; inset: 0; overflow: hidden; line-height: 1; }
+        .pdf-text span { position: absolute; color: transparent; white-space: pre; cursor: text; transform-origin: 0 0; }
+        .pdf-text span.hit { background: rgba(255, 213, 0, 0.55); border-radius: 2px; }
+        .pdf-text ::selection { background: rgba(0, 122, 255, 0.35); }
+        #pdf-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #b0b0b0; font-size: 14px; pointer-events: none; }
+        #pdf-status:empty { display: none; }
     </style>
 </head>
 <body>
@@ -814,15 +821,26 @@
 
     <!-- PDF VIEWER VIEW (HIDDEN BY DEFAULT) -->
     <div id="pdf-viewer-view">
-        <!-- Toolbar -->
         <div class="pdf-toolbar">
-            <button onclick="prevPage()" id="pdf-prev-btn"><i class="fa-solid fa-chevron-left"></i> Prev</button>
-            <span style="font-size: 14px; font-weight: 600;">Page <span id="page-num">1</span> / <span id="page-count">--</span></span>
-            <button onclick="nextPage()" id="pdf-next-btn">Next <i class="fa-solid fa-chevron-right"></i></button>
+            <button onclick="closePdf()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            <input id="pdf-page-input" type="number" inputmode="numeric" min="1" value="1" aria-label="Page number">
+            <span class="pdf-lbl" style="min-width:0">/ <span id="page-count">--</span></span>
+            <span class="pdf-sp"></span>
+            <button onclick="pvZoomBy(-0.25)" aria-label="Zoom out"><i class="fa-solid fa-minus"></i></button>
+            <span class="pdf-lbl" id="pdf-zoom-label">100%</span>
+            <button onclick="pvZoomBy(0.25)" aria-label="Zoom in"><i class="fa-solid fa-plus"></i></button>
+            <button onclick="pvFit()" aria-label="Fit to width"><i class="fa-solid fa-expand"></i></button>
+            <button onclick="pvToggleSearch()" aria-label="Search"><i class="fa-solid fa-magnifying-glass"></i></button>
         </div>
-        <!-- Canvas Area -->
+        <div id="pdf-searchbar" hidden>
+            <input id="pdf-search-input" type="search" placeholder="Find in document" enterkeyhint="search">
+            <span id="pdf-hit-label"></span>
+            <button onclick="pvStep(-1)" aria-label="Previous match"><i class="fa-solid fa-chevron-up"></i></button>
+            <button onclick="pvStep(1)" aria-label="Next match"><i class="fa-solid fa-chevron-down"></i></button>
+        </div>
         <div class="pdf-canvas-wrap" id="pdf-canvas-wrap">
-            <canvas id="pdf-canvas"></canvas>
+            <div id="pdf-pages"></div>
+            <div id="pdf-status"></div>
         </div>
     </div>
 
@@ -2074,127 +2092,286 @@
         });
 
         // ==================== PDF VIEWER LOGIC ====================
+        // Continuous scroll, lazy page rendering, zoom (buttons + pinch), text layer, search, resume page.
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        let pdfDoc = null,
-            pageNum = 1,
-            pageRendering = false,
-            pageNumPending = null,
-            canvas = document.getElementById('pdf-canvas'),
-            ctx = canvas.getContext('2d');
+        const PV_MIN = 0.5, PV_MAX = 4;
+        const pv = { doc: null, task: null, key: '', zoom: 1, scale: 1, base: { w: 612, h: 792 }, pages: [], io: null, cur: 1, raf: 0, query: '', hits: [], hitIdx: -1, searchId: 0, txt: {} };
+        const pvEl = function(id) { return document.getElementById(id); };
+        const pvWrap = pvEl('pdf-canvas-wrap');
+        const pvStatus = function(t) { pvEl('pdf-status').textContent = t || ''; };
 
         window.openPdf = function(url) {
-            // Prepend RENDER_URL if it's a relative path from our backend
-            let finalUrl = url;
-            if (url && url.startsWith('/api/')) {
-                finalUrl = RENDER_URL + url;
-            }
+            let finalUrl = url, own = false;
+            if (url && url.startsWith('/api/')) { finalUrl = RENDER_URL + url; own = true; }
+            else if (url && url.startsWith(RENDER_URL)) own = true;
 
-            // Hide the current active section
             const activeSection = document.querySelector('.section.active');
             if (activeSection) activeSection.style.display = 'none';
-            
-            // Show PDF Viewer
-            document.getElementById('pdf-viewer-view').style.display = 'flex';
-            
-            // Telegram Back Button Logic
+            pvEl('pdf-viewer-view').style.display = 'flex';
+
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.BackButton.offClick(defaultBackButtonAction);
                 window.Telegram.WebApp.BackButton.onClick(closePdf);
                 window.Telegram.WebApp.BackButton.show();
             }
-            
-            // Load the PDF
-            loadPdf(finalUrl);
+            pv.key = 'astu_pdfpos:' + url;
+            loadPdf(finalUrl, own);
         };
 
         window.closePdf = function() {
-            // Hide PDF Viewer
-            document.getElementById('pdf-viewer-view').style.display = 'none';
-            
-            // Show the previous section
+            pv.searchId++;
+            if (pv.io) { pv.io.disconnect(); pv.io = null; }
+            pv.pages.forEach(pvRelease);
+            pv.pages = [];
+            pvEl('pdf-pages').innerHTML = '';
+            if (pv.task) { try { pv.task.destroy(); } catch (_) {} pv.task = null; }
+            pv.doc = null; pv.zoom = 1; pv.cur = 1; pv.query = ''; pv.hits = []; pv.hitIdx = -1; pv.txt = {};
+            pvEl('pdf-search-input').value = '';
+            pvEl('pdf-hit-label').textContent = '';
+            pvEl('pdf-searchbar').hidden = true;
+            pvEl('pdf-zoom-label').textContent = '100%';
+            pvEl('page-count').textContent = '--';
+            pvStatus('');
+            pvEl('pdf-viewer-view').style.display = 'none';
+
             const activeSection = document.querySelector('.section.active');
             if (activeSection) activeSection.style.display = 'block';
-            
-            // Restore Telegram Back Button
+
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.BackButton.offClick(closePdf);
                 window.Telegram.WebApp.BackButton.onClick(defaultBackButtonAction);
                 window.Telegram.WebApp.BackButton.hide();
             }
-            
-            // Clean up PDF memory
-            pdfDoc = null;
-            pageNum = 1;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
         };
 
-        function loadPdf(url) {
-            pdfjsLib.getDocument(url).promise.then(function(pdfDoc_) {
-                pdfDoc = pdfDoc_;
-                document.getElementById('page-count').textContent = pdfDoc.numPages;
-                renderPage(pageNum);
-            }).catch(function(error) {
-                console.error("Error loading PDF:", error);
-                if (window.Telegram && window.Telegram.WebApp) {
-                    window.Telegram.WebApp.showAlert("⚠️ Failed to load PDF. The link might be invalid or expired.");
-                }
-                closePdf();
-            });
+        function pvFail(err) {
+            const s = err && err.status;
+            const msg = s === 413 ? "This file is over Telegram's 20 MB limit for bots, so it can't be opened here."
+                : s === 415 ? "This file isn't a PDF, so it can't be previewed."
+                : s === 401 ? "Your session expired. Close and reopen the app, then try again."
+                : "Failed to load the PDF. The link might be invalid or expired.";
+            console.error("Error loading PDF:", err);
+            if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert("⚠️ " + msg);
+            closePdf();
         }
 
-        function renderPage(num) {
-            pageRendering = true;
-            
-            pdfDoc.getPage(num).then(function(page) {
-                // Calculate scale to fit mobile screen width
-                const viewport = page.getViewport({ scale: 1 });
-                const containerWidth = document.getElementById('pdf-canvas-wrap').clientWidth - 30; // minus padding
-                const scale = containerWidth / viewport.width;
-                const scaledViewport = page.getViewport({ scale: scale });
+        function loadPdf(url, own) {
+            pvStatus('Loading…');
+            const opts = { url: url };
+            if (own && INIT_DATA) opts.httpHeaders = { 'X-Telegram-Init-Data': INIT_DATA };
+            const task = pdfjsLib.getDocument(opts);
+            pv.task = task;
+            task.onProgress = function(p) { if (p.total) pvStatus('Loading ' + Math.round(p.loaded / p.total * 100) + '%'); };
+            task.promise.then(async function(doc) {
+                if (pv.task !== task) { doc.destroy(); return; }
+                const v = (await doc.getPage(1)).getViewport({ scale: 1 });
+                if (pv.task !== task) return;
+                pv.doc = doc;
+                pv.base = { w: v.width, h: v.height };
+                pvEl('page-count').textContent = doc.numPages;
+                pvBuild();
+                pvStatus('');
+                let saved = 0;
+                try { saved = parseInt(localStorage.getItem(pv.key), 10) || 0; } catch (_) {}
+                if (saved > 1 && saved <= doc.numPages) pvGo(saved);
+            }).catch(function(err) { if (pv.task === task) pvFail(err); });
+        }
 
-                canvas.height = scaledViewport.height;
-                canvas.width = scaledViewport.width;
-
-                const renderContext = {
-                    canvasContext: ctx,
-                    viewport: scaledViewport
-                };
-                
-                const renderTask = page.render(renderContext);
-
-                // Wait for rendering to finish
-                renderTask.promise.then(function() {
-                    pageRendering = false;
-                    if (pageNumPending !== null) {
-                        renderPage(pageNumPending);
-                        pageNumPending = null;
-                    }
+        function pvBuild() {
+            const host = pvEl('pdf-pages');
+            host.innerHTML = '';
+            pv.pages = [];
+            for (let i = 1; i <= pv.doc.numPages; i++) {
+                const el = document.createElement('div');
+                el.className = 'pdf-page';
+                el.dataset.n = i;
+                host.appendChild(el);
+                pv.pages.push({ n: i, el: el, divs: [], rendered: false, scale: 0, job: 0, task: null, dim: null });
+            }
+            pvLayout();
+            pv.io = new IntersectionObserver(function(entries) {
+                entries.forEach(function(e) {
+                    const pg = pv.pages[e.target.dataset.n - 1];
+                    if (!pg) return;
+                    if (e.isIntersecting) pvRender(pg); else pvRelease(pg);
                 });
-            });
-
-            document.getElementById('page-num').textContent = num;
+            }, { root: pvWrap, rootMargin: '150% 0px' });
+            pv.pages.forEach(function(pg) { pv.io.observe(pg.el); });
         }
 
-        function queueRenderPage(num) {
-            if (pageRendering) {
-                pageNumPending = num;
-            } else {
-                renderPage(num);
+        function pvLayout() {
+            const fitW = Math.max(120, pvWrap.clientWidth - 24);
+            pv.scale = fitW / pv.base.w * pv.zoom;
+            pv.pages.forEach(function(pg) {
+                const d = pg.dim || pv.base;
+                pg.el.style.width = d.w * pv.scale + 'px';
+                pg.el.style.height = d.h * pv.scale + 'px';
+            });
+        }
+
+        function pvRelease(pg) {
+            pg.job++;
+            if (pg.task) { try { pg.task.cancel(); } catch (_) {} pg.task = null; }
+            pg.el.replaceChildren();
+            pg.rendered = false; pg.scale = 0; pg.divs = [];
+        }
+
+        async function pvRender(pg) {
+            if (!pv.doc || (pg.rendered && pg.scale === pv.scale)) return;
+            const doc = pv.doc, scale = pv.scale, job = ++pg.job;
+            if (pg.task) { try { pg.task.cancel(); } catch (_) {} }
+            pg.rendered = true; pg.scale = scale;
+            try {
+                const page = await doc.getPage(pg.n);
+                if (pv.doc !== doc || job !== pg.job) return;
+                const vp = page.getViewport({ scale: scale });
+                pg.dim = { w: vp.width / scale, h: vp.height / scale };
+                pg.el.style.width = vp.width + 'px';
+                pg.el.style.height = vp.height + 'px';
+
+                // Sharp on phones, but cap canvas size so high zoom can't exhaust memory
+                let out = Math.min(window.devicePixelRatio || 1, 2);
+                out = Math.min(out, Math.sqrt(16e6 / (vp.width * vp.height)));
+                const cv = document.createElement('canvas');
+                cv.width = Math.floor(vp.width * out);
+                cv.height = Math.floor(vp.height * out);
+                cv.style.width = '100%'; cv.style.height = '100%';
+                pg.task = page.render({ canvasContext: cv.getContext('2d'), viewport: vp, transform: out !== 1 ? [out, 0, 0, out, 0, 0] : null });
+                await pg.task.promise;
+                if (pv.doc !== doc || job !== pg.job) return;
+
+                const tl = document.createElement('div');
+                tl.className = 'pdf-text';
+                tl.style.setProperty('--scale-factor', scale);
+                const divs = [];
+                await pdfjsLib.renderTextLayer({ textContentSource: page.streamTextContent(), container: tl, viewport: vp, textDivs: divs }).promise;
+                if (pv.doc !== doc || job !== pg.job) return;
+
+                pg.divs = divs;
+                pg.el.replaceChildren(cv, tl);
+                pvMark(pg);
+            } catch (err) {
+                if (err && err.name === 'RenderingCancelledException') return;
+                if (job === pg.job) { pg.rendered = false; pg.scale = 0; console.error('PDF page render failed', err); }
             }
         }
 
-        window.prevPage = function() {
-            if (pageNum <= 1) return;
-            pageNum--;
-            queueRenderPage(pageNum);
-        };
+        // ----- navigation -----
+        function pvGo(n) {
+            if (!pv.pages.length) return;
+            n = Math.max(1, Math.min(pv.pages.length, n | 0));
+            pvWrap.scrollTop = pv.pages[n - 1].el.offsetTop - 8;
+            pv.cur = n;
+            pvEl('pdf-page-input').value = n;
+        }
 
-        window.nextPage = function() {
-            if (pdfDoc && pageNum >= pdfDoc.numPages) return;
-            pageNum++;
-            queueRenderPage(pageNum);
+        function pvUpdateCur() {
+            if (!pv.pages.length) return;
+            const mid = pvWrap.scrollTop + pvWrap.clientHeight / 3;
+            let n = 1;
+            for (let i = 0; i < pv.pages.length; i++) { if (pv.pages[i].el.offsetTop <= mid) n = i + 1; else break; }
+            pv.cur = n;
+            const inp = pvEl('pdf-page-input');
+            if (document.activeElement !== inp) inp.value = n;
+            try { localStorage.setItem(pv.key, n); } catch (_) {}
+        }
+
+        pvWrap.addEventListener('scroll', function() {
+            if (pv.raf) return;
+            pv.raf = requestAnimationFrame(function() { pv.raf = 0; pvUpdateCur(); });
+        }, { passive: true });
+
+        pvEl('pdf-page-input').addEventListener('change', function() { pvGo(parseInt(this.value, 10) || pv.cur); this.blur(); });
+
+        // ----- zoom -----
+        function pvSetZoom(z) {
+            z = Math.max(PV_MIN, Math.min(PV_MAX, z));
+            if (!pv.doc || Math.abs(z - pv.zoom) < 0.001) return;
+            const cur = pv.pages[pv.cur - 1];
+            const frac = (pvWrap.scrollTop - cur.el.offsetTop) / cur.el.offsetHeight;
+            pv.zoom = z;
+            pvLayout();
+            pvWrap.scrollTop = cur.el.offsetTop + frac * cur.el.offsetHeight;
+            pv.pages.forEach(function(pg) { if (pg.rendered) pvRender(pg); });
+            pvEl('pdf-zoom-label').textContent = Math.round(z * 100) + '%';
+        }
+        window.pvZoomBy = function(d) { pvSetZoom(Math.round((pv.zoom + d) * 100) / 100); };
+        window.pvFit = function() { pvSetZoom(1); };
+
+        let pvPinch = null;
+        const pvDist = function(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); };
+        pvWrap.addEventListener('touchstart', function(e) { if (e.touches.length === 2) pvPinch = { d: pvDist(e.touches), r: 1 }; }, { passive: true });
+        pvWrap.addEventListener('touchmove', function(e) {
+            if (!pvPinch || e.touches.length !== 2) return;
+            e.preventDefault();
+            pvPinch.r = Math.max(PV_MIN / pv.zoom, Math.min(PV_MAX / pv.zoom, pvDist(e.touches) / pvPinch.d));
+            pvEl('pdf-pages').style.transform = 'scale(' + pvPinch.r + ')';
+        }, { passive: false });
+        pvWrap.addEventListener('touchend', function(e) {
+            if (!pvPinch || e.touches.length >= 2) return;
+            const r = pvPinch.r; pvPinch = null;
+            pvEl('pdf-pages').style.transform = '';
+            pvSetZoom(pv.zoom * r);
+        });
+
+        window.addEventListener('resize', function() {
+            if (!pv.doc) return;
+            pvLayout();
+            pv.pages.forEach(function(pg) { if (pg.rendered) pvRender(pg); });
+        });
+
+        // ----- search -----
+        function pvMark(pg) {
+            const q = pv.query;
+            pg.divs.forEach(function(d) { d.classList.toggle('hit', !!q && d.textContent.toLowerCase().indexOf(q) !== -1); });
+        }
+        function pvHitLabel() {
+            const l = pvEl('pdf-hit-label');
+            if (!pv.query) l.textContent = '';
+            else if (!pv.hits.length) l.textContent = 'No matches';
+            else l.textContent = (pv.hitIdx + 1) + ' of ' + pv.hits.length + ' pages';
+        }
+        async function pvSearch(q) {
+            q = q.trim().toLowerCase();
+            pv.query = q; pv.hits = []; pv.hitIdx = -1;
+            pv.pages.forEach(pvMark);
+            pvHitLabel();
+            if (!q || !pv.doc) return;
+            const doc = pv.doc, id = ++pv.searchId;
+            pvEl('pdf-hit-label').textContent = 'Searching…';
+            for (let i = 1; i <= doc.numPages; i++) {
+                if (pv.doc !== doc || id !== pv.searchId) return;
+                if (pv.txt[i] === undefined) {
+                    const tc = await (await doc.getPage(i)).getTextContent();
+                    pv.txt[i] = tc.items.map(function(it) { return it.str; }).join(' ').toLowerCase();
+                }
+                if (pv.txt[i].indexOf(q) !== -1) {
+                    pv.hits.push(i);
+                    if (pv.hitIdx < 0) { pv.hitIdx = 0; pvGo(i); }
+                }
+            }
+            if (id === pv.searchId) pvHitLabel();
+        }
+        window.pvStep = function(dir) {
+            if (!pv.hits.length) return;
+            pv.hitIdx = (pv.hitIdx + dir + pv.hits.length) % pv.hits.length;
+            pvGo(pv.hits[pv.hitIdx]);
+            pvHitLabel();
         };
+        window.pvToggleSearch = function() {
+            const bar = pvEl('pdf-searchbar');
+            bar.hidden = !bar.hidden;
+            if (!bar.hidden) pvEl('pdf-search-input').focus();
+            else pvSearch('');
+        };
+        pvEl('pdf-search-input').addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            if (this.value.trim().toLowerCase() === pv.query && pv.hits.length) window.pvStep(1);
+            else pvSearch(this.value);
+            this.blur();
+        });
         // ==========================================================
 
         // ---------- GPA ----------
