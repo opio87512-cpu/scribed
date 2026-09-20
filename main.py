@@ -22,7 +22,7 @@ from telebot.types import (
     InputMediaDocument,
     InputMediaPhoto,
 )
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 
 # ==========================================================================
@@ -2201,7 +2201,58 @@ def api_curriculum():
 
 @app.route('/api/materials', methods=['GET'])
 def get_materials():
-    return jsonify(load_json(DATA_FILE)), 200
+    data = load_json(DATA_FILE)
+    
+    # Inject the direct_pdf_url into each item
+    for key, items in data.items():
+        # Key format is "COURSE_CODE_MATERIAL_TYPE" (e.g., "ECEg2202_note")
+        parts = key.split('_')
+        course_code = parts[0]
+        mat_type = parts[1] if len(parts) > 1 else 'unknown'
+        
+        for idx, item in enumerate(items):
+            if item.get("content_type") == "document":
+                # Point this to our new proxy endpoint
+                item["direct_pdf_url"] = f"/api/serve_pdf/{course_code}/{mat_type}/{idx}"
+            else:
+                item["direct_pdf_url"] = ""
+                
+    return jsonify(data), 200
+
+
+@app.route('/api/serve_pdf/<course_code>/<mat_type>/<int:idx>', methods=['GET'])
+def serve_pdf(course_code, mat_type, idx):
+    # 1. Find the file record in the database
+    materials = load_json(DATA_FILE).get(f"{course_code}_{mat_type}", [])
+    if idx < 0 or idx >= len(materials):
+        return jsonify({"error": "File not found"}), 404
+
+    file_id = materials[idx].get("file_id")
+    if not file_id:
+        return jsonify({"error": "Invalid file record"}), 400
+
+    # 2. Get the file path from Telegram securely
+    try:
+        file_info = bot.get_file(file_id)
+        file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
+    except Exception as e:
+        log.error(f"Failed to get file info for {file_id}: {e}")
+        return jsonify({"error": "Failed to fetch file from Telegram"}), 500
+
+    # 3. Stream the file back to the client (pdf.js)
+    try:
+        req = requests.get(file_url, stream=True)
+        if req.status_code != 200:
+            return jsonify({"error": "Failed to download file from Telegram"}), 500
+
+        # Assuming it's a PDF. You can adjust content_type if needed.
+        return Response(
+            stream_with_context(req.iter_content(chunk_size=1024)),
+            content_type="application/pdf"
+        )
+    except Exception as e:
+        log.error(f"Failed to stream PDF: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @app.route('/api/videos', methods=['GET'])
