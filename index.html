@@ -2101,7 +2101,44 @@
         const pvWrap = pvEl('pdf-canvas-wrap');
         const pvStatus = function(t) { pvEl('pdf-status').textContent = t || ''; };
 
+        // Tapping "Open" asks: view inside the app, or send the file to the student's bot chat
         window.openPdf = function(url) {
+            const m = /^\/api\/serve_pdf\/([^\/]+)\/([^\/]+)\/(\d+)$/.exec(url || '');
+            const wa = window.Telegram && window.Telegram.WebApp;
+            if (!m || !wa || typeof wa.showPopup !== 'function' || !wa.isVersionAtLeast('6.2')) { pvOpen(url); return; }
+            try {
+                wa.showPopup({
+                    title: 'Open file',
+                    message: 'View it here, or send it to your chat with the bot so you can download or share it.',
+                    buttons: [
+                        { id: 'view', type: 'default', text: 'View here' },
+                        { id: 'bot', type: 'default', text: 'Send to bot chat' },
+                        { type: 'cancel' }
+                    ]
+                }, function(id) {
+                    if (id === 'view') pvOpen(url);
+                    else if (id === 'bot') pvSend(m[1], m[2], parseInt(m[3], 10));
+                });
+            } catch (_) { pvOpen(url); }
+        };
+
+        async function pvSend(course, type, idx) {
+            const wa = window.Telegram.WebApp;
+            try {
+                await api('/api/send_file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ course: course, type: type, idx: idx }) });
+                wa.showPopup({
+                    title: 'Sent',
+                    message: 'The file is in your chat with the bot. Open it there to download or share.',
+                    buttons: [{ id: 'chat', type: 'default', text: 'Go to chat' }, { id: 'stay', type: 'cancel' }]
+                }, function(id) { if (id === 'chat') wa.close(); });
+            } catch (e) {
+                wa.showAlert(e.message === 'bot_blocked'
+                    ? "⚠️ The bot can't message you yet. Open the bot chat, press Start, then try again."
+                    : "⚠️ Couldn't send the file. Please try again.");
+            }
+        }
+
+        function pvOpen(url) {
             let finalUrl = url, own = false;
             if (url && url.startsWith('/api/')) { finalUrl = RENDER_URL + url; own = true; }
             else if (url && url.startsWith(RENDER_URL)) own = true;
@@ -2117,7 +2154,7 @@
             }
             pv.key = 'astu_pdfpos:' + url;
             loadPdf(finalUrl, own);
-        };
+        }
 
         window.closePdf = function() {
             pv.searchId++;
