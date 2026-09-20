@@ -1,2742 +1,2995 @@
-import os
-import io
-import csv
-import json
-import base64
-import hmac
-import hashlib
-import time
-import threading
-import logging
-import html as html_lib
-import tempfile
-from queue import Queue
-from datetime import datetime, timedelta
-from urllib.parse import parse_qsl
-
-import requests
-import telebot
-from telebot.types import (
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    WebAppInfo,
-    InputMediaDocument,
-    InputMediaPhoto,
-)
-from flask import Flask, request, jsonify, Response, stream_with_context, send_file
-from flask_cors import CORS
-
-# ==========================================================================
-#  CONFIGURATION
-# ==========================================================================
-TOKEN = os.environ["BOT_TOKEN"]
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
-
-GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "opio87512-cpu/scribed")
-GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
-GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
-
-ADMIN_IDS = [
-    int(x.strip())
-    for x in os.environ.get("ADMIN_IDS", "8429521561,8244142809").split(",")
-    if x.strip()
-]
-
-ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.environ.get(
-        "ALLOWED_ORIGINS", "https://opio87512-cpu.github.io"
-    ).split(",")
-    if o.strip()
-]
-
-WEBAPP_URL = os.environ.get(
-    "WEBAPP_URL", "https://opio87512-cpu.github.io/scribed/"
-)
-
-# ==========================================================================
-#  LOGGING
-# ==========================================================================
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
-)
-log = logging.getLogger("astu")
-
-# ==========================================================================
-#  FLASK + CORS
-# ==========================================================================
-app = Flask(__name__)
-CORS(app, resources={r"/api/*": {
-    "origins": ALLOWED_ORIGINS,
-    "expose_headers": ["Content-Range", "Accept-Ranges", "Content-Length"],
-}})
-
-# ==========================================================================
-#  BOT
-# ==========================================================================
-bot = telebot.TeleBot(TOKEN, parse_mode=None)
-
-# ==========================================================================
-#  GITHUB MUTEX + READ CACHE
-# ==========================================================================
-_gh_lock = threading.RLock()
-_read_cache = {}
-_cache_lock = threading.Lock()
-CACHE_TTL = 60
-
-# ==========================================================================
-#  FILE NAMES
-# ==========================================================================
-DATA_FILE = "materials.json"
-VIDEOS_FILE = "videos.json"
-SUBS_FILE = "subs.json"
-EXAMS_FILE = "exams.json"
-NEWS_FILE = "news.json"
-EVENTS_FILE = "global_events.json"
-FAVS_FILE = "favorites.json"
-STATS_FILE = "stats.json"
-REQUESTS_FILE = "requests.json"
-USERS_FILE = "users.json"
-
-
-# ==========================================================================
-#  TIME HELPERS
-# ==========================================================================
-def _now_iso():
-    """Current UTC time as ISO string (machine-friendly, sortable)."""
-    return datetime.utcnow().isoformat(timespec="seconds")
-
-
-def _now_pretty():
-    """Current UTC time as a human-readable string."""
-    return datetime.utcnow().strftime("%b %d, %Y - %H:%M")
-
-
-def _parse_iso(s):
-    """Best-effort ISO / legacy string parser. Returns datetime or None."""
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(s)
-    except Exception:
-        pass
-    for fmt in ("%b %d, %Y - %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(s, fmt)
-        except Exception:
-            continue
-    return None
-
-
-# ==========================================================================
-#  SECURITY HELPERS
-# ==========================================================================
-def escape_md(text):
-    return html_lib.escape(str(text if text is not None else ""))
-
-
-def verify_init_data(init_data, max_age=86400):
-    if not init_data:
-        return None
-    try:
-        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-    except Exception:
-        return None
-
-    received_hash = parsed.pop("hash", None)
-    if not received_hash:
-        return None
-
-    data_check_string = "\n".join(
-        f"{k}={v}" for k, v in sorted(parsed.items())
-    )
-    secret_key = hmac.new(
-        b"WebAppData", TOKEN.encode(), hashlib.sha256
-    ).digest()
-    computed = hmac.new(
-        secret_key, data_check_string.encode(), hashlib.sha256
-    ).hexdigest()
-
-    if not hmac.compare_digest(computed, received_hash):
-        return None
-
-    try:
-        auth_date = int(parsed.get("auth_date", "0"))
-    except ValueError:
-        return None
-    if time.time() - auth_date > max_age:
-        return None
-
-    try:
-        return json.loads(parsed.get("user", "{}"))
-    except Exception:
-        return None
-
-
-def get_auth_user():
-    init_data = None
-    if request.is_json:
-        body = request.get_json(silent=True)
-        if isinstance(body, dict):
-            init_data = body.get("initData")
-    if not init_data:
-        init_data = request.form.get("initData")
-    if not init_data:
-        init_data = request.headers.get("X-Telegram-Init-Data")
-    user = verify_init_data(init_data)
-    if user:
-        try:
-            threading.Thread(
-                target=register_user, args=(user, "webapp"), daemon=True
-            ).start()
-        except Exception:
-            pass
-    return user
-
-
-def is_admin(user):
-    return user and int(user.get("id", 0)) in ADMIN_IDS
-
-
-# ==========================================================================
-#  USER TRACKING + ANALYTICS
-# ==========================================================================
-def register_user(user, source="bot"):
-    """
-    Register or refresh a user in users.json.
-
-    Stores: user_id, username, full_name, joined_at, last_active, active.
-    Safe to call on every interaction — cheap and idempotent.
-    """
-    if not user or not user.get("id"):
-        return
-    uid = str(user["id"])
-    now = _now_iso()
-
-    first = (user.get("first_name") or "").strip()
-    last = (user.get("last_name") or "").strip()
-    full_name = (first + " " + last).strip() or user.get("username") or f"User {uid}"
-    username = user.get("username") or ""
-
-    def mutator(data):
-        if not isinstance(data, dict):
-            data = {}
-        existing = data.get(uid, {})
-        data[uid] = {
-            "user_id": uid,
-            "username": username or existing.get("username", ""),
-            "first_name": first or existing.get("first_name", ""),
-            "last_name": last or existing.get("last_name", ""),
-            "full_name": full_name or existing.get("full_name", ""),
-            "joined_at": existing.get("joined_at") or existing.get("joined") or now,
-            "last_active": now,
-            "active": True,
-            "source": source,
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>ASTU ECE Portal</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- PDF.js Library added here -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            /* --- DARK THEME OVERRIDES FOR BACKGROUND --- */
+            --bg-color: transparent; /* Transparent so the Liverpool image shows through */
+            --text-color: #ffffff;
+            --hint-color: #b0b0b0;
+            --link-color: #3b82f6;
+            --btn-color: var(--tg-theme-button-color, #007aff);
+            --btn-text: var(--tg-theme-button-text-color, #ffffff);
+            --sec-bg: rgba(20, 20, 20, 0.88); /* Dark translucent cards */
+            --shadow-soft: 0 1px 0 rgba(255,255,255,0.05) inset,
+                           0 8px 22px rgba(0,0,0,0.5),
+                           0 2px 5px rgba(0,0,0,0.3);
+            --shadow-press: 0 1px 0 rgba(255,255,255,0.05) inset,
+                            0 2px 6px rgba(0,0,0,0.4);
         }
-        return True
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            padding: 15px; margin: 0; color: var(--text-color);
+            -webkit-font-smoothing: antialiased;
+            background: linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.65)), url('background.jpg') no-repeat center center fixed;
+            background-size: cover;
+        }
+        .top-navbar {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 20px; padding: 8px 12px; background: var(--sec-bg);
+            border-radius: 16px; box-shadow: var(--shadow-soft);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .top-navbar .nav-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .nav-menu-btn {
+            width: auto; padding: 8px 16px; border-radius: 12px; border: none;
+            background: var(--btn-color); color: var(--btn-text);
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            display: flex; align-items: center; gap: 6px;
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.28), 0 1px 0 rgba(255,255,255,0.35) inset;
+            position: relative; transition: transform .14s ease, box-shadow .18s ease;
+        }
+        .nav-menu-btn:active {
+            transform: translateY(2px) scale(0.97);
+            box-shadow: 0 1px 4px rgba(0, 122, 255, 0.25), 0 1px 0 rgba(255,255,255,0.35) inset;
+        }
+        .menu-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; animation: fadeIn 0.4s ease; }
+        .menu-card {
+            background: var(--sec-bg); padding: 18px 14px; border-radius: 18px;
+            box-shadow: var(--shadow-soft);
+            text-align: center; cursor: pointer; user-select: none;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+            will-change: transform;
+        }
+        .menu-card:active { transform: translateY(3px) scale(0.97); box-shadow: var(--shadow-press); }
+        .menu-card .menu-icon { font-size: 30px; color: var(--btn-color); margin-bottom: 10px; display: inline-block; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.12)); }
+        .menu-card .menu-label { font-weight: 700; font-size: 15px; margin-bottom: 4px; color: var(--text-color); }
+        .menu-card .menu-sub { font-size: 12px; color: var(--hint-color); line-height: 1.3; }
+        .section { display: none; animation: slideUp 0.35s ease; }
+        .section.active { display: block; }
+        .card-container {
+            background: var(--sec-bg); padding: 18px; border-radius: 18px;
+            box-shadow: var(--shadow-soft); border: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 15px;
+        }
+        details.filter-accordion {
+            background: var(--sec-bg); border-radius: 16px; margin-bottom: 20px;
+            box-shadow: var(--shadow-soft); border: 1px solid rgba(255,255,255,0.1); overflow: hidden;
+        }
+        details.filter-accordion summary { padding: 16px; font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; color: var(--btn-color); user-select: none; }
+        details.filter-accordion summary::-webkit-details-marker { display: none; }
+        details.filter-accordion .filter-content { padding: 0 16px 16px 16px; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 13px; color: var(--text-color); }
+        select, input, textarea, button { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid rgba(142, 142, 147, 0.3); font-size: 15px; box-sizing: border-box; background: var(--bg-color); color: var(--text-color); outline: none; transition: 0.2s; font-family: inherit; }
+        select:focus, input:focus, textarea:focus { border-color: var(--btn-color); background: var(--sec-bg); box-shadow: 0 0 0 3px rgba(0,122,255,0.15); }
+        select:disabled, input:disabled, textarea:disabled { opacity: 0.5; }
+        .star-rating { display: flex; flex-direction: row-reverse; justify-content: center; margin-bottom: 20px; }
+        .star-rating input { display: none; }
+        .star-rating label { font-size: 35px; color: rgba(142, 142, 147, 0.3); cursor: pointer; padding: 0 5px; transition: color 0.2s; }
+        .star-rating input:checked ~ label { color: #ffb300; }
+        .star-rating label:hover, .star-rating label:hover ~ label { color: #ffcc00; }
+        button[type="submit"], .action-btn {
+            background: var(--btn-color); color: var(--btn-text); border: none;
+            font-weight: 600; font-size: 16px; cursor: pointer;
+            display: flex; justify-content: center; align-items: center; gap: 8px;
+            box-shadow: 0 6px 16px rgba(0, 122, 255, 0.28), 0 1px 0 rgba(255,255,255,0.35) inset;
+            width: 100%; padding: 14px; border-radius: 14px;
+            transition: transform .14s ease, box-shadow .18s ease;
+        }
+        button[type="submit"]:active, .action-btn:active {
+            transform: translateY(2px) scale(0.98);
+            box-shadow: 0 2px 6px rgba(0, 122, 255, 0.22), 0 1px 0 rgba(255,255,255,0.35) inset;
+        }
+        button:disabled { opacity: 0.6; box-shadow: none; }
+        .search-box { position: relative; margin-bottom: 15px; }
+        .search-box i { position: absolute; left: 14px; top: 16px; color: var(--hint-color); }
+        .search-box input { padding-left: 40px; border-radius: 20px; font-weight: 500; background: var(--sec-bg); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .toolbar-row { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
+        .toolbar-row .sort-select { width: auto; flex: 1; padding: 10px 12px; font-size: 13px; border-radius: 20px; background: var(--sec-bg); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.05); font-weight: 600; color: var(--btn-color); }
 
-    try:
-        update_json(USERS_FILE, mutator)
-    except Exception:
-        log.exception("register_user failed for %s", uid)
+        .material-card {
+            background: var(--sec-bg); padding: 15px; border-radius: 14px; margin-bottom: 12px;
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2), 0 1px 0 rgba(255,255,255,0.05) inset;
+            border: 1px solid rgba(255,255,255,0.1);
+            min-width: 0;
+        }
+        .material-info {
+            display: flex; flex-direction: column; gap: 4px;
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+        }
+        .material-name {
+            font-weight: 600; font-size: 14px;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            min-width: 0;
+        }
+        .material-type {
+            font-size: 12px; color: var(--hint-color);
+            text-transform: uppercase; font-weight: 600;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            min-width: 0;
+        }
+        .card-actions {
+            display: flex; gap: 8px; align-items: center;
+            flex: 0 0 auto;
+            flex-shrink: 0;
+        }
+        .material-card > div { min-width: 0; }
+        .material-card > div > div { word-break: break-word; overflow-wrap: anywhere; }
 
+        .dl-btn { background: var(--bg-color); color: var(--btn-color); text-decoration: none; font-weight: 600; font-size: 13px; padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+        .fav-btn { background: none; border: none; font-size: 18px; color: #ffb300; padding: 5px; width: auto; cursor: pointer; box-shadow: none; }
+        .fav-btn.unstarred { color: var(--hint-color); opacity: 0.5; }
+        .folder-card {
+            background: var(--sec-bg); border-radius: 18px; margin-bottom: 20px;
+            display: block; overflow: hidden;
+            box-shadow: 0 8px 22px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.05) inset;
+            border: 1px solid rgba(255,255,255,0.1);
+            cursor: pointer;
+        }
+        .folder-thumb { position: relative; width: 100%; padding-top: 38%; background: linear-gradient(135deg, var(--btn-color), #00c6ff); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .folder-thumb i.folder-big-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 42px; color: rgba(255,255,255,0.9); }
+        .folder-bottom { display: flex; padding: 12px 15px; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .folder-info { flex: 1; display: flex; flex-direction: column; gap: 4px; padding-right: 10px; min-width: 0; }
+        .folder-title {
+            font-weight: 700; font-size: 16px; color: var(--text-color);
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+        .folder-meta { font-size: 12px; color: var(--hint-color); font-weight: 600; text-transform: uppercase; word-break: break-word; overflow-wrap: anywhere; }
+        .folder-date { font-size: 11px; color: var(--hint-color); font-weight: 500; text-transform: none; margin-top: 1px; }
+        .folder-actions { display: flex; align-items: center; gap: 12px; padding-top: 2px; flex-shrink: 0; }
+        .yt-card { display: block; background: var(--sec-bg); border-radius: 18px; margin-bottom: 20px; overflow: hidden; text-decoration: none; color: var(--text-color); box-shadow: 0 8px 22px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.05) inset; border: 1px solid rgba(255,255,255,0.1); }
+        .yt-thumb { position: relative; width: 100%; padding-top: 56.25%; background: #000; display: block; overflow: hidden; }
+        .yt-thumb img { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.9; display: block; }
+        .yt-thumb.playlist-placeholder { background: linear-gradient(135deg, #ff0000, #ff7a7a); }
+        .yt-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.15); }
+        .yt-overlay i { font-size: 45px; color: #fff; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.4)); }
+        .yt-details { display: flex; padding: 12px 15px; gap: 12px; align-items: flex-start; }
+        .yt-avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--bg-color); display: flex; justify-content: center; align-items: center; color: var(--btn-color); font-size: 18px; flex-shrink: 0; }
+        .yt-info { flex: 1; min-width: 0; }
+        .yt-title { font-weight: 600; font-size: 15px; line-height: 1.3; margin-bottom: 4px; word-break: break-word; overflow-wrap: anywhere; }
+        .yt-channel { font-size: 12px; color: var(--hint-color); word-break: break-word; overflow-wrap: anywhere; }
+        .empty-state { text-align: center; color: var(--hint-color); padding: 30px 10px; font-size: 14px; }
+        .empty-state i { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+        .course-row, .cgpa-row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .course-row input, .course-row select, .cgpa-row input, .cgpa-row select { padding: 12px 8px; font-size: 14px; border-radius: 8px; }
+        .remove-btn { background: #ff3b30; color: white; width: auto; padding: 0 14px; border-radius: 8px; border: none; cursor: pointer; box-shadow: none; font-size: 16px; }
 
-def touch_user(uid, source="interaction"):
-    """
-    Update last_active for a user without touching other fields.
-    Cheap enough to call on every bot interaction.
-    """
-    uid = str(uid)
-    now = _now_iso()
+        #resultsContainer, #videoResultsContainer { transition: opacity 0.2s ease; }
+        #resultsContainer .empty-state, #videoResultsContainer .empty-state { animation: fadeIn 0.25s ease; }
 
-    def mutator(data):
-        if not isinstance(data, dict):
-            return False
-        if uid not in data:
-            return False
-        data[uid]["last_active"] = now
-        data[uid]["active"] = True
-        data[uid]["source"] = source
-        return True
+        /* ============ GOOGLE-STYLE MINESWEEPER ============ */
+        #gameSection { padding: 0; }
+        .ms-app {
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.22), 0 1px 0 rgba(255,255,255,0.3) inset;
+            border: 1px solid rgba(0,0,0,0.1);
+            background: #aad751;
+        }
+        .ms-topbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: #4a752c;
+            color: #fff;
+            font-weight: 700;
+            flex-wrap: wrap;
+        }
+        .ms-difficulty {
+            appearance: none;
+            -webkit-appearance: none;
+            background-color: #fff;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23333' d='M0 0l5 6 5-6z'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 10px;
+            color: #202124;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 30px 8px 12px;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.2);
+            width: auto;
+            min-height: 36px;
+            font-family: inherit;
+        }
+        .ms-difficulty:active { transform: translateY(1px); box-shadow: 0 1px 0 rgba(0,0,0,0.2); }
+        .ms-stat {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 17px;
+            font-weight: 700;
+            min-width: 54px;
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+        }
+        .ms-stat i { font-size: 16px; }
+        .ms-stat .ms-flag-icon { color: #ff5252; }
+        .ms-stat .ms-clock-icon { color: #ffe14c; }
+        .ms-spacer { flex: 1; }
+        .ms-icon-btn {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 17px;
+            cursor: pointer;
+            padding: 7px 10px;
+            border-radius: 6px;
+            width: auto;
+            min-height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s, transform 0.1s;
+            box-shadow: none;
+        }
+        .ms-icon-btn:hover { background: rgba(255,255,255,0.15); }
+        .ms-icon-btn:active { transform: scale(0.92); }
+        .ms-icon-btn.active { background: rgba(255,255,255,0.32); color: #ffe14c; }
 
-    try:
-        update_json(USERS_FILE, mutator)
-    except Exception:
-        pass
+        .ms-board-wrap {
+            padding: 16px 10px;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            background-color: #aad751;
+            background-image:
+                linear-gradient(45deg, #a2d149 25%, transparent 25%, transparent 75%, #a2d149 75%, #a2d149),
+                linear-gradient(45deg, #a2d149 25%, transparent 25%, transparent 75%, #a2d149 75%, #a2d149);
+            background-size: 32px 32px;
+            background-position: 0 0, 16px 16px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .ms-board {
+            display: grid;
+            gap: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            margin: 0 auto;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .ms-tile {
+            width: var(--ms-tile-size, 32px);
+            height: var(--ms-tile-size, 32px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: calc(var(--ms-tile-size, 32px) * 0.58);
+            font-family: "Helvetica Neue", -apple-system, "Segoe UI", Roboto, sans-serif;
+            cursor: pointer;
+            box-sizing: border-box;
+            position: relative;
+            line-height: 1;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+            border: 0;
+            transition: background 0.08s ease;
+        }
+        .ms-tile.covered {
+            background: #a2d149;
+            box-shadow:
+                inset 2px 2px 0 rgba(255,255,255,0.28),
+                inset -2px -2px 0 rgba(0,0,0,0.10);
+        }
+        .ms-tile.covered.dark { background: #9ac73f; }
+        .ms-tile.covered:hover { background: #b7e05c; }
+        .ms-tile.covered.dark:hover { background: #a9d755; }
+        .ms-tile.covered:active {
+            box-shadow:
+                inset 2px 2px 0 rgba(0,0,0,0.10),
+                inset -2px -2px 0 rgba(255,255,255,0.15);
+        }
+        .ms-tile.revealed {
+            background: #e5c29f;
+            box-shadow: none;
+            cursor: default;
+        }
+        .ms-tile.revealed.dark { background: #d7b899; }
+        .ms-tile.revealed:hover { background: #e5c29f; }
+        .ms-tile.revealed.dark:hover { background: #d7b899; }
+        .ms-tile.n1 { color: #1976d2; }
+        .ms-tile.n2 { color: #388e3c; }
+        .ms-tile.n3 { color: #d32f2f; }
+        .ms-tile.n4 { color: #7b1fa2; }
+        .ms-tile.n5 { color: #c62828; }
+        .ms-tile.n6 { color: #00838f; }
+        .ms-tile.n7 { color: #202124; }
+        .ms-tile.n8 { color: #5f6368; }
+        .ms-tile.flagged { background: #a2d149; }
+        .ms-tile.flagged.dark { background: #9ac73f; }
+        .ms-tile.flagged::before {
+            content: '🚩';
+            font-size: calc(var(--ms-tile-size, 32px) * 0.62);
+            line-height: 1;
+            filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+        }
+        .ms-tile.mine {
+            background: #d32f2f;
+            box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15);
+        }
+        .ms-tile.mine::before {
+            content: '💣';
+            font-size: calc(var(--ms-tile-size, 32px) * 0.62);
+            line-height: 1;
+        }
+        .ms-tile.mine.triggered { background: #e53935; animation: ms-boom 0.4s ease-out; }
+        @keyframes ms-boom {
+            0% { transform: scale(1); }
+            40% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+        }
+        .ms-tile.wrong-flag { background: #e5c29f; }
+        .ms-tile.wrong-flag.dark { background: #d7b899; }
+        .ms-tile.wrong-flag::before {
+            content: '❌';
+            font-size: calc(var(--ms-tile-size, 32px) * 0.6);
+            line-height: 1;
+        }
+        .ms-status {
+            padding: 9px 16px;
+            background: #4a752c;
+            color: #fff;
+            text-align: center;
+            font-weight: 600;
+            font-size: 13px;
+            min-height: 14px;
+            letter-spacing: 0.2px;
+        }
+        @media (max-width: 480px) {
+            .ms-topbar { padding: 8px 10px; gap: 8px; }
+            .ms-stat { font-size: 15px; min-width: 46px; }
+            .ms-icon-btn { font-size: 15px; padding: 6px 8px; min-height: 32px; }
+            .ms-difficulty { font-size: 13px; padding: 6px 26px 6px 10px; min-height: 32px; background-position: right 8px center; }
+            .ms-board-wrap { padding: 10px 6px; }
+        }
 
+        @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999; display: none; justify-content: center; align-items: center; padding: 20px; animation: fadeIn 0.3s ease; }
+        .modal-content { background: var(--sec-bg); padding: 24px; border-radius: 20px; width: 100%; max-width: 320px; box-shadow: 0 22px 40px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.1) inset; border: 1px solid rgba(255,255,255,0.1); }
+        .modal-content h3 { margin-top: 0; margin-bottom: 12px; color: var(--text-color); display: flex; align-items: center; gap: 8px; font-size: 18px; }
+        .modal-content p { color: var(--hint-color); font-size: 14px; margin-bottom: 15px; line-height: 1.4; }
+        .modal-content ul { padding-left: 20px; margin-bottom: 20px; font-size: 14px; color: var(--text-color); line-height: 1.5; }
+        .modal-content li { margin-bottom: 10px; }
+        .admin-only { display: none; }
+        .error-banner { background:#ffebee; color:#c62828; padding:12px 14px; border-radius:12px; margin-bottom:15px; font-size:13px; display:flex; gap:8px; align-items:center; }
 
-def mark_user_inactive(uid):
-    uid = str(uid)
+        /* ============ PDF VIEWER STYLES ============ */
+        #pdf-viewer-view {
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh;
+            background: #1a1a1a; z-index: 99999; flex-direction: column;
+        }
+        .pdf-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #2a2a2a; color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.5); flex-shrink: 0; }
+        .pdf-toolbar button, #pdf-searchbar button {
+            background: var(--btn-color); color: #fff; border: none; padding: 0; width: 36px; height: 36px;
+            border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+        }
+        .pdf-toolbar button:active, #pdf-searchbar button:active { transform: scale(0.94); }
+        .pdf-toolbar .pdf-sp { flex: 1; }
+        .pdf-toolbar input, #pdf-searchbar input {
+            width: 52px; padding: 6px 4px; height: 36px; text-align: center; font-size: 14px;
+            background: #1a1a1a; color: #fff; border: 1px solid #444; border-radius: 8px;
+        }
+        #pdf-searchbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #2a2a2a; border-top: 1px solid #3a3a3a; color: #b0b0b0; font-size: 13px; }
+        #pdf-searchbar[hidden] { display: none; }
+        #pdf-searchbar input { flex: 1; width: auto; text-align: left; padding: 6px 10px; }
+        .pdf-toolbar .pdf-lbl { font-size: 13px; min-width: 42px; text-align: center; }
+        .pdf-canvas-wrap { flex: 1; overflow: auto; position: relative; padding: 12px; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
+        #pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 10px; width: max-content; min-width: 100%; transform-origin: 50% 0; }
+        .pdf-page { position: relative; flex: none; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.5); border-radius: 2px; overflow: hidden; }
+        .pdf-page canvas { position: absolute; inset: 0; display: block; }
+        .pdf-text { position: absolute; inset: 0; overflow: hidden; line-height: 1; }
+        .pdf-text span { position: absolute; color: transparent; white-space: pre; cursor: text; transform-origin: 0 0; }
+        .pdf-text span.hit { background: rgba(255, 213, 0, 0.55); border-radius: 2px; }
+        .pdf-text ::selection { background: rgba(0, 122, 255, 0.35); }
+        #pdf-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #b0b0b0; font-size: 14px; pointer-events: none; }
+        #pdf-status:empty { display: none; }
+    </style>
+</head>
+<body>
+    <!-- WHAT'S NEW POPUP -->
+    <div id="whatsNewModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3><i class="fa-solid fa-gift" style="color:var(--btn-color)"></i> What's New!</h3>
+            <p>Welcome to the ASTU ECE Portal. Everything you need for your courses, in one place:</p>
+            <ul>
+                <li><b>📚 Find Materials:</b> Notes, exams, and assignments for Year 2 Sem 2 and Year 3.</li>
+                <li><b>📺 Video Tutorials:</b> Approved YouTube lectures for your courses.</li>
+                <li><b>🧮 GPA Calculator:</b> Auto-loads your exact ASTU credit hours.</li>
+                <li><b>💣 Minesweeper:</b> Brand new Google-style board with Easy / Medium / Hard.</li>
+                <li><b>⭐ Favorites:</b> Save files you use often — they sync to your account.</li>
+                <li><b>🔥 Popular Files:</b> See what your classmates are opening.</li>
+                <li><b>🙋 Request a Resource:</b> Tell the admins what's missing.</li>
+                <li><b>🔔 News Bell:</b> All official announcements, always available.</li>
+            </ul>
+            <button class="action-btn" onclick="closeWhatsNew()"><i class="fa-solid fa-check"></i> Got it, thanks!</button>
+        </div>
+    </div>
 
-    def mutator(data):
-        if isinstance(data, dict) and uid in data:
-            data[uid]["active"] = False
-            return True
-        return False
+    <!-- TOP NAV -->
+    <div class="top-navbar">
+        <div class="nav-title" id="navTitle">
+            <i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <button class="nav-menu-btn" onclick="switchSection('news')" style="padding:8px 12px;">
+                <i class="fa-solid fa-bell"></i>
+                <span id="newsBadge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ff3b30; color:#fff; font-size:10px; font-weight:700; padding:2px 5px; border-radius:10px; min-width:16px; text-align:center; line-height:1.2;">0</span>
+            </button>
+            <button class="nav-menu-btn" onclick="openMenuHub()">
+                <i class="fa-solid fa-bars"></i> Menu
+            </button>
+        </div>
+    </div>
 
-    try:
-        update_json(USERS_FILE, mutator)
-    except Exception:
-        log.exception("mark_user_inactive failed for %s", uid)
+    <!-- MENU HUB -->
+    <div id="menuHubSection" class="section active">
+        <div id="dashboardWidgets"></div>
+        <div class="menu-grid">
+            <div class="menu-card admin-only" onclick="switchSection('adminNews')" style="background: #ffebee; border: 1px solid #ffcdd2;">
+                <i class="fa-solid fa-bullhorn menu-icon" style="color: #d32f2f;"></i>
+                <div class="menu-label" style="color: #d32f2f;">Post News</div>
+                <div class="menu-sub" style="color: #d32f2f; opacity: 0.8;">Admin Only</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('find')">
+                <i class="fa-solid fa-book menu-icon"></i>
+                <div class="menu-label">Find Materials</div>
+                <div class="menu-sub">Notes, exams, assignments</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('upload')">
+                <i class="fa-solid fa-cloud-arrow-up menu-icon"></i>
+                <div class="menu-label">Upload Files</div>
+                <div class="menu-sub">Contribute to community</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('video')">
+                <i class="fa-brands fa-youtube menu-icon"></i>
+                <div class="menu-label">Video Tutorials</div>
+                <div class="menu-sub">YouTube course lectures</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('gpa')">
+                <i class="fa-solid fa-calculator menu-icon"></i>
+                <div class="menu-label">GPA Calculator</div>
+                <div class="menu-sub">ASTU semester & CGPA</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('game')">
+                <i class="fa-solid fa-bomb menu-icon"></i>
+                <div class="menu-label">Minesweeper</div>
+                <div class="menu-sub">Google-style — Easy to Hard</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('favs')">
+                <i class="fa-solid fa-star menu-icon"></i>
+                <div class="menu-label">Saved Favorites</div>
+                <div class="menu-sub">Synced to your account</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('leaderboard')">
+                <i class="fa-solid fa-ranking-star menu-icon"></i>
+                <div class="menu-label">Popular Files</div>
+                <div class="menu-sub">Top 20 most opened</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('requests')">
+                <i class="fa-solid fa-hand-holding-heart menu-icon"></i>
+                <div class="menu-label">Request a Resource</div>
+                <div class="menu-sub">Tell us what's missing</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('help')">
+                <i class="fa-solid fa-circle-question menu-icon"></i>
+                <div class="menu-label">Help & FAQ</div>
+                <div class="menu-sub">How to use this portal</div>
+            </div>
+            <div class="menu-card" onclick="switchSection('feedback')">
+                <i class="fa-solid fa-star-half-stroke menu-icon"></i>
+                <div class="menu-label">Rate & Feedback</div>
+                <div class="menu-sub">Tell us what you think</div>
+            </div>
+            <div class="menu-card" style="grid-column: span 2;" onclick="switchSection('addVideo')">
+                <i class="fa-solid fa-link menu-icon"></i>
+                <div class="menu-label">Suggest a Tutorial Link</div>
+                <div class="menu-sub">Submit helpful YouTube videos for approval</div>
+            </div>
+        </div>
+    </div>
 
+    <!-- UPLOAD -->
+    <div id="uploadSection" class="section card-container">
+        <form id="uploadForm">
+            <div class="form-group"><label>Academic Year</label><select id="upYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
+            <div class="form-group"><label>Semester</label><select id="upSem" required disabled><option value="">Select Semester...</option></select></div>
+            <div class="form-group"><label>Course</label><select id="upCourse" required disabled><option value="">Select Course...</option></select></div>
+            <div class="form-group"><label>Material Type</label><select id="upType" required disabled><option value="">Select Type...</option><option value="outline">📋 Course Outline</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
+            <div class="form-group">
+                <label>Select Files <small style="color:var(--hint-color)">(You can select multiple!)</small></label>
+                <input type="file" id="fileInput" multiple required disabled>
+            </div>
+            <button type="submit" id="submitBtn" disabled><i class="fa-solid fa-paper-plane"></i> Upload to Admin</button>
+        </form>
+    </div>
 
-def get_active_users():
-    """Return a list of active user chat_ids (ints) for broadcasting."""
-    data = load_json(USERS_FILE)
-    if not isinstance(data, dict):
-        return []
-    return [
-        int(uid) for uid, info in data.items()
-        if isinstance(info, dict) and info.get("active", True)
-    ]
+    <!-- FIND MATERIALS -->
+    <div id="findSection" class="section">
+        <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="globalMatSearch" placeholder="Search all materials...">
+        </div>
+        <div class="toolbar-row">
+            <select class="sort-select" id="matSortOrder" onchange="activeFolderContext=null; renderMaterials();">
+                <option value="new">🕒 Newest First</option>
+                <option value="old">⏳ Oldest First</option>
+                <option value="az">🔤 Alphabetical (A-Z)</option>
+                <option value="za">🔤 Alphabetical (Z-A)</option>
+            </select>
+        </div>
+        <details class="filter-accordion">
+            <summary><i class="fa-solid fa-filter"></i> Filter by Course & Type <i class="fa-solid fa-chevron-down" style="font-size: 12px;"></i></summary>
+            <div class="filter-content">
+                <div class="form-group"><label>Academic Year</label><select id="findYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
+                <div class="form-group"><label>Semester</label><select id="findSem" disabled><option value="">Select Semester...</option></select></div>
+                <div class="form-group"><label>Course</label><select id="findCourse" disabled><option value="">Select Course...</option></select></div>
+                <div class="form-group"><label>Material Type</label><select id="findType" disabled><option value="">Select Type...</option><option value="outline">📋 Course Outline</option><option value="note">📝 Note</option><option value="assignment">📄 Assignment</option><option value="mid">📝 Mid Exam</option><option value="final">📝 Final Exam</option><option value="test">⏳ Test</option></select></div>
+                <button type="button" id="clearFiltersBtn" class="action-btn" style="background: var(--bg-color); color: #ff3b30; border: 1px solid #ff3b30; box-shadow: none; margin-top: 6px;">
+                    <i class="fa-solid fa-trash-can"></i> Clear Filters
+                </button>
+            </div>
+        </details>
+        <div id="resultsContainer"></div>
+    </div>
 
+    <!-- VIDEOS -->
+    <div id="videoSection" class="section">
+        <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="globalVidSearch" placeholder="Search YouTube tutorials...">
+        </div>
+        <div class="toolbar-row">
+            <select class="sort-select" id="vidSortOrder" onchange="renderVideos()">
+                <option value="new">🕒 Newest First</option>
+                <option value="old">⏳ Oldest First</option>
+                <option value="az">🔤 Alphabetical (A-Z)</option>
+                <option value="za">🔤 Alphabetical (Z-A)</option>
+            </select>
+        </div>
+        <details class="filter-accordion">
+            <summary><i class="fa-solid fa-filter"></i> Filter by Course <i class="fa-solid fa-chevron-down" style="font-size: 12px;"></i></summary>
+            <div class="filter-content">
+                <div class="form-group"><label>Academic Year</label><select id="vidYear"><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
+                <div class="form-group"><label>Semester</label><select id="vidSem" disabled><option value="">Select Semester...</option></select></div>
+                <div class="form-group"><label>Course</label><select id="vidCourse" disabled><option value="">Select Course...</option></select></div>
+                <button type="button" id="clearVideoFiltersBtn" class="action-btn" style="background: var(--bg-color); color: #ff3b30; border: 1px solid #ff3b30; box-shadow: none; margin-top: 6px;">
+                    <i class="fa-solid fa-trash-can"></i> Clear Filters
+                </button>
+            </div>
+        </details>
+        <div id="videoResultsContainer"></div>
+    </div>
 
-def get_user_stats():
-    """Return (total, active, inactive) counts."""
-    data = load_json(USERS_FILE)
-    if not isinstance(data, dict):
-        return 0, 0, 0
-    total = len(data)
-    active = sum(1 for v in data.values() if isinstance(v, dict) and v.get("active", True))
-    return total, active, total - active
+    <!-- GPA -->
+    <div id="gpaSection" class="section">
+        <div class="card-container">
+            <h3 style="margin-top:0;">Semester GPA</h3>
+            <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Auto-loads exact ASTU ECE credit hours!</p>
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <select id="gpaYear" onchange="rebuildSemesterSelect(document.getElementById('gpaSem'), this.value); loadSemesterGPA();">
+                    <option value="">Select Year...</option>
+                    <option value="2">Year II</option>
+                    <option value="3">Year III</option>
+                </select>
+                <select id="gpaSem" disabled onchange="loadSemesterGPA()">
+                    <option value="">Semester...</option>
+                </select>
+            </div>
+            <div id="courseRows"></div>
+            <button type="button" onclick="addCourseRow()" class="action-btn" style="margin-bottom:15px; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-plus"></i> Add Extra Course</button>
+            <button type="button" onclick="calculateGPA()" class="action-btn"><i class="fa-solid fa-calculator"></i> Calculate GPA</button>
+            <div id="gpaResult" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 18px;"></div>
+        </div>
+        <div class="card-container">
+            <h3 style="margin-top:0;">Cumulative CGPA Builder</h3>
+            <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">Add your past semesters to calculate total CGPA.</p>
+            <div id="cgpaRows"></div>
+            <button type="button" onclick="addCGPARow()" class="action-btn" style="margin-bottom:15px; background: var(--bg-color); color: var(--btn-color); border: 1px solid var(--btn-color); box-shadow:none;"><i class="fa-solid fa-plus"></i> Add Semester</button>
+            <button type="button" onclick="calculateMultiCGPA()" class="action-btn"><i class="fa-solid fa-chart-line"></i> Calculate Total CGPA</button>
+            <div id="multiCgpaResult" style="margin-top: 15px; font-weight: bold; text-align: center; font-size: 18px;"></div>
+        </div>
+    </div>
 
+    <!-- GAME: GOOGLE-STYLE MINESWEEPER -->
+    <div id="gameSection" class="section">
+        <div class="ms-app">
+            <div class="ms-topbar">
+                <select id="msDifficulty" class="ms-difficulty" onchange="msChangeDifficulty(this.value)">
+                    <option value="easy">Easy</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="hard">Hard</option>
+                </select>
+                <div class="ms-stat">
+                    <i class="fa-solid fa-flag ms-flag-icon"></i>
+                    <span id="msMinesLeft">40</span>
+                </div>
+                <div class="ms-stat">
+                    <i class="fa-solid fa-stopwatch ms-clock-icon"></i>
+                    <span id="msTimer">000</span>
+                </div>
+                <div class="ms-spacer"></div>
+                <button type="button" class="ms-icon-btn" id="msFlagToggle" onclick="msToggleFlagMode()" title="Flag mode">
+                    <i class="fa-solid fa-flag"></i>
+                </button>
+                <button type="button" class="ms-icon-btn" onclick="msInit()" title="Restart">
+                    <i class="fa-solid fa-rotate-right"></i>
+                </button>
+            </div>
+            <div class="ms-board-wrap">
+                <div class="ms-board" id="msBoard"></div>
+            </div>
+            <div class="ms-status" id="msStatus">Tap a tile to begin</div>
+        </div>
+    </div>
 
-def get_user_analytics():
-    """
-    Returns a rich analytics dict:
-      {
-        total, active_flag, inactive_flag,
-        active_today, active_7d, active_30d,
-        new_today, new_7d,
-        recent: [list of most recent joins with pretty info]
-      }
-    """
-    data = load_json(USERS_FILE)
-    if not isinstance(data, dict):
-        data = {}
+    <!-- FAVORITES -->
+    <div id="favsSection" class="section">
+        <div class="search-box" id="favSearchBox" style="display: block;">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="favSearchInput" placeholder="Search your favorites...">
+        </div>
+        <div id="favsContainer"></div>
+    </div>
 
-    now = datetime.utcnow()
-    cutoff_today = now - timedelta(hours=24)
-    cutoff_7d = now - timedelta(days=7)
-    cutoff_30d = now - timedelta(days=30)
+    <!-- LEADERBOARD -->
+    <div id="leaderboardSection" class="section">
+        <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="lbSearch" placeholder="Search popular resources...">
+        </div>
+        <div id="leaderboardContainer"></div>
+    </div>
 
-    total = len(data)
-    active_flag = 0
-    inactive_flag = 0
-    active_today = 0
-    active_7d = 0
-    active_30d = 0
-    new_today = 0
-    new_7d = 0
+    <!-- ADD VIDEO -->
+    <div id="addVideoSection" class="section card-container">
+        <form id="videoForm">
+            <div class="form-group"><label>Academic Year</label><select id="subVidYear" required><option value="">Select Year...</option><option value="2">Year II</option><option value="3">Year III</option></select></div>
+            <div class="form-group"><label>Semester</label><select id="subVidSem" required disabled><option value="">Select Semester...</option></select></div>
+            <div class="form-group"><label>Course</label><select id="subVidCourse" required disabled><option value="">Select Course...</option></select></div>
+            <div class="form-group"><label>Video Title</label><input type="text" id="vidTitle" placeholder="e.g. Chapter 1 Lecture" required disabled></div>
+            <div class="form-group"><label>YouTube Link</label><input type="url" id="vidUrl" placeholder="https://youtube.com/watch?v=... or a playlist link" required disabled></div>
+            <button type="submit" id="subVidBtn" disabled><i class="fa-solid fa-paper-plane"></i> Submit for Review</button>
+        </form>
+    </div>
 
-    entries = []
-    for uid, info in data.items():
-        if not isinstance(info, dict):
-            continue
-        if info.get("active", True):
-            active_flag += 1
-        else:
-            inactive_flag += 1
+    <!-- FEEDBACK -->
+    <div id="feedbackSection" class="section card-container">
+        <h3 style="margin-top:0; text-align:center;">Rate the Bot</h3>
+        <p style="font-size:13px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px; text-align:center;">Your feedback helps us improve!</p>
+        <form id="feedbackForm">
+            <div class="star-rating">
+                <input type="radio" id="star5" name="rating" value="5" required><label for="star5" class="fa-solid fa-star"></label>
+                <input type="radio" id="star4" name="rating" value="4"><label for="star4" class="fa-solid fa-star"></label>
+                <input type="radio" id="star3" name="rating" value="3"><label for="star3" class="fa-solid fa-star"></label>
+                <input type="radio" id="star2" name="rating" value="2"><label for="star2" class="fa-solid fa-star"></label>
+                <input type="radio" id="star1" name="rating" value="1"><label for="star1" class="fa-solid fa-star"></label>
+            </div>
+            <div class="form-group">
+                <label>Feedback / Suggestions</label>
+                <textarea id="feedbackText" rows="4" placeholder="Report a bug, request a feature, or tell us what you love..." required style="resize: vertical;"></textarea>
+            </div>
+            <button type="submit" id="submitFeedbackBtn"><i class="fa-solid fa-paper-plane"></i> Send Feedback</button>
+        </form>
+    </div>
 
-        last = _parse_iso(info.get("last_active"))
-        joined = _parse_iso(info.get("joined_at") or info.get("joined"))
+    <!-- HELP -->
+    <div id="helpSection" class="section card-container">
+        <h3 style="margin-top:0; text-align:center;"><i class="fa-solid fa-circle-question" style="color:var(--btn-color)"></i> Help &amp; FAQ</h3>
+        <p style="font-size:12px; color:var(--hint-color); text-align:center; margin-top:-6px; margin-bottom:16px;">Everything you need to know about using the ASTU ECE Portal.</p>
 
-        if last:
-            if last >= cutoff_today:
-                active_today += 1
-            if last >= cutoff_7d:
-                active_7d += 1
-            if last >= cutoff_30d:
-                active_30d += 1
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-rocket" style="margin-right:6px; color:var(--btn-color)"></i> Getting Started <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                This portal is your one-stop hub for ASTU ECE course materials — notes, assignments, mid &amp; final exams, and tutorial videos for Year 2 Sem 2 and Year 3. Open the <b>Menu</b> button at the top right to see all the tools. Tap any card (Find Materials, Video Tutorials, GPA Calculator, Minesweeper, etc.) to jump into that section. Use the <b>Menu</b> button or your phone's back gesture to return to the home screen at any time.
+            </div>
+        </details>
 
-        if joined:
-            if joined >= cutoff_today:
-                new_today += 1
-            if joined >= cutoff_7d:
-                new_7d += 1
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-book" style="margin-right:6px; color:var(--btn-color)"></i> Finding Files <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Open <b>Find Materials</b> from the Menu. Use the <b>search bar</b> to look for any file name, course code, or course title. Tap the <b>Filter</b> accordion to narrow results by Year → Semester → Course → Type (Course Outline, Note, Assignment, Mid, Final, Test). Results appear as <b>folders</b> — tap a folder to see the files inside, then tap <b>Open</b> to download. To go back to the folder list, tap <b>Back to Folders</b>. You can also sort by <b>Newest First</b>, <b>Oldest First</b>, or <b>Alphabetical (A-Z / Z-A)</b> using the dropdown. If you get stuck on "No materials found," just tap <b>🗑 Clear Filters</b> to reset everything.
+            </div>
+        </details>
 
-        entries.append({
-            "user_id": uid,
-            "username": info.get("username", ""),
-            "full_name": info.get("full_name") or (
-                (info.get("first_name", "") + " " + info.get("last_name", "")).strip()
-            ) or "Unknown",
-            "joined_at": info.get("joined_at") or info.get("joined") or "",
-            "last_active": info.get("last_active") or "",
-            "active": bool(info.get("active", True)),
-            "joined_dt": joined,
-        })
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-star" style="margin-right:6px; color:#ffb300"></i> Favorites (Stars) <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Tap the <b>star icon</b> on any folder, file, or video to save it. Favorites are stored on your Telegram account, so they follow you across every device you log into — phone, tablet, desktop. To see everything you've saved, open <b>Saved Favorites</b> from the Menu. From there you can search, browse saved folders, and re-open files with one tap. Tap the star again to remove a favorite.
+            </div>
+        </details>
 
-    entries.sort(key=lambda e: e["joined_dt"] or datetime.min, reverse=True)
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-bell" style="margin-right:6px; color:var(--btn-color)"></i> Notifications &amp; Updates <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                The <b>bell icon</b> at the top shows all official announcements from the admins — old ones stay there forever, and a red badge tells you how many are unread. Tap any announcement to open the full post on Telegram.<br><br>
+                To get a <b>direct message</b> whenever new files or videos are added to a course, open that course's filter and tap <b>Notify Me of New Files</b>. You'll get a private DM from the bot the moment something new appears — no need to check the app manually.
+            </div>
+        </details>
 
-    return {
-        "total": total,
-        "active_flag": active_flag,
-        "inactive_flag": inactive_flag,
-        "active_today": active_today,
-        "active_7d": active_7d,
-        "active_30d": active_30d,
-        "new_today": new_today,
-        "new_7d": new_7d,
-        "recent": entries[:10],
-        "all": entries,
-    }
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-bomb" style="margin-right:6px; color:var(--btn-color)"></i> 3D Minesweeper <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Open <b>Minesweeper</b> from the Menu. Pick your difficulty: <b>Easy</b> (8×8, 10 mines), <b>Medium</b> (16×16, 40 mines), or <b>Hard</b> (30×16, 99 mines).<br><br>
+                <b>Your first tap is always safe</b> — the game places mines only after you've chosen your starting tile, and it never puts a mine on that tile or its 8 neighbors. Reveal a numbered tile and it tells you how many mines are touching it. Reveal a blank tile and the whole empty area opens up automatically. Clear every safe tile to win.<br><br>
+                <b>To flag a mine:</b><br>
+                • <b>On PC:</b> right-click any tile.<br>
+                • <b>On mobile:</b> tap the <b>Flag Mode</b> button in the toolbar (it lights up yellow), then tap tiles to place flags. Tap the button again to return to normal reveal mode. Or just <b>long-press</b> any tile.<br><br>
+                Tap the <b>Restart</b> button any time to start a fresh board.
+            </div>
+        </details>
 
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-cloud-arrow-up" style="margin-right:6px; color:var(--btn-color)"></i> Uploading &amp; Contributing <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Have good notes, past papers, or a helpful YouTube lecture? We'd love to add them!<br><br>
+                <b>From the app:</b> open <b>Upload Files</b> from the Menu, pick the Year → Semester → Course → Type, then select your files (you can select multiple at once). Tap <b>Upload to Admin</b> — our team reviews every submission before it goes live.<br><br>
+                <b>From Telegram chat:</b> open the bot, tap <b>Upload Material</b>, and follow the same steps. You can send files one by one or as a batch.<br><br>
+                <b>Suggest a video:</b> use the <b>Suggest a Tutorial Link</b> card on the home screen, paste the YouTube URL, and submit it for review.
+            </div>
+        </details>
 
-def build_users_csv():
-    """Return the users.json content as a CSV string (UTF-8)."""
-    analytics = get_user_analytics()
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow([
-        "user_id", "username", "full_name",
-        "joined_at", "last_active", "active", "source",
-    ])
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px; color:#ff3b30"></i> Troubleshooting <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                <b>A file won't open?</b> Make sure you have a stable internet connection and enough storage on your phone. Some files (especially large PDFs) may take a few seconds to load from Telegram.<br><br>
+                <b>Found a broken or wrong file?</b> Tap the red <b>⚠️ warning icon</b> next to that item, type a short note about the problem, and send it. The admins get your report instantly and can fix or replace the file. Every report helps the whole community.<br><br>
+                <b>Something else not working?</b> Open <b>Rate &amp; Feedback</b> from the Menu and tell us what happened — we read every message.
+            </div>
+        </details>
+    </div>
 
-    raw = load_json(USERS_FILE)
-    if isinstance(raw, dict):
-        for uid, info in raw.items():
-            if not isinstance(info, dict):
-                continue
-            writer.writerow([
-                info.get("user_id", uid),
-                "@" + info["username"] if info.get("username") else "",
-                info.get("full_name") or (
-                    (info.get("first_name", "") + " " + info.get("last_name", "")).strip()
-                ),
-                info.get("joined_at") or info.get("joined") or "",
-                info.get("last_active") or "",
-                "yes" if info.get("active", True) else "no",
-                info.get("source", ""),
-            ])
-    return buf.getvalue()
+    <!-- NEWS LIST -->
+    <div id="newsSection" class="section">
+        <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="newsSearchInput" placeholder="Search announcements...">
+        </div>
+        <div id="newsListContainer"></div>
+    </div>
 
+    <!-- ADMIN NEWS -->
+    <div id="adminNewsSection" class="section card-container">
+        <h3 style="margin-top:0; color: #d32f2f;"><i class="fa-solid fa-shield-halved"></i> Admin News Portal</h3>
+        <p style="font-size:12px; color:var(--hint-color); margin-top:-10px; margin-bottom:15px;">
+            Post a link to your Telegram channel announcement. Only the title &amp; link are stored here — the full post stays on Telegram.
+        </p>
+        <form id="adminNewsForm">
+            <div class="form-group">
+                <label>News Title</label>
+                <input type="text" id="adminNewsTitle" placeholder="e.g., Midterm Exam Schedule Released" required>
+            </div>
+            <div class="form-group">
+                <label>Telegram Post Link</label>
+                <input type="url" id="adminNewsLink" placeholder="https://t.me/yourchannel/123" required>
+            </div>
+            <button type="submit" id="submitNewsBtn" style="background: #d32f2f;"><i class="fa-solid fa-bullhorn"></i> Publish to Dashboard</button>
+            <button type="button" onclick="clearAllNews()" class="action-btn" style="margin-top: 10px; background: var(--bg-color); color: #d32f2f; border: 1px solid #d32f2f; box-shadow: none;"><i class="fa-solid fa-trash-can"></i> Remove All News</button>
+        </form>
+        <div id="adminNewsList" style="margin-top:20px;"></div>
+    </div>
 
-# ==========================================================================
-#  GITHUB STORAGE
-# ==========================================================================
-def _github_headers():
-    return {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json",
-    }
+    <!-- REQUEST RESOURCE -->
+    <div id="requestsSection" class="section card-container">
+        <h3 style="margin-top:0;"><i class="fa-solid fa-hand-holding-heart" style="color:var(--btn-color)"></i> Request a Resource</h3>
+        <p style="font-size:12px; color:var(--hint-color); margin-top:-8px;">Missing a past exam or a specific note? Let the admins know.</p>
+        <form id="requestForm">
+            <div class="form-group"><label>Course Code (optional)</label><input type="text" id="reqCourse" placeholder="e.g. ECEg3201"></div>
+            <div class="form-group"><label>What do you need?</label><textarea id="reqDetail" rows="4" placeholder="e.g. Final exams from 2019–2023" required style="resize:vertical;"></textarea></div>
+            <button type="submit" id="submitReqBtn"><i class="fa-solid fa-paper-plane"></i> Send Request</button>
+        </form>
+    </div>
 
+    <!-- PDF VIEWER VIEW (HIDDEN BY DEFAULT) -->
+    <div id="pdf-viewer-view">
+        <div class="pdf-toolbar">
+            <button onclick="closePdf()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            <input id="pdf-page-input" type="number" inputmode="numeric" min="1" value="1" aria-label="Page number">
+            <span class="pdf-lbl" style="min-width:0">/ <span id="page-count">--</span></span>
+            <span class="pdf-sp"></span>
+            <button onclick="pvZoomBy(-0.25)" aria-label="Zoom out"><i class="fa-solid fa-minus"></i></button>
+            <span class="pdf-lbl" id="pdf-zoom-label">100%</span>
+            <button onclick="pvZoomBy(0.25)" aria-label="Zoom in"><i class="fa-solid fa-plus"></i></button>
+            <button onclick="pvFit()" aria-label="Fit to width"><i class="fa-solid fa-expand"></i></button>
+            <button onclick="pvToggleSearch()" aria-label="Search"><i class="fa-solid fa-magnifying-glass"></i></button>
+        </div>
+        <div id="pdf-searchbar" hidden>
+            <input id="pdf-search-input" type="search" placeholder="Find in document" enterkeyhint="search">
+            <span id="pdf-hit-label"></span>
+            <button onclick="pvStep(-1)" aria-label="Previous match"><i class="fa-solid fa-chevron-up"></i></button>
+            <button onclick="pvStep(1)" aria-label="Next match"><i class="fa-solid fa-chevron-down"></i></button>
+        </div>
+        <div class="pdf-canvas-wrap" id="pdf-canvas-wrap">
+            <div id="pdf-pages"></div>
+            <div id="pdf-status"></div>
+        </div>
+    </div>
 
-def _gh_request(method, filename, **kwargs):
-    url = f"{GITHUB_API_BASE}/{filename}"
-    return requests.request(
-        method, url, headers=_github_headers(), timeout=15, **kwargs
-    )
+    <script>
+    (function() {
+        "use strict";
 
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
 
-def _load_json_unlocked(filename):
-    try:
-        resp = _gh_request("GET", filename, params={"ref": GITHUB_BRANCH})
-        if resp.status_code == 200:
-            content_b64 = resp.json()["content"]
-            decoded = base64.b64decode(content_b64).decode("utf-8")
-            return json.loads(decoded) if decoded.strip() else {}
-        if resp.status_code == 404:
-            return {}
-        log.warning(
-            "GitHub load failed for %s: %s %s",
-            filename, resp.status_code, resp.text[:200],
-        )
-        return {}
-    except Exception as e:
-        log.exception("GitHub load error for %s: %s", filename, e)
-        return {}
+        const RENDER_URL = "https://scribed-1rqs.onrender.com";
+        const BOT_USERNAME = "astuece2026_bot";
+        const INIT_DATA = tg.initData || "";
 
+        // Save the default back button behavior
+        const defaultBackButtonAction = function() {
+            try {
+                if (typeof activeFolderContext !== 'undefined') activeFolderContext = null;
+                if (typeof activeFavFolder !== 'undefined') activeFavFolder = null;
+            } catch (_) {}
+            window.openMenuHub();
+        };
 
-def _save_json_unlocked(filename, data, retries=3):
-    content_str = json.dumps(data, indent=4)
-    encoded = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
-    for attempt in range(retries):
-        try:
-            sha = None
-            get_resp = _gh_request(
-                "GET", filename, params={"ref": GITHUB_BRANCH}
-            )
-            if get_resp.status_code == 200:
-                sha = get_resp.json().get("sha")
+        if (tg.BackButton) {
+            tg.BackButton.onClick(defaultBackButtonAction);
+            tg.BackButton.hide();
+        }
 
-            payload = {
-                "message": f"Update {filename}",
-                "content": encoded,
-                "branch": GITHUB_BRANCH,
+        function esc(str) {
+            return String(str == null ? '' : str)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function debounce(fn, ms) {
+            ms = ms || 180;
+            let t;
+            return function () {
+                const args = arguments, self = this;
+                clearTimeout(t);
+                t = setTimeout(function () { fn.apply(self, args); }, ms);
+            };
+        }
+
+        // ==================== FIXED: robust date parser ====================
+        function parseDateAdded(dateStr) {
+            if (!dateStr) return 0;
+
+            // 1) Try the browser's native parser first (works for ISO, "Sep 09, 2026 14:30", etc.)
+            let t = Date.parse(dateStr);
+            if (!isNaN(t)) return t;
+
+            // 2) Explicit parse for the bot's format: "Sep 09, 2026 - 14:30"
+            const m = String(dateStr).match(
+                /^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})\s*-\s*(\d{1,2}):(\d{2})$/
+            );
+            if (m) {
+                const months = {
+                    jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+                    jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+                };
+                const mo = months[m[1].slice(0, 3).toLowerCase()];
+                if (mo !== undefined) {
+                    return new Date(
+                        parseInt(m[3], 10),   // year
+                        mo,                    // month
+                        parseInt(m[2], 10),   // day
+                        parseInt(m[4], 10),   // hour
+                        parseInt(m[5], 10)    // minute
+                    ).getTime();
+                }
             }
-            if sha:
-                payload["sha"] = sha
 
-            put_resp = _gh_request("PUT", filename, json=payload)
-            if put_resp.status_code in (200, 201):
-                return True
-            if put_resp.status_code in (409, 422):
-                log.warning(
-                    "GitHub conflict on %s (attempt %d), retrying",
-                    filename, attempt + 1,
-                )
-                time.sleep(0.5 * (attempt + 1))
-                continue
-            log.warning(
-                "GitHub save failed for %s: %s %s",
-                filename, put_resp.status_code, put_resp.text[:200],
-            )
-            return False
-        except Exception as e:
-            log.exception("GitHub save error for %s: %s", filename, e)
-            time.sleep(0.5)
-    return False
-
-
-def _cache_get(filename):
-    with _cache_lock:
-        entry = _read_cache.get(filename)
-        if entry and time.time() - entry["ts"] < CACHE_TTL:
-            return entry["data"]
-    return None
-
-
-def _cache_set(filename, data):
-    with _cache_lock:
-        _read_cache[filename] = {"data": data, "ts": time.time()}
-
-
-def _cache_invalidate(filename=None):
-    with _cache_lock:
-        if filename:
-            _read_cache.pop(filename, None)
-        else:
-            _read_cache.clear()
-
-
-def load_json(filename):
-    cached = _cache_get(filename)
-    if cached is not None:
-        return cached
-    with _gh_lock:
-        data = _load_json_unlocked(filename)
-    _cache_set(filename, data)
-    return data
-
-
-def save_json(filename, data):
-    with _gh_lock:
-        ok = _save_json_unlocked(filename, data)
-    if ok:
-        _cache_invalidate(filename)
-    return ok
-
-
-def update_json(filename, mutator, retries=3):
-    with _gh_lock:
-        for attempt in range(retries):
-            data = _load_json_unlocked(filename)
-            result = mutator(data)
-            if _save_json_unlocked(filename, data):
-                _cache_invalidate(filename)
-                return result
-            time.sleep(0.5 * (attempt + 1))
-        return None
-
-
-# ==========================================================================
-#  BACKGROUND WORKERS
-# ==========================================================================
-_notify_queue = Queue()
-
-
-def _notify_worker():
-    while True:
-        job = None
-        try:
-            job = _notify_queue.get()
-            if job is None:
-                continue
-            chat_ids, text, markup = job
-            sent = 0
-            blocked = 0
-            failed = 0
-
-            for uid in chat_ids:
-                try:
-                    bot.send_message(
-                        uid, text, parse_mode="HTML",
-                        reply_markup=markup, disable_web_page_preview=True,
-                    )
-                    sent += 1
-                    time.sleep(0.045)
-
-                except telebot.apihelper.ApiTelegramException as e:
-                    msg = str(e).lower()
-                    if "too many requests" in msg or "retry" in msg or "429" in msg:
-                        log.warning("Rate limited on uid=%s — backing off 5s", uid)
-                        time.sleep(5)
-                        try:
-                            bot.send_message(
-                                uid, text, parse_mode="HTML",
-                                reply_markup=markup, disable_web_page_preview=True,
-                            )
-                            sent += 1
-                        except Exception as retry_err:
-                            log.warning("Retry failed for uid=%s: %s", uid, retry_err)
-                            failed += 1
-                    elif ("blocked" in msg or "chat not found" in msg
-                          or "deactivated" in msg or "user is deactivated" in msg
-                          or "forbidden" in msg):
-                        blocked += 1
-                        try:
-                            threading.Thread(
-                                target=mark_user_inactive,
-                                args=(uid,),
-                                daemon=True,
-                            ).start()
-                        except Exception:
-                            pass
-                    else:
-                        failed += 1
-                        log.warning("notify to %s failed: %s", uid, e)
-
-                except Exception as e:
-                    failed += 1
-                    log.warning("notify to %s error: %s", uid, e)
-
-            log.info(
-                "notify sent=%d/%d blocked=%d failed=%d",
-                sent, len(chat_ids), blocked, failed,
-            )
-        except Exception:
-            log.exception("notify worker crashed")
-        finally:
-            if job is not None:
-                try:
-                    _notify_queue.task_done()
-                except Exception:
-                    pass
-
-
-threading.Thread(target=_notify_worker, daemon=True, name="notify").start()
-
-
-def enqueue_notify(chat_ids, text, markup=None):
-    if not chat_ids:
-        return
-    _notify_queue.put((list(chat_ids), text, markup))
-
-
-def notify_all_subscribers(title, date_str, link):
-    try:
-        all_subs = load_json(SUBS_FILE)
-    except Exception:
-        return
-    notified = set()
-    for _, uids in (all_subs or {}).items():
-        for uid in uids:
-            notified.add(str(uid))
-
-    markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("📰 Read Post", url=link))
-    markup.row(InlineKeyboardButton(
-        "🚀 Open App", web_app=WebAppInfo(url=WEBAPP_URL)
-    ))
-    text = (
-        f"📢 <b>New Announcement</b>\n\n"
-        f"📌 <b>{escape_md(title)}</b>\n"
-        f"🗓 {escape_md(date_str)}"
-    )
-    enqueue_notify(notified, text, markup)
-
-
-# ==========================================================================
-#  NEW-UPLOAD BROADCAST  →  every registered user
-# ==========================================================================
-def _find_year_sem_for_course(course_code):
-    for y, sems in CURRICULUM.items():
-        for s, courses in sems.items():
-            for c in courses:
-                if c["code"] == course_code:
-                    return y, s
-    return "", ""
-
-
-def broadcast_new_upload(file_data):
-    try:
-        active_users = get_active_users()
-    except Exception:
-        log.exception("broadcast_new_upload: failed to get active users")
-        return
-
-    if not active_users:
-        log.info("broadcast_new_upload: no active users to notify")
-        return
-
-    course_code = file_data.get("course_code", "")
-    course_name = file_data.get("course_name") or course_display(course_code) or course_code
-    material_type = (file_data.get("material_type") or "").upper()
-    title = file_data.get("title") or "Untitled"
-    kind = file_data.get("kind", "material")
-
-    year, semester = _find_year_sem_for_course(course_code)
-
-    type_emoji = {
-        "NOTE": "📝", "ASSIGNMENT": "📄",
-        "MID": "📝", "MID EXAM": "📝",
-        "FINAL": "📝", "FINAL EXAM": "📝",
-        "TEST": "⏳", "VIDEO": "📺",
-        "OUTLINE": "📋", "COURSE OUTLINE": "📋",
-    }.get(material_type, "📁")
-
-    lines = [
-        "🔔 <b>NEW MATERIAL UPLOADED!</b> 📚",
-        "",
-        f"📖 <b>Course:</b> {escape_md(course_name)}",
-    ]
-    if year and semester:
-        sem_label = "Semester I" if semester == "1" else "Semester II"
-        lines.append(f"🎓 <b>Year/Semester:</b> Year {year} · {sem_label}")
-    lines.append(f"📁 <b>Type:</b> {type_emoji} {escape_md(material_type)}")
-    lines.append(f"📝 <b>Title:</b> {escape_md(title)}")
-    lines.append("")
-    lines.append("Tap below to access it directly in the portal! 👇")
-
-    text = "\n".join(lines)
-
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton(
-            "📥 View Material",
-            web_app=WebAppInfo(url=WEBAPP_URL),
-        )
-    )
-
-    log.info(
-        "Broadcasting new %s '%s' (%s) → %d users",
-        kind, title, course_code, len(active_users),
-    )
-    enqueue_notify(active_users, text, markup)
-
-
-PENDING_VIDEOS = {}
-PENDING_UPLOADS = {}
-UPLOAD_STATES = {}
-UPDATE_SESSIONS = {}
-
-
-def _cleanup_worker():
-    while True:
-        time.sleep(300)
-        now = time.time()
-        for store in (PENDING_VIDEOS, PENDING_UPLOADS, UPDATE_SESSIONS):
-            for key in list(store.keys()):
-                entry = store.get(key)
-                if isinstance(entry, dict) and now - entry.get("_created", now) > 3600:
-                    store.pop(key, None)
-        for key in list(UPLOAD_STATES.keys()):
-            entry = UPLOAD_STATES.get(key)
-            if isinstance(entry, dict) and now - entry.get("_created", now) > 3600:
-                UPLOAD_STATES.pop(key, None)
-
-
-threading.Thread(target=_cleanup_worker, daemon=True, name="cleanup").start()
-
-
-def _stamp(d):
-    d["_created"] = time.time()
-    return d
-
-
-# ==========================================================================
-#  CURRICULUM
-# ==========================================================================
-CURRICULUM = {
-    "2": {
-        "2": [
-            {"code": "ECEg2202", "title": "Electronic Circuit II", "cr": 4},
-            {"code": "ECEg2204", "title": "Signals and System Analysis", "cr": 3},
-            {"code": "EPCE2202", "title": "Electromagnetic Field", "cr": 3},
-            {"code": "ECEg2208", "title": "Eng. Application Software", "cr": 1},
-            {"code": "Math2103", "title": "Computational methods", "cr": 3},
-            {"code": "Math2201", "title": "Linear Algebra", "cr": 3},
-        ],
-    },
-    "3": {
-        "1": [
-            {"code": "ECEg3201", "title": "Digital Logic Design", "cr": 4},
-            {"code": "EPCE3201", "title": "Network Analysis & Synthesis", "cr": 3},
-            {"code": "ECEg3103", "title": "Probability & Random Proc.", "cr": 3},
-            {"code": "ECEg3205", "title": "Digital Signal Processing", "cr": 3},
-            {"code": "LART2002", "title": "Gen. Psychology & Life Skills", "cr": 3},
-            {"code": "Phys2208", "title": "Applied Modern Physics", "cr": 3},
-        ],
-        "2": [
-            {"code": "ECEg3202", "title": "Intro to Comm. Systems", "cr": 4},
-            {"code": "Phys3202", "title": "Solid State Physics", "cr": 3},
-            {"code": "LART1003", "title": "History of Ethiopia & the Horn", "cr": 3},
-            {"code": "ECEg3306", "title": "Microelectronic Devices & Circuits", "cr": 3},
-            {"code": "ECEg3318", "title": "Optoelectronics", "cr": 3},
-            {"code": "CSEg2202", "title": "Object Oriented Programming", "cr": 3},
-            {"code": "SEng4208", "title": "Intro to Artificial Intelligence", "cr": 3},
-            {"code": "EPCE3304", "title": "Intro to Control Systems", "cr": 3},
-            {"code": "EPCE3302", "title": "Intro to Electrical Machines", "cr": 3},
-        ],
-    },
-}
-
-
-def course_display(code):
-    if not code:
-        return ""
-    for _, sems in CURRICULUM.items():
-        for _, courses in sems.items():
-            for c in courses:
-                if c["code"] == code:
-                    return f"{code} — {c['title']}"
-    return code
-
-
-# ==========================================================================
-#  MATERIAL HELPERS
-# ==========================================================================
-def save_material_batch(course_code, mat_type, files, title):
-    now = datetime.now().strftime("%b %d, %Y - %H:%M")
-
-    def mutator(data):
-        key = f"{course_code}_{mat_type}"
-        data.setdefault(key, [])
-        for f in files:
-            data[key].append({
-                "file_id": f["file_id"],
-                "name": title if len(files) == 1
-                        else f"{title} - {f['file_name']}",
-                "content_type": f["content_type"],
-                "title": title,
-                "date_added": now,
-                "opens": 0,
-            })
-        return True
-
-    ok = update_json(DATA_FILE, mutator) is not None
-
-    if ok:
-        try:
-            threading.Thread(
-                target=broadcast_new_upload,
-                args=({
-                    "course_code": course_code,
-                    "material_type": mat_type,
-                    "title": title,
-                    "kind": "material",
-                },),
-                daemon=True,
-            ).start()
-        except Exception:
-            log.exception("Failed to schedule broadcast for new material")
-
-    return ok
-
-
-def delete_material_by_index(course_code, mat_type, index):
-    removed_holder = {}
-
-    def mutator(data):
-        key = f"{course_code}_{mat_type}"
-        arr = data.get(key, [])
-        if 0 <= index < len(arr):
-            removed_holder["item"] = arr.pop(index)
-            if not arr:
-                data.pop(key, None)
-            return True
-        return False
-
-    ok = update_json(DATA_FILE, mutator)
-    if ok:
-        return removed_holder.get("item", {}).get("name", "File")
-    return None
-
-
-def add_approved_video(course_code, title, url):
-    now = datetime.now().strftime("%b %d, %Y - %H:%M")
-
-    def mutator(data):
-        data.setdefault(course_code, []).append({
-            "title": title, "url": url, "date_added": now, "opens": 0,
-        })
-        return True
-
-    ok = update_json(VIDEOS_FILE, mutator) is not None
-
-    if ok:
-        try:
-            threading.Thread(
-                target=broadcast_new_upload,
-                args=({
-                    "course_code": course_code,
-                    "material_type": "video",
-                    "title": title,
-                    "kind": "video",
-                },),
-                daemon=True,
-            ).start()
-        except Exception:
-            log.exception("Failed to schedule broadcast for new video")
-
-    return ok
-
-
-def bump_stat(course_code, kind, name):
-    def mutator(data):
-        key = f"{kind}:{course_code}:{name}"
-        data[key] = int(data.get(key, 0)) + 1
-        return True
-
-    update_json(STATS_FILE, mutator)
-
-
-# ==========================================================================
-#  INLINE KEYBOARDS
-# ==========================================================================
-def main_menu_keyboard():
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("🚀 Open ASTU ECE Portal",
-                             web_app=WebAppInfo(url=WEBAPP_URL)),
-        InlineKeyboardButton("📤 Upload Material",
-                             callback_data="main_upload"),
-    )
-    return markup
-
-
-def year_keyboard(action):
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("Year II", callback_data=f"{action}y_2"),
-        InlineKeyboardButton("Year III", callback_data=f"{action}y_3"),
-    )
-    markup.row(InlineKeyboardButton("⬅️ Back to Main Menu",
-                                    callback_data="back_main"))
-    return markup
-
-
-def semester_keyboard(year, action):
-    markup = InlineKeyboardMarkup()
-    sems = sorted(CURRICULUM.get(year, {}).keys())
-    buttons = []
-    for s in sems:
-        label = "Semester I" if s == "1" else "Semester II"
-        buttons.append(InlineKeyboardButton(
-            label, callback_data=f"{action}s_{year}_{s}"
-        ))
-    if buttons:
-        markup.row(*buttons)
-    else:
-        markup.row(InlineKeyboardButton("⚠️ No semesters available",
-                                        callback_data="ignore"))
-
-    back_target = {
-        "f": "main_find", "u": "main_upload", "a": "back_main",
-        "d": "back_main", "v": "back_main", "p": "back_main",
-    }.get(action, "back_main")
-    markup.row(InlineKeyboardButton("⬅️ Back to Years", callback_data=back_target))
-    return markup
-
-
-def subject_keyboard(year, semester, action):
-    markup = InlineKeyboardMarkup()
-    courses = (CURRICULUM.get(year, {}) or {}).get(semester, [])
-    if courses:
-        for c in courses:
-            markup.row(InlineKeyboardButton(
-                c["title"], callback_data=f"{action}c_{c['code']}"
-            ))
-    else:
-        markup.row(InlineKeyboardButton("⚠️ Subjects coming soon!",
-                                        callback_data="ignore"))
-    markup.row(InlineKeyboardButton("⬅️ Back to Semesters",
-                                    callback_data=f"{action}y_{year}"))
-    return markup
-
-
-def material_type_keyboard(course_code, action):
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("📋 Course Outline", callback_data=f"{action}m_{course_code}_outline"),
-    )
-    markup.row(
-        InlineKeyboardButton("📝 Note", callback_data=f"{action}m_{course_code}_note"),
-        InlineKeyboardButton("📄 Assignment", callback_data=f"{action}m_{course_code}_assignment"),
-    )
-    markup.row(
-        InlineKeyboardButton("📝 Mid Exam", callback_data=f"{action}m_{course_code}_mid"),
-        InlineKeyboardButton("📝 Final Exam", callback_data=f"{action}m_{course_code}_final"),
-    )
-    markup.row(InlineKeyboardButton("⏳ Test", callback_data=f"{action}m_{course_code}_test"))
-    markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
-    return markup
-
-
-def finish_upload_keyboard():
-    markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("✅ Finish Upload", callback_data="finish_upload"))
-    return markup
-
-
-def build_delete_list(course_code, material_type):
-    materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
-    markup = InlineKeyboardMarkup()
-    if materials:
-        for idx, item in enumerate(materials):
-            markup.row(InlineKeyboardButton(
-                f"❌ Delete: {item['name']}",
-                callback_data=f"delitem_{course_code}_{material_type}_{idx}",
-            ))
-        text = (f"Select the file you want to delete for "
-                f"{course_display(course_code)} ({material_type.upper()}):")
-    else:
-        text = f"✅ No files remain for {course_display(course_code)} ({material_type.upper()})."
-    markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
-    return text, markup
-
-
-def group_by_title(course_code, material_type):
-    materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
-    groups = {}
-    for idx, item in enumerate(materials):
-        title = item.get("title") or item.get("name") or "Untitled"
-        groups.setdefault(title, []).append(idx)
-    return groups, materials
-
-
-def build_update_folder_list(course_code, material_type):
-    groups, _ = group_by_title(course_code, material_type)
-    markup = InlineKeyboardMarkup()
-    if groups:
-        for title, indices in groups.items():
-            sess_id = os.urandom(4).hex()
-            UPDATE_SESSIONS[sess_id] = _stamp({
-                "course_code": course_code,
-                "material_type": material_type,
-                "title": title,
-                "indices": indices,
-            })
-            markup.row(InlineKeyboardButton(
-                f"📁 {title} ({len(indices)} file(s))",
-                callback_data=f"updfolder_{sess_id}",
-            ))
-        text = (f"Select the folder you want to UPDATE for "
-                f"{course_display(course_code)} ({material_type.upper()}):")
-    else:
-        text = f"✅ No files found for {course_display(course_code)} ({material_type.upper()}) to update."
-    markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
-    return text, markup
-
-
-def build_update_folder_detail(sess_id):
-    sess = UPDATE_SESSIONS.get(sess_id)
-    if not sess:
-        return "⚠️ This update session has expired. Please run /updatefile again.", None
-
-    data = load_json(DATA_FILE)
-    key = f"{sess['course_code']}_{sess['material_type']}"
-    materials = data.get(key, [])
-
-    markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("🔁 Replace Entire Folder",
-                                    callback_data=f"updwhole_{sess_id}"))
-    valid = [i for i in sess["indices"] if i < len(materials)]
-    for pos, abs_idx in enumerate(valid):
-        item = materials[abs_idx]
-        markup.row(InlineKeyboardButton(
-            f"✏️ Update: {item.get('name', 'File')}",
-            callback_data=f"upditem_{sess_id}_{pos}",
-        ))
-    markup.row(InlineKeyboardButton("⬅️ Main Menu", callback_data="back_main"))
-    text = (
-        f"📁 <b>{escape_md(sess['title'])}</b>\n"
-        f"Course: {escape_md(course_display(sess['course_code']))} • "
-        f"Type: {escape_md(sess['material_type'].upper())}\n\n"
-        f"Choose to replace the whole folder's files at once, "
-        f"or update a single file inside it."
-    )
-    return text, markup
-
-
-def process_update_whole(chat_id, files, state):
-    sess_id = state.get("sess_id")
-    sess = UPDATE_SESSIONS.get(sess_id)
-    if not sess:
-        bot.send_message(chat_id, "⚠️ This update session expired. Please run /updatefile again.")
-        return
-
-    now = datetime.now().strftime("%b %d, %Y - %H:%M")
-    title = sess["title"]
-
-    def mutator(data):
-        key = f"{sess['course_code']}_{sess['material_type']}"
-        materials = data.get(key, [])
-        for idx in sorted(sess["indices"], reverse=True):
-            if idx < len(materials):
-                materials.pop(idx)
-        for f in files:
-            materials.append({
-                "file_id": f["file_id"],
-                "name": title if len(files) == 1
-                        else f"{title} - {f['file_name']}",
-                "content_type": f["content_type"],
-                "title": title,
-                "date_added": now,
-                "opens": 0,
-            })
-        data[key] = materials
-        return True
-
-    if update_json(DATA_FILE, mutator) is not None:
-        bot.send_message(chat_id, f"✅ Folder \"{title}\" replaced with {len(files)} new file(s)!")
-    else:
-        bot.send_message(chat_id, "⚠️ Failed to save the update to GitHub. Please try again.")
-    UPDATE_SESSIONS.pop(sess_id, None)
-
-
-def process_update_single_file(message, sess_id, abs_index):
-    chat_id = message.chat.id
-    if message.content_type == 'document':
-        file_id = message.document.file_id
-        file_name = message.document.file_name or "document.pdf"
-        content_type = "document"
-    elif message.content_type == 'photo':
-        file_id = message.photo[-1].file_id
-        file_name = "photo.jpg"
-        content_type = "photo"
-    else:
-        msg = bot.send_message(chat_id, "⚠️ Please send a file or photo to replace this item. Try again:")
-        bot.register_next_step_handler(msg, process_update_single_file, sess_id, abs_index)
-        return
-
-    sess = UPDATE_SESSIONS.get(sess_id)
-    if not sess:
-        bot.send_message(chat_id, "⚠️ This update session expired. Please run /updatefile again.")
-        return
-
-    result_holder = {}
-
-    def mutator(data):
-        key = f"{sess['course_code']}_{sess['material_type']}"
-        materials = data.get(key, [])
-        if abs_index >= len(materials):
-            return False
-        item = materials[abs_index]
-        old_name = item.get("name", "")
-        title = item.get("title", sess["title"])
-        item["file_id"] = file_id
-        item["content_type"] = content_type
-        item["date_added"] = datetime.now().strftime("%b %d, %Y - %H:%M")
-        item["name"] = (f"{title} - {file_name}" if " - " in old_name else title)
-        materials[abs_index] = item
-        data[key] = materials
-        result_holder["name"] = item["name"]
-        return True
-
-    ok = update_json(DATA_FILE, mutator)
-    if ok is None:
-        bot.send_message(chat_id, "⚠️ That file no longer exists.")
-    elif ok:
-        bot.send_message(chat_id, f"✅ Successfully updated \"{result_holder.get('name', 'item')}\"!")
-    else:
-        bot.send_message(chat_id, "⚠️ Failed to save the update to GitHub. Please try again.")
-    UPDATE_SESSIONS.pop(sess_id, None)
-
-
-# ==========================================================================
-#  COMMAND HANDLERS
-# ==========================================================================
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    try:
-        register_user({
-            "id": message.from_user.id,
-            "username": message.from_user.username,
-            "first_name": message.from_user.first_name,
-            "last_name": message.from_user.last_name,
-        }, source="bot")
-    except Exception:
-        log.exception("Failed to register user on /start")
-
-    parts = message.text.split(maxsplit=1)
-    if len(parts) > 1 and parts[1].startswith("g_"):
-        payload = parts[1][2:]
-        segments = payload.rsplit("_", 2)
-        if len(segments) == 3:
-            course_code, material_type, idx_str = segments
-            try:
-                idx = int(idx_str)
-                materials = load_json(DATA_FILE).get(
-                    f"{course_code}_{material_type}", []
-                )
-                if 0 <= idx < len(materials):
-                    item = materials[idx]
-                    threading.Thread(
-                        target=bump_stat,
-                        args=(course_code, material_type, item.get("name", "")),
-                        daemon=True,
-                    ).start()
-                    if item.get("content_type") == "photo":
-                        bot.send_photo(message.chat.id, item["file_id"],
-                                       caption=item.get("name", ""))
-                    else:
-                        bot.send_document(message.chat.id, item["file_id"],
-                                          caption=item.get("name", ""))
-                else:
-                    bot.send_message(message.chat.id,
-                                     "⚠️ That file could not be found — it may have been removed.")
-            except ValueError:
-                bot.send_message(message.chat.id, "⚠️ That link looks invalid.")
-        else:
-            bot.send_message(message.chat.id, "⚠️ That link looks invalid.")
-        return
-
-    welcome_text = (
-        "Welcome to the ASTU ECE Community Bot! 🚀\n\n"
-        "Tap 'Open Portal' for the best experience, or use the chat menus below."
-    )
-    bot.send_message(message.chat.id, welcome_text, reply_markup=main_menu_keyboard())
-
-
-@bot.message_handler(commands=['help'])
-def send_help(message):
-    text = (
-        "🤖 <b>Available commands</b>\n\n"
-        "/start — Main menu\n"
-        "/help — This message\n\n"
-        "<b>Student:</b>\n"
-        "• Open the portal for materials, videos, GPA & more\n"
-        "• Subscribe on a course page to get DM alerts\n\n"
-        "<b>Admin only:</b>\n"
-        "/setexam /deleteexam /setnews /deletenews /clearnews\n"
-        "/setevent /clearevents\n"
-        "/addfile /updatefile /deletefile\n"
-        "/addvideo /deletevideo\n"
-        "/stats /users /export_users /broadcast"
-    )
-    bot.send_message(message.chat.id, text, parse_mode="HTML")
-
-
-@bot.message_handler(commands=['cancel'])
-def cancel_cmd(message):
-    UPLOAD_STATES.pop(message.chat.id, None)
-    bot.reply_to(message, "✅ Cancelled.")
-
-
-# ---------- ADMIN: Analytics dashboard ----------
-def _render_analytics_message(a):
-    """Build the HTML text for /stats and /users."""
-    lines = [
-        "📊 <b>ASTU ECE Bot Analytics</b>",
-        "━━━━━━━━━━━━━━━━━━━━━",
-        "",
-        "👥 <b>Users</b>",
-        f"• Total registered: <b>{a['total']}</b>",
-        f"• Active flag: <b>{a['active_flag']}</b>  ·  Inactive: {a['inactive_flag']}",
-        "",
-        "🔥 <b>Activity</b>",
-        f"• Active in last 24h: <b>{a['active_today']}</b>",
-        f"• Active in last 7 days: <b>{a['active_7d']}</b>",
-        f"• Active in last 30 days: {a['active_30d']}",
-        "",
-        "🆕 <b>New signups</b>",
-        f"• Today: <b>{a['new_today']}</b>",
-        f"• This week: <b>{a['new_7d']}</b>",
-    ]
-
-    recent = a.get("recent", [])
-    if recent:
-        lines.append("")
-        lines.append("🕒 <b>Recently joined</b>")
-        for u in recent[:5]:
-            handle = "@" + u["username"] if u["username"] else "—"
-            name = u["full_name"] or "Unknown"
-            joined = u["joined_at"] or "—"
-            lines.append(
-                f"• {escape_md(name)} ({escape_md(handle)})\n"
-                f"   <code>{escape_md(u['user_id'])}</code> · {escape_md(joined)}"
-            )
-
-    lines.append("")
-    lines.append("Use /export_users to download the full list as CSV.")
-    return "\n".join(lines)
-
-
-@bot.message_handler(commands=['stats', 'users'])
-def admin_stats(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    # Refresh the caller's own activity stamp
-    try:
-        touch_user(message.from_user.id, source="bot")
-    except Exception:
-        pass
-
-    analytics = get_user_analytics()
-    bot.send_message(
-        message.chat.id,
-        _render_analytics_message(analytics),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
-
-
-@bot.message_handler(commands=['export_users'])
-def admin_export_users(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-
-    analytics = get_user_analytics()
-    if analytics["total"] == 0:
-        bot.reply_to(message, "ℹ️ No users registered yet.")
-        return
-
-    try:
-        csv_text = build_users_csv()
-    except Exception as e:
-        log.exception("export_users failed")
-        bot.reply_to(message, f"⚠️ Failed to build CSV: {e}")
-        return
-
-    filename = f"astu_ece_users_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.csv"
-    bio = io.BytesIO(csv_text.encode("utf-8"))
-    bio.name = filename
-
-    caption = (
-        f"📄 <b>User Export</b>\n"
-        f"• Total: <b>{analytics['total']}</b>\n"
-        f"• Active (24h): <b>{analytics['active_today']}</b>\n"
-        f"• Active (7d): <b>{analytics['active_7d']}</b>\n"
-        f"• New today: <b>{analytics['new_today']}</b>"
-    )
-
-    try:
-        bot.send_document(
-            message.chat.id,
-            bio,
-            caption=caption,
-            parse_mode="HTML",
-            visible_file_name=filename,
-        )
-    except Exception as e:
-        log.exception("send_document for export failed")
-        bot.reply_to(message, f"⚠️ Failed to send CSV: {e}")
-
-
-# ---------- ADMIN: Broadcast ----------
-@bot.message_handler(commands=['broadcast'])
-def admin_broadcast(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(
-            message,
-            "Usage: <code>/broadcast Your message here</code>",
-            parse_mode="HTML",
-        )
-        return
-
-    body = parts[1].strip()
-    active_users = get_active_users()
-    if not active_users:
-        bot.reply_to(message, "ℹ️ No active users to broadcast to.")
-        return
-
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("🚀 Open Portal",
-                             web_app=WebAppInfo(url=WEBAPP_URL))
-    )
-    text = f"📢 <b>Announcement</b>\n\n{escape_md(body)}"
-
-    enqueue_notify(active_users, text, markup)
-    bot.reply_to(
-        message,
-        f"✅ Broadcast queued for <b>{len(active_users)}</b> active users.",
-        parse_mode="HTML",
-    )
-
-
-# ---------- ADMIN: other commands ----------
-@bot.message_handler(commands=['setexam'])
-def admin_set_exam(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    parts = message.text.split(maxsplit=3)
-    if len(parts) < 4:
-        bot.reply_to(message,
-                     "Usage: /setexam [CourseCode] [YYYY-MM-DD] [Exam Title]")
-        return
-    code, date_str, title = parts[1], parts[2], parts[3]
-
-    def mutator(data):
-        data[code] = {"date": date_str, "title": title}
-        return True
-
-    update_json(EXAMS_FILE, mutator)
-    bot.reply_to(message, f"✅ Countdown for '{title}' ({code}) set to {date_str}.")
-
-
-@bot.message_handler(commands=['deleteexam'])
-def admin_delete_exam(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.reply_to(message, "Usage: /deleteexam [CourseCode]")
-        return
-    code = parts[1]
-
-    def mutator(data):
-        data.pop(code, None)
-        return True
-
-    update_json(EXAMS_FILE, mutator)
-    bot.reply_to(message, f"✅ Countdown for {code} removed.")
-
-
-def _publish_news(title, link):
-    def mutator(data):
-        if not isinstance(data, list):
-            data = []
-        item = {
-            "id": os.urandom(4).hex(),
-            "title": title,
-            "link": link,
-            "date": datetime.now().strftime("%b %d, %Y - %H:%M"),
+            // 3) Last resort: strip the dash and try again
+            const iso = Date.parse(String(dateStr).replace(" - ", " "));
+            return isNaN(iso) ? 0 : iso;
         }
-        data.insert(0, item)
-        del data[20:]
-        return item
-
-    result = update_json(NEWS_FILE, mutator)
-    if result:
-        notify_all_subscribers(result["title"], result["date"], result["link"])
-    return result
-
-
-@bot.message_handler(commands=['setnews'])
-def admin_set_news(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    raw = message.text.replace("/setnews", "").strip()
-    link, title = None, raw
-
-    if message.reply_to_message and getattr(message.reply_to_message, "forward_from_chat", None):
-        chat = message.reply_to_message.forward_from_chat
-        msg_id = message.reply_to_message.forward_from_message_id
-        if chat.username:
-            link = f"https://t.me/{chat.username}/{msg_id}"
-        else:
-            internal = str(chat.id)
-            internal = internal[4:] if internal.startswith("-100") else internal.lstrip("-")
-            link = f"https://t.me/c/{internal}/{msg_id}"
-        if not raw:
-            title = "Announcement"
-    elif "|" in raw:
-        parts = raw.split("|", 1)
-        title = parts[0].strip()
-        link = parts[1].strip()
-
-    if not title or not link:
-        bot.reply_to(message,
-                     "⚠️ <b>Invalid format.</b>\n\n"
-                     "Option 1: <code>/setnews Title | https://t.me/channel/123</code>\n"
-                     "Option 2: forward a post and reply with <code>/setnews Title</code>",
-                     parse_mode="HTML")
-        return
-
-    item = _publish_news(title, link)
-    if item:
-        bot.reply_to(message,
-                     f"✅ News published:\n<b>{escape_md(title)}</b>\n🔗 {escape_md(link)}",
-                     parse_mode="HTML", disable_web_page_preview=True)
-
-
-@bot.message_handler(commands=['deletenews'])
-def admin_delete_news(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    news_list = load_json(NEWS_FILE)
-    if not isinstance(news_list, list) or not news_list:
-        bot.reply_to(message, "ℹ️ No news to delete.")
-        return
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        markup = InlineKeyboardMarkup()
-        for item in news_list:
-            t = item.get("title", "Untitled")
-            label = t if len(t) <= 40 else t[:37] + "..."
-            markup.row(InlineKeyboardButton(f"❌ {label}",
-                                            callback_data=f"delnews_{item['id']}"))
-        bot.reply_to(message, "Select the news item you want to delete:",
-                     reply_markup=markup)
-        return
-    nid = parts[1].strip()
-
-    def mutator(data):
-        return [n for n in (data if isinstance(data, list) else []) if n.get("id") != nid]
-
-    update_json(NEWS_FILE, mutator)
-    bot.reply_to(message, "✅ News item removed.")
-
-
-@bot.message_handler(commands=['clearnews'])
-def admin_clear_news(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    save_json(NEWS_FILE, [])
-    bot.reply_to(message, "✅ All news items cleared.")
-
-
-@bot.message_handler(commands=['setevent'])
-def admin_set_event(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    parts = message.text.split(maxsplit=3)
-    if len(parts) < 4:
-        bot.reply_to(message,
-                     "Usage: /setevent [Start] [End] [Title]\n"
-                     "(Use the same date twice for a one-day event.)")
-        return
-    start_date, end_date, title = parts[1], parts[2], parts[3]
-
-    def mutator(data):
-        if not isinstance(data, list):
-            data = []
-        data.append({"start": start_date, "end": end_date, "title": title})
-        return True
-
-    update_json(EVENTS_FILE, mutator)
-    bot.reply_to(message, f"✅ Event '{title}' set from {start_date} to {end_date}.")
-
-
-@bot.message_handler(commands=['clearevents'])
-def admin_clear_events(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    save_json(EVENTS_FILE, [])
-    bot.reply_to(message, "✅ All global countdown events cleared.")
-
-
-@bot.message_handler(commands=['addfile'])
-def admin_add_file_start(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    bot.send_message(message.chat.id, "Select the Year to ADD official material:",
-                     reply_markup=year_keyboard('a'))
-
-
-@bot.message_handler(commands=['updatefile'])
-def admin_update_file_start(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    bot.send_message(message.chat.id, "Select the Year of the material you want to UPDATE:",
-                     reply_markup=year_keyboard('p'))
-
-
-@bot.message_handler(commands=['addvideo'])
-def admin_add_video_start(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    bot.send_message(message.chat.id, "Select the Year to ADD a video link:",
-                     reply_markup=year_keyboard('v'))
-
-
-@bot.message_handler(commands=['deletefile'])
-def admin_delete_file_start(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    bot.send_message(message.chat.id, "Select the Year to DELETE material from:",
-                     reply_markup=year_keyboard('d'))
-
-
-@bot.message_handler(commands=['deletevideo'])
-def admin_delete_video_start(message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
-    data = load_json(VIDEOS_FILE)
-    if not data:
-        bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
-        return
-    markup = InlineKeyboardMarkup()
-    has_videos = False
-    for course_code, vids in data.items():
-        for idx, v in enumerate(vids):
-            has_videos = True
-            markup.row(InlineKeyboardButton(
-                f"❌ [{course_display(course_code)}] {v.get('title', 'Video')}",
-                callback_data=f"delvid_{course_code}_{idx}",
-            ))
-    if not has_videos:
-        bot.send_message(message.chat.id, "ℹ️ No approved videos found to delete.")
-        return
-    bot.send_message(message.chat.id, "Select the video you want to delete:",
-                     reply_markup=markup)
-
-
-# ==========================================================================
-#  CALLBACK HANDLERS
-# ==========================================================================
-@bot.callback_query_handler(func=lambda call: True)
-def handle_query(call):
-    def _edit(text, markup=None):
-        try:
-            bot.edit_message_text(
-                text, chat_id=call.message.chat.id,
-                message_id=call.message.message_id, reply_markup=markup,
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
-
-    # Refresh last_active on every button press
-    try:
-        touch_user(call.from_user.id, source="callback")
-    except Exception:
-        pass
-
-    data = call.data
-
-    if data == "main_find":
-        _edit("Select your academic year to FIND materials:", year_keyboard('f'))
-
-    elif data == "main_upload":
-        _edit("Select your academic year to UPLOAD materials:", year_keyboard('u'))
-
-    elif data == "back_main":
-        _edit(
-            "Welcome to the ASTU ECE Community Bot! 🚀\n\n"
-            "Tap 'Open Portal' for the best experience, or use the chat menus below.",
-            main_menu_keyboard(),
-        )
-
-    elif data.startswith(("fy_", "uy_", "ay_", "dy_", "vy_", "py_")):
-        action = data[0]
-        year = data.split('_')[1]
-        roman = {"2": "II", "3": "III"}.get(year, year)
-        _edit(f"Year {roman} selected.\nChoose your semester:",
-              semester_keyboard(year, action))
-
-    elif data.startswith(("fs_", "us_", "as_", "ds_", "vs_", "ps_")):
-        parts = data.split('_')
-        action = parts[0][0]
-        year, semester = parts[1], parts[2]
-        _edit("Select the subject:",
-              subject_keyboard(year, semester, action))
-
-    elif data.startswith(("fc_", "uc_", "ac_", "dc_", "vc_", "pc_")):
-        parts = data.split('_')
-        action = parts[0][0]
-        course_code = parts[1]
-
-        if action == 'v':
-            try:
-                msg = bot.edit_message_text(
-                    f"Course: <b>{escape_md(course_display(course_code))}</b>\n\n"
-                    f"Reply with the <b>Video Title</b> and <b>URL</b> separated by a new line.\n\n"
-                    f"Example:\n"
-                    f"<code>Lecture 1 Introduction\nhttps://youtube.com/watch?v=...</code>",
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    parse_mode="HTML",
-                )
-                bot.register_next_step_handler(msg, process_admin_add_video, course_code)
-            except Exception:
-                pass
-        else:
-            _edit(f"Course: <b>{escape_md(course_display(course_code))}</b>\nSelect the type of material:",
-                  material_type_keyboard(course_code, action))
-
-    elif data.startswith(("fm_", "um_", "am_", "dm_", "pm_")):
-        parts = data.split('_')
-        action = parts[0][0]
-        course_code = parts[1]
-        material_type = parts[2]
-
-        if action == 'f':
-            materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
-            if not materials:
-                bot.send_message(call.message.chat.id,
-                                 f"ℹ️ No {material_type.upper()} files available yet for {course_display(course_code)}.")
-            else:
-                bot.send_message(call.message.chat.id,
-                                 f"📚 Found {len(materials)} file(s) for {course_display(course_code)}:")
-                for item in materials:
-                    if item.get("content_type") == "photo":
-                        bot.send_photo(call.message.chat.id, item["file_id"],
-                                       caption=item.get("name", ""))
-                    else:
-                        bot.send_document(call.message.chat.id, item["file_id"],
-                                          caption=item.get("name", ""))
-
-        elif action in ('u', 'a'):
-            try:
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-            except Exception:
-                pass
-            label = "Upload" if action == 'u' else "Admin save"
-            msg = bot.send_message(
-                call.message.chat.id,
-                f"📤 <b>{label} mode: {escape_md(course_display(course_code))} ({escape_md(material_type.upper())})</b>\n\n"
-                f"Send your file(s) now — you can send as many as you want.\n\n"
-                f"👇 When done, click <b>Finish Upload</b>.",
-                parse_mode="HTML",
-                reply_markup=finish_upload_keyboard(),
-            )
-            UPLOAD_STATES[call.message.chat.id] = _stamp({
-                "course_code": course_code,
-                "material_type": material_type,
-                "action": "user" if action == 'u' else "admin",
-                "files": [],
-                "status_msg_id": msg.message_id,
-            })
-
-        elif action == 'd':
-            materials = load_json(DATA_FILE).get(f"{course_code}_{material_type}", [])
-            if not materials:
-                bot.send_message(call.message.chat.id,
-                                 f"ℹ️ No files found under {course_display(course_code)} ({material_type.upper()}) to delete.")
-            else:
-                text, markup = build_delete_list(course_code, material_type)
-                _edit(text, markup)
-
-        elif action == 'p':
-            text, markup = build_update_folder_list(course_code, material_type)
-            _edit(text, markup)
-
-    elif data == "finish_upload":
-        chat_id = call.message.chat.id
-        if chat_id not in UPLOAD_STATES:
-            bot.answer_callback_query(call.id, "Upload session expired or already finished.")
-            try:
-                bot.delete_message(chat_id, call.message.message_id)
-            except Exception:
-                pass
-            return
-
-        state = UPLOAD_STATES[chat_id]
-        files = state["files"]
-
-        if not files:
-            bot.answer_callback_query(call.id,
-                                      "You haven't sent any files yet! Send them first.",
-                                      show_alert=True)
-            return
-
-        if state["action"] == "admin":
-            state["awaiting_title"] = True
-            _edit(f"✏️ Got {len(files)} file(s). Please type a <b>title</b> for this folder.")
-            return
-
-        if state["action"] == "update_whole":
-            _edit(f"🔄 Replacing the folder with {len(files)} new file(s)...")
-            process_update_whole(chat_id, files, state)
-            UPLOAD_STATES.pop(chat_id, None)
-            return
-
-        _edit(f"🔄 Processing your {len(files)} file(s)...")
-        process_files(chat_id, files, state, call.from_user)
-        UPLOAD_STATES.pop(chat_id, None)
-
-    elif data.startswith("delitem_"):
-        parts = data.split('_')
-        course_code, material_type, idx = parts[1], parts[2], int(parts[3])
-        deleted_name = delete_material_by_index(course_code, material_type, idx)
-        if deleted_name:
-            bot.answer_callback_query(call.id, f"✅ Deleted {deleted_name}")
-        else:
-            bot.answer_callback_query(call.id, "⚠️ Could not delete.", show_alert=True)
-        text, markup = build_delete_list(course_code, material_type)
-        _edit(text, markup)
-
-    elif data.startswith("updfolder_"):
-        sess_id = data.split('_', 1)[1]
-        text, markup = build_update_folder_detail(sess_id)
-        _edit(text, markup)
-
-    elif data.startswith("updwhole_"):
-        sess_id = data.split('_', 1)[1]
-        sess = UPDATE_SESSIONS.get(sess_id)
-        if not sess:
-            bot.answer_callback_query(call.id,
-                                      "This update session expired. Run /updatefile again.",
-                                      show_alert=True)
-            return
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except Exception:
-            pass
-        msg = bot.send_message(
-            call.message.chat.id,
-            f"🔁 <b>Replacing folder \"{escape_md(sess['title'])}\"</b>\n\n"
-            f"Send the new file(s) now, then click <b>Finish Upload</b>.",
-            parse_mode="HTML",
-            reply_markup=finish_upload_keyboard(),
-        )
-        UPLOAD_STATES[call.message.chat.id] = _stamp({
-            "course_code": sess["course_code"],
-            "material_type": sess["material_type"],
-            "action": "update_whole",
-            "sess_id": sess_id,
-            "files": [],
-            "status_msg_id": msg.message_id,
-        })
-
-    elif data.startswith("upditem_"):
-        parts = data.split('_')
-        sess_id, pos = parts[1], int(parts[2])
-        sess = UPDATE_SESSIONS.get(sess_id)
-        if not sess or pos >= len(sess["indices"]):
-            bot.answer_callback_query(call.id,
-                                      "This update session expired. Run /updatefile again.",
-                                      show_alert=True)
-            return
-        abs_index = sess["indices"][pos]
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except Exception:
-            pass
-        msg = bot.send_message(call.message.chat.id,
-                               "📥 Send the new file (or photo) to replace this item:")
-        bot.register_next_step_handler(msg, process_update_single_file, sess_id, abs_index)
-
-    elif data.startswith("delvid_"):
-        parts = data.split('_')
-        course_code, idx = parts[1], int(parts[2])
-        removed_holder = {}
-
-        def mutator(vdata):
-            arr = vdata.get(course_code, [])
-            if 0 <= idx < len(arr):
-                removed_holder["item"] = arr.pop(idx)
-                if not arr:
-                    vdata.pop(course_code, None)
-                return True
-            return False
-
-        ok = update_json(VIDEOS_FILE, mutator)
-        if ok:
-            _edit(f"✅ Deleted video: {escape_md(removed_holder.get('item', {}).get('title', 'Video'))}")
-        else:
-            _edit("⚠️ Video not found.")
-
-    elif data.startswith("delnews_"):
-        if call.from_user.id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
-            return
-        nid = data.split('_', 1)[1]
-
-        def mutator(ndata):
-            return [n for n in (ndata if isinstance(ndata, list) else [])
-                    if n.get("id") != nid]
-
-        update_json(NEWS_FILE, mutator)
-        _edit("✅ News item deleted.")
-
-    elif data.startswith("approve_vid_"):
-        req_id = data.split('_', 2)[2]
-        v_data = PENDING_VIDEOS.pop(req_id, None)
-        if not v_data:
-            bot.answer_callback_query(call.id, "Request expired or already handled.")
-            return
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(
-                    admin,
-                    f"✅ Video '{escape_md(v_data['title'])}' for "
-                    f"{escape_md(course_display(v_data['course']))} from "
-                    f"{escape_md(v_data['username'])} approved!\n"
-                    f"Use /addvideo to add it to the official list.",
-                    parse_mode="HTML",
-                )
-            except Exception:
-                pass
-        try:
-            bot.edit_message_reply_markup(chat_id=call.message.chat.id,
-                                          message_id=call.message.message_id,
-                                          reply_markup=None)
-        except Exception:
-            pass
-
-    elif data.startswith("reject_vid_"):
-        req_id = data.split('_', 2)[2]
-        PENDING_VIDEOS.pop(req_id, None)
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(admin, "❌ Video submission rejected.")
-            except Exception:
-                pass
-        try:
-            bot.edit_message_reply_markup(chat_id=call.message.chat.id,
-                                          message_id=call.message.message_id,
-                                          reply_markup=None)
-        except Exception:
-            pass
-
-    elif data.startswith("approve_upload_"):
-        req_id = data.split('_', 2)[2]
-        up = PENDING_UPLOADS.pop(req_id, None)
-        if not up:
-            bot.answer_callback_query(call.id, "Request expired or already handled.")
-            return
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(
-                    admin,
-                    f"✅ Upload batch from {escape_md(up.get('username', 'Student'))} approved.",
-                    parse_mode="HTML",
-                )
-            except Exception:
-                pass
-        try:
-            bot.send_message(
-                up["chat_id"],
-                f"✅ Good news! Your batch of {len(up['files'])} file(s) "
-                f"for {course_display(up['course_code'])} has been approved.\n\n"
-                f"They will be organized and added to the official portal soon.",
-            )
-        except Exception:
-            pass
-        try:
-            bot.edit_message_reply_markup(chat_id=call.message.chat.id,
-                                          message_id=call.message.message_id,
-                                          reply_markup=None)
-        except Exception:
-            pass
-
-    elif data.startswith("reject_upload_"):
-        req_id = data.split('_', 2)[2]
-        up = PENDING_UPLOADS.pop(req_id, None)
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(admin, "❌ Upload batch rejected.")
-            except Exception:
-                pass
-        if up:
-            try:
-                bot.send_message(
-                    up["chat_id"],
-                    f"❌ Your submitted batch of {len(up['files'])} file(s) was not approved.",
-                )
-            except Exception:
-                pass
-        try:
-            bot.edit_message_reply_markup(chat_id=call.message.chat.id,
-                                          message_id=call.message.message_id,
-                                          reply_markup=None)
-        except Exception:
-            pass
-
-    else:
-        bot.answer_callback_query(call.id)
-
-
-# ==========================================================================
-#  MESSAGE HANDLERS
-# ==========================================================================
-@bot.message_handler(content_types=['document', 'photo'])
-def handle_media(message):
-    chat_id = message.chat.id
-    if chat_id not in UPLOAD_STATES:
-        return
-    state = UPLOAD_STATES[chat_id]
-    if state.get("awaiting_title"):
-        return
-
-    file_id = None
-    file_name = None
-    content_type = "document"
-
-    if message.document:
-        file_id = message.document.file_id
-        file_name = message.document.file_name or "document.pdf"
-    elif message.photo:
-        file_id = message.photo[-1].file_id
-        file_name = "photo.jpg"
-        content_type = "photo"
-
-    if not file_id:
-        return
-
-    state["files"].append({
-        "file_id": file_id,
-        "file_name": file_name,
-        "content_type": content_type,
-        "message_id": message.message_id,
-    })
-
-    try:
-        count = len(state["files"])
-        bot.edit_message_text(
-            f"📥 <b>Collected {count} file(s) so far.</b>\n\n"
-            f"Keep sending more, or click <b>Finish Upload</b> when done.",
-            chat_id=chat_id,
-            message_id=state["status_msg_id"],
-            parse_mode="HTML",
-            reply_markup=finish_upload_keyboard(),
-        )
-    except Exception:
-        pass
-
-
-@bot.message_handler(
-    content_types=['text'],
-    func=lambda m: UPLOAD_STATES.get(m.chat.id, {}).get("awaiting_title")
-                   and not (m.text or "").startswith('/'),
-)
-def handle_title_input(message):
-    chat_id = message.chat.id
-    state = UPLOAD_STATES.get(chat_id)
-    if not state:
-        return
-    title = (message.text or "").strip()
-    if not title:
-        bot.send_message(chat_id, "Please send a non-empty title.")
-        return
-
-    state["title"] = title
-    state["awaiting_title"] = False
-    files = state["files"]
-    bot.send_message(chat_id, f"🔄 Saving \"{title}\" ({len(files)} file(s))...")
-    process_files(chat_id, files, state, message.from_user, title=title)
-    UPLOAD_STATES.pop(chat_id, None)
-
-
-@bot.message_handler(content_types=['text'])
-def fallback_text(message):
-    if (message.text or "").startswith('/'):
-        return
-    # Silent tracking (don't spam users)
-    try:
-        touch_user(message.from_user.id, source="text")
-    except Exception:
-        pass
-    bot.reply_to(message,
-                 "🤖 I don't understand that. Try /help, or open the portal "
-                 "with /start.")
-
-
-def process_admin_add_video(message, course_code):
-    if not message.text:
-        bot.reply_to(message, "⚠️ Please send text only. Start over with /addvideo")
-        return
-    parts = message.text.strip().split('\n', 1)
-    if len(parts) != 2:
-        bot.reply_to(message,
-                     "⚠️ Invalid format. Put the <b>Title</b> on the first line "
-                     "and the <b>URL</b> on the second.\n\nStart over with /addvideo",
-                     parse_mode="HTML")
-        return
-
-    title, url = parts[0].strip(), parts[1].strip()
-    if add_approved_video(course_code, title, url):
-        bot.reply_to(message, f"✅ Added video '{title}' to {course_display(course_code)}!")
-        try:
-            subs = load_json(SUBS_FILE).get(course_code, [])
-            if subs:
-                markup = InlineKeyboardMarkup()
-                markup.row(InlineKeyboardButton(
-                    "🚀 Open App", web_app=WebAppInfo(url=WEBAPP_URL)
-                ))
-                text = (
-                    f"📺 <b>New Tutorial Video!</b>\n\n"
-                    f"📚 <b>Course:</b> {escape_md(course_display(course_code))}\n"
-                    f"📝 <b>Title:</b> {escape_md(title)}\n\n"
-                    f"Open the Portal to watch it."
-                )
-                enqueue_notify(subs, text, markup)
-        except Exception:
-            pass
-    else:
-        bot.reply_to(message, "⚠️ Failed to save video to GitHub.")
-
-
-def send_as_album(chat_id, files, caption=None):
-    docs = [f for f in files if f["content_type"] == "document"]
-    photos = [f for f in files if f["content_type"] == "photo"]
-
-    def chunks(lst, n=10):
-        for i in range(0, len(lst), n):
-            yield lst[i:i + n]
-
-    for group in chunks(docs):
-        if len(group) == 1:
-            bot.send_document(chat_id, group[0]["file_id"], caption=caption)
-        else:
-            media = [
-                InputMediaDocument(
-                    f["file_id"],
-                    caption=caption if i == 0 else None,
-                )
-                for i, f in enumerate(group)
-            ]
-            bot.send_media_group(chat_id, media)
-
-    for group in chunks(photos):
-        if len(group) == 1:
-            bot.send_photo(chat_id, group[0]["file_id"], caption=caption)
-        else:
-            media = [
-                InputMediaPhoto(
-                    f["file_id"],
-                    caption=caption if i == 0 else None,
-                )
-                for i, f in enumerate(group)
-            ]
-            bot.send_media_group(chat_id, media)
-
-
-def process_files(chat_id, files, state, user, title=None):
-    course_code = state["course_code"]
-    material_type = state["material_type"]
-    action = state["action"]
-
-    if action == "admin":
-        ok = save_material_batch(course_code, material_type, files,
-                                 title or "Untitled")
-        if ok:
-            bot.send_message(chat_id,
-                             f"✅ Saved \"{title}\" ({len(files)} file(s)) under "
-                             f"{course_display(course_code)} ({material_type.upper()})!")
-            send_as_album(chat_id, files, caption=title)
-            try:
-                subs = load_json(SUBS_FILE).get(course_code, [])
-                if subs:
-                    markup = InlineKeyboardMarkup()
-                    markup.row(InlineKeyboardButton(
-                        "🚀 Open App", web_app=WebAppInfo(url=WEBAPP_URL)
-                    ))
-                    text = (
-                        f"🔔 <b>New Material Added!</b>\n\n"
-                        f"📚 <b>Course:</b> {escape_md(course_display(course_code))}\n"
-                        f"📂 <b>Type:</b> {escape_md(material_type.upper())}\n"
-                        f"📝 <b>Title:</b> {escape_md(title or 'Untitled')}\n\n"
-                        f"Open the Portal to download it."
-                    )
-                    enqueue_notify(subs, text, markup)
-            except Exception:
-                pass
-        else:
-            bot.send_message(chat_id, "⚠️ Failed to save to GitHub. Please try again.")
-
-    elif action == "user":
-        req_id = os.urandom(4).hex()
-        PENDING_UPLOADS[req_id] = _stamp({
-            "course_code": course_code,
-            "material_type": material_type,
-            "files": files,
-            "chat_id": chat_id,
-            "username": user.username or "Student",
-        })
-        admin_text = (
-            f"📥 New Chat Upload (Batch of {len(files)} files)\n"
-            f"From: @{user.username or 'Student'}\n\n"
-            f"Course: {course_display(course_code)}\n"
-            f"Type: {material_type.upper()}"
-        )
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(admin, admin_text)
-                for f in files:
-                    bot.forward_message(admin, chat_id, f["message_id"])
-                markup = InlineKeyboardMarkup()
-                markup.row(
-                    InlineKeyboardButton("✅ Approve All",
-                                         callback_data=f"approve_upload_{req_id}"),
-                    InlineKeyboardButton("❌ Reject All",
-                                         callback_data=f"reject_upload_{req_id}"),
-                )
-                bot.send_message(admin, "Review this batch upload:", reply_markup=markup)
-            except Exception:
-                pass
-        bot.send_message(chat_id,
-                         f"✅ Thank you! Your batch of {len(files)} file(s) "
-                         f"has been sent for review.")
-
-
-# ==========================================================================
-#  FLASK — WEBHOOK + HEALTH CHECK
-# ==========================================================================
-@app.route('/' + TOKEN, methods=['POST'])
-def getMessage():
-    if WEBHOOK_SECRET:
-        incoming = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if not hmac.compare_digest(incoming, WEBHOOK_SECRET):
-            return "forbidden", 403
-    json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
-    return "!", 200
-
-
-@app.route('/')
-def webhook():
-    return "Bot is awake and running!", 200
-
-
-@app.route('/api/health')
-def api_health():
-    return jsonify({
-        "status": "ok",
-        "time": datetime.utcnow().isoformat(),
-        "webhook_secret_configured": bool(WEBHOOK_SECRET),
-    }), 200
-
-
-# ==========================================================================
-#  FLASK — WEBAPP API
-# ==========================================================================
-@app.route('/api/config', methods=['GET'])
-def api_config():
-    return jsonify({
-        "webapp_url": WEBAPP_URL,
-    }), 200
-
-
-@app.route('/api/curriculum', methods=['GET'])
-def api_curriculum():
-    return jsonify(CURRICULUM), 200
-
-
-@app.route('/api/materials', methods=['GET'])
-def get_materials():
-    data = load_json(DATA_FILE)
-    
-    # Inject the direct_pdf_url into each item
-    for key, items in data.items():
-        # Key format is "COURSE_CODE_MATERIAL_TYPE" (e.g., "ECEg2202_note")
-        parts = key.split('_')
-        course_code = parts[0]
-        mat_type = parts[1] if len(parts) > 1 else 'unknown'
-        
-        for idx, item in enumerate(items):
-            if item.get("content_type") == "document":
-                # Point this to our new proxy endpoint
-                item["direct_pdf_url"] = f"/api/serve_pdf/{course_code}/{mat_type}/{idx}"
-            else:
-                item["direct_pdf_url"] = ""
+        // ====================================================================
+
+        function getYouTubeId(url) {
+            if (!url) return null;
+            const patterns = [/youtube\.com\/watch\?(?:.*&)?v=([\w-]{11})/, /youtu\.be\/([\w-]{11})/, /youtube\.com\/embed\/([\w-]{11})/, /youtube\.com\/shorts\/([\w-]{11})/];
+            for (let i = 0; i < patterns.length; i++) { const m = url.match(patterns[i]); if (m) return m[1]; }
+            return null;
+        }
+        function getPlaylistId(url) {
+            if (!url) return null;
+            const m = url.match(/[?&]list=([\w-]+)/);
+            return m ? m[1] : null;
+        }
+
+        function getCourseName(code) {
+            if (!code) return '';
+            for (const y in curriculum) {
+                for (const s in curriculum[y]) {
+                    const courses = curriculum[y][s] || [];
+                    for (let i = 0; i < courses.length; i++) {
+                        if (courses[i].code === code) return courses[i].title;
+                    }
+                }
+            }
+            return '';
+        }
+
+        function courseDisplay(code) {
+            const name = getCourseName(code);
+            return name ? (code + ' · ' + name) : code;
+        }
+
+        // ---------- SAFE LINK ROUTER ----------
+        function isTelegramLink(url) {
+            if (!url) return false;
+            return /^https?:\/\/(t\.me|telegram\.me|telegram\.dog)\//i.test(url);
+        }
+
+        function openFileInExternalWindow(url) {
+            if (!url) return;
+            const wa = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+
+            if (isTelegramLink(url)) {
+                try {
+                    if (wa && typeof wa.openTelegramLink === 'function') {
+                        wa.openTelegramLink(url);
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('tg.openTelegramLink failed, falling back:', err);
+                }
+                try {
+                    if (wa && typeof wa.openLink === 'function') {
+                        wa.openLink(url);
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('tg.openLink fallback failed:', err);
+                }
+                try {
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                } catch (err) {
+                    console.error('window.open fallback failed:', err);
+                }
+                return;
+            }
+
+            try {
+                if (wa && typeof wa.openLink === 'function') {
+                    wa.openLink(url);
+                    return;
+                }
+            } catch (err) {
+                console.warn('tg.openLink failed, falling back to window.open:', err);
+            }
+            try {
+                window.open(url, '_blank', 'noopener,noreferrer');
+            } catch (err) {
+                console.error('window.open failed:', err);
+            }
+        }
+
+        async function api(path, opts) {
+            opts = opts || {};
+            const headers = Object.assign({}, opts.headers || {});
+            if (INIT_DATA) headers["X-Telegram-Init-Data"] = INIT_DATA;
+            let body = opts.body;
+            if (body && typeof body === 'string' && (headers['Content-Type'] || '').indexOf('json') !== -1) {
+                try {
+                    const parsed = JSON.parse(body);
+                    parsed.initData = INIT_DATA;
+                    body = JSON.stringify(parsed);
+                } catch (_) {}
+            }
+            if (body instanceof FormData && INIT_DATA && !body.has('initData')) {
+                body.append('initData', INIT_DATA);
+            }
+            const res = await fetch(RENDER_URL + path, Object.assign({}, opts, { headers: headers, body: body }));
+            if (!res.ok) {
+                let msg = 'HTTP ' + res.status;
+                try { const e = await res.json(); if (e.error) msg = e.error; } catch (_) {}
+                throw new Error(msg);
+            }
+            return res;
+        }
+
+        const ADMIN_IDS = [8429521561, 8244142809];
+        const myUserId = tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id;
+        if (ADMIN_IDS.indexOf(myUserId) !== -1) {
+            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
+        }
+
+        let userSubs = [];
+        let activeExams = {};
+        let allNews = [];
+        let leaderboard = [];
+        let curriculum = {};
+        let allMaterials = {};
+        let allVideos = {};
+        let favorites = [];
+        let activeFolderContext = null;
+        let activeFavFolder = null;
+        let filters = { year: '', sem: '', course: '', type: '' };
+        let videoFilters = { year: '', sem: '', course: '' };
+        let lastSeenNewsId = localStorage.getItem('astu_ece_last_seen_news') || null;
+        let pendingRemoteThumbs = [];
+
+        window.rebuildSemesterSelect = function(semSelect, yearValue) {
+            semSelect.innerHTML = '<option value="">Select Semester...</option>';
+            const yearData = curriculum[yearValue] || {};
+            const sems = Object.keys(yearData).sort();
+            sems.forEach(function(s) {
+                const label = s === "1" ? "Semester I" : "Semester II";
+                semSelect.innerHTML += '<option value="' + s + '">' + label + '</option>';
+            });
+            semSelect.disabled = !yearValue || sems.length === 0;
+            semSelect.value = "";
+        };
+
+        async function loadCurriculum() {
+            try { const res = await fetch(RENDER_URL + '/api/curriculum'); curriculum = await res.json(); }
+            catch (e) { curriculum = {}; }
+        }
+        async function loadSubscriptions() {
+            try { const res = await api('/api/subscriptions'); userSubs = await res.json(); }
+            catch (e) { userSubs = []; }
+        }
+        async function fetchExams() {
+            try { const res = await fetch(RENDER_URL + '/api/exams'); activeExams = await res.json(); }
+            catch (e) { activeExams = {}; }
+        }
+        async function loadFavorites() {
+            try { const res = await api('/api/favorites'); favorites = await res.json(); if (!Array.isArray(favorites)) favorites = []; }
+            catch (e) { favorites = []; }
+        }
+        async function loadLeaderboard() {
+            try { const res = await fetch(RENDER_URL + '/api/leaderboard'); leaderboard = await res.json(); renderLeaderboard(); }
+            catch (e) { leaderboard = []; }
+        }
+        async function trackOpen(course, kind, name) {
+            try {
+                await api('/api/track_open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ course, kind, name }) });
+            } catch (e) {}
+        }
+        async function fetchAllMaterials() {
+            document.getElementById('resultsContainer').innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><br>Loading all materials...</div>';
+            try { const res = await fetch(RENDER_URL + '/api/materials'); allMaterials = await res.json(); renderMaterials(); }
+            catch (e) { document.getElementById('resultsContainer').innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><br>Error loading data.</div>'; }
+        }
+        async function fetchAllVideos() {
+            document.getElementById('videoResultsContainer').innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><br>Loading all videos...</div>';
+            try { const res = await fetch(RENDER_URL + '/api/videos'); allVideos = await res.json(); renderVideos(); }
+            catch (e) { document.getElementById('videoResultsContainer').innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><br>Error loading data.</div>'; }
+        }
+
+        // Helper to format YYYY-MM-DD into "Wednesday, YYYY-MM-DD"
+        function formatDateWithDay(dateStr) {
+            if (!dateStr) return '';
+            try {
+                const parts = dateStr.split('-');
+                if (parts.length !== 3) return dateStr;
+                const year = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                const day = parseInt(parts[2], 10);
+                const dateObj = new Date(year, month, day);
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                return days[dateObj.getDay()] + ', ' + dateStr;
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
+        async function loadDashboardWidgets() {
+            const container = document.getElementById('dashboardWidgets');
+            try {
+                const res = await fetch(RENDER_URL + '/api/dashboard');
+                const data = await res.json();
+                let html = "";
+                allNews = Array.isArray(data.news) ? data.news : [];
+                updateNewsBadge();
+                renderNewsList();
+                renderAdminNewsList();
+                const latestId = allNews.length > 0 ? allNews[0].id : null;
+                const hasUnseenNews = latestId && lastSeenNewsId !== latestId;
+                if (hasUnseenNews) {
+                    const latest = allNews[0];
+                    html += '<div style="background: linear-gradient(135deg, #007aff, #00c6ff); color: white; padding: 16px; border-radius: 16px; margin-bottom: 15px; box-shadow: 0 10px 22px rgba(0, 122, 255, 0.28), 0 1px 0 rgba(255,255,255,0.35) inset; line-height: 1.4;">'
+                        + '<div style="display: flex; gap: 12px; align-items: flex-start;">'
+                        + '<i class="fa-solid fa-bullhorn" style="font-size: 18px; margin-top: 2px;"></i>'
+                        + '<div style="flex:1; min-width:0;">'
+                        + '<div style="font-weight: 700; font-size: 15px; margin-bottom: 4px; word-break: break-word; overflow-wrap: anywhere;">' + esc(latest.title) + '</div>'
+                        + '<div style="font-size: 12px; opacity: 0.9; margin-bottom: 10px;"><i class="fa-regular fa-clock"></i> ' + esc(latest.date || '') + '</div>'
+                        + '<a href="' + esc(latest.link || '#') + '" target="_blank" rel="noopener" style="display:inline-block; background: rgba(255,255,255,0.25); color:#fff; text-decoration:none; padding:6px 14px; border-radius:8px; font-size:13px; font-weight:600;"><i class="fa-brands fa-telegram"></i> Open Post</a>'
+                        + '</div></div></div>';
+                }
+                if (data.events && data.events.length > 0) {
+                    data.events.forEach(ev => {
+                        const targetDate = ev.end || ev.date;
+
+                        const today = new Date();
+                        today.setHours(0,0,0,0);
+                        const target = new Date(targetDate);
+                        target.setHours(0,0,0,0);
+                        const daysLeft = Math.round((target - today) / (1000 * 60 * 60 * 24));
+
+                        if (daysLeft >= 0) {
+                            const urgent = daysLeft <= 3;
+                            const c1 = urgent ? '#ff3b30' : '#ffb300';
+                            const c2 = urgent ? '#ff7a7a' : '#ffcc00';
+                            const shadow = urgent ? 'rgba(255, 59, 48, 0.22)' : 'rgba(255, 179, 0, 0.22)';
+
+                            const displayStart = formatDateWithDay(ev.start);
+                            const displayEnd = formatDateWithDay(ev.end);
+                            const dateDisplay = ev.start && ev.end
+                                ? (ev.start === ev.end ? displayEnd : displayStart + ' to ' + displayEnd)
+                                : formatDateWithDay(targetDate);
+
+                            html += '<div style="background: linear-gradient(135deg, ' + c1 + ', ' + c2 + '); color: white; padding: 12px 16px; border-radius: 16px; margin-bottom: 15px; font-weight: 600; box-shadow: 0 10px 22px ' + shadow + '; display: flex; justify-content: space-between; align-items: center; gap: 10px;">'
+                                + '<div style="min-width:0;">'
+                                + '<div style="font-size: 15px; word-break: break-word; overflow-wrap: anywhere;"><i class="fa-solid fa-calendar-day"></i> ' + esc(ev.title) + '</div>'
+                                + '<div style="font-size: 12px; margin-top: 4px; opacity: 0.95;"><i class="fa-regular fa-calendar"></i> ' + esc(dateDisplay) + '</div></div>'
+                                + '<div style="background: rgba(255,255,255,0.25); padding: 6px 12px; border-radius: 8px; font-size: 13px; flex-shrink:0;">'
+                                + (daysLeft === 0 ? 'Ends Today!' : daysLeft + ' days left')
+                                + '</div></div>';
+                        }
+                    });
+                }
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = '<div class="error-banner"><i class="fa-solid fa-triangle-exclamation"></i> Couldn\'t load announcements. Pull to refresh.</div>';
+            }
+        }
+
+        function updateNewsBadge() {
+            const badge = document.getElementById('newsBadge');
+            if (!badge) return;
+            if (!allNews.length) { badge.style.display = 'none'; return; }
+            const lastSeenIndex = allNews.findIndex(n => n.id === lastSeenNewsId);
+            const unread = lastSeenIndex === -1 ? allNews.length : lastSeenIndex;
+            if (unread === 0) { badge.style.display = 'none'; return; }
+            badge.style.display = 'inline-block';
+            badge.textContent = unread > 9 ? '9+' : String(unread);
+        }
+        function markNewsSeen() {
+            if (allNews.length > 0) {
+                lastSeenNewsId = allNews[0].id;
+                localStorage.setItem('astu_ece_last_seen_news', lastSeenNewsId);
+                updateNewsBadge();
+            }
+        }
+        function renderNewsList() {
+            const container = document.getElementById('newsListContainer');
+            if (!container) return;
+            const searchEl = document.getElementById('newsSearchInput');
+            const q = (searchEl ? searchEl.value : '').toLowerCase();
+            const filtered = allNews.filter(n => !q || (n.title || '').toLowerCase().includes(q) || (n.date || '').toLowerCase().includes(q));
+            if (!filtered.length) { container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-bell-slash"></i><br>No announcements found.</div>'; return; }
+            let lastSeenIndex = allNews.findIndex(n => n.id === lastSeenNewsId);
+            if (lastSeenIndex === -1) lastSeenIndex = allNews.length;
+            let html = "";
+            filtered.forEach(item => {
+                const globalIndex = allNews.findIndex(n => n.id === item.id);
+                const isUnread = globalIndex !== -1 && globalIndex < lastSeenIndex;
+                const unreadDot = isUnread ? '<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#ff3b30; margin-left:8px; vertical-align:middle;"></span>' : '';
+                html += '<div class="material-card" style="align-items:flex-start; flex-direction:column; gap:8px; ' + (isUnread ? 'border-left: 3px solid #ff3b30;' : '') + '">'
+                    + '<div style="width:100%; min-width:0;">'
+                    + '<div style="font-weight:600; font-size:15px; margin-bottom:4px; word-break: break-word; overflow-wrap: anywhere;"><i class="fa-solid fa-bullhorn" style="color:var(--btn-color); margin-right:6px;"></i>' + esc(item.title) + unreadDot + '</div>'
+                    + '<div style="font-size:12px; color:var(--hint-color);"><i class="fa-regular fa-calendar"></i> ' + esc(item.date || '') + '</div></div>'
+                    + '<div style="display:flex; gap:8px; width:100%; justify-content:flex-end;"><a class="dl-btn" href="' + esc(item.link || '#') + '" target="_blank" rel="noopener"><i class="fa-brands fa-telegram"></i> Open Post</a></div></div>';
+            });
+            container.innerHTML = html;
+        }
+        function renderAdminNewsList() {
+            const container = document.getElementById('adminNewsList');
+            if (!container) return;
+            if (!allNews.length) { container.innerHTML = '<p style="color:var(--hint-color); font-size:13px; text-align:center;">No news items yet.</p>'; return; }
+            let html = '<h4 style="margin-bottom:10px;">Existing News (' + allNews.length + ')</h4>';
+            allNews.forEach(item => {
+                html += '<div class="material-card"><div class="material-info"><span class="material-name">📢 ' + esc(item.title) + '</span><span class="material-type">' + esc(item.date || '') + '</span></div>'
+                    + '<div class="card-actions"><a class="dl-btn" href="' + esc(item.link || '#') + '" target="_blank" rel="noopener"><i class="fa-brands fa-telegram"></i></a>'
+                    + '<button class="fav-btn" style="color:#ff3b30; font-size:16px;" data-action="delete-news" data-id="' + esc(item.id) + '"><i class="fa-solid fa-trash-can"></i></button></div></div>';
+            });
+            container.innerHTML = html;
+            wireDelegation(container);
+        }
+        async function deleteNewsItem(id) {
+            if (!confirm("Delete this news item?")) return;
+            try {
+                await api('/api/delete_news', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+                tg.showAlert("✅ News item deleted.");
+                await loadDashboardWidgets();
+            } catch (e) { tg.showAlert("⚠️ " + e.message); }
+        }
+        async function clearAllNews() {
+            if (!confirm("Remove ALL news items? This cannot be undone.")) return;
+            try {
+                await api('/api/clear_news', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+                tg.showAlert("✅ All news removed.");
+                await loadDashboardWidgets();
+            } catch (e) { tg.showAlert("⚠️ " + e.message); }
+        }
+
+        async function toggleSubscription(course) {
+            const isSubbing = userSubs.indexOf(course) === -1;
+            if (isSubbing) userSubs.push(course);
+            else userSubs = userSubs.filter(c => c !== course);
+            if (document.getElementById('findSection').classList.contains('active')) renderMaterials();
+            if (document.getElementById('videoSection').classList.contains('active')) renderVideos();
+            try {
+                await api('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ course, subscribe: isSubbing }) });
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(isSubbing ? 'success' : 'warning');
+            } catch (e) {
+                if (isSubbing) userSubs = userSubs.filter(c => c !== course);
+                else userSubs.push(course);
+                tg.showAlert("⚠️ Couldn't update subscription.");
+            }
+        }
+
+        function isFav(id) { return favorites.some(f => f.id === id); }
+        async function toggleFav(id, title, url, type, meta) {
+            const item = { id, title, url, type, meta };
+            const idx = favorites.findIndex(f => f.id === id);
+            if (idx > -1) favorites.splice(idx, 1);
+            else favorites.push(item);
+            if (document.getElementById('findSection').classList.contains('active')) renderMaterials();
+            if (document.getElementById('videoSection').classList.contains('active')) renderVideos();
+            if (document.getElementById('favsSection').classList.contains('active')) renderFavs();
+            try {
+                await api('/api/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item }) });
+            } catch (e) {
+                if (idx > -1) favorites.push(item);
+                else favorites = favorites.filter(f => f.id !== id);
+                if (document.getElementById('findSection').classList.contains('active')) renderMaterials();
+                if (document.getElementById('favsSection').classList.contains('active')) renderFavs();
+                tg.showAlert("⚠️ Couldn't save favorite.");
+            }
+        }
+
+        function wireDelegation(container) {
+            if (!container || container._delegated) return;
+            container._delegated = true;
+            container.addEventListener('click', function (e) {
+                const el = e.target.closest('[data-action]');
+                if (!el) return;
+                const action = el.dataset.action;
+                if (action === 'open-folder') { e.preventDefault(); openFolder(el.dataset.key, el.dataset.folder); }
+                else if (action === 'open-fav-folder') { e.preventDefault(); openFavFolder(el.dataset.folderName); }
+                else if (action === 'toggle-fav') { e.stopPropagation(); e.preventDefault(); toggleFav(el.dataset.favId, el.dataset.title, el.dataset.url, el.dataset.type, el.dataset.meta); }
+                else if (action === 'report') { e.stopPropagation(); e.preventDefault(); reportIssue(el.dataset.rtype, el.dataset.course, el.dataset.title); }
+                else if (action === 'track-open') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const url = el.getAttribute('href') || el.href || '';
+                    if (url) openFileInExternalWindow(url);
+                    trackOpen(el.dataset.course, el.dataset.kind, el.dataset.name);
+                }
+                else if (action === 'delete-news') { e.stopPropagation(); e.preventDefault(); deleteNewsItem(el.dataset.id); }
+            });
+        }
+
+        document.addEventListener('click', function (e) {
+            const link = e.target.closest('a[href]');
+            if (!link) return;
+
+            const href = link.getAttribute('href') || '';
+            if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('data:')) return;
+
+            const isTmeLink  = /^https?:\/\/(t\.me|telegram\.me|telegram\.dog)\//i.test(href);
+            const isExternal = /^https?:\/\//i.test(href) && !isTmeLink;
+
+            if (isTmeLink || isExternal) {
+                e.preventDefault();
+                e.stopPropagation();
+                openFileInExternalWindow(href);
+            }
+        }, true);
+
+        window.backToFolders = function () {
+            try {
+                activeFolderContext = null;
+                const results = document.getElementById('resultsContainer');
+                if (results) results.innerHTML = '';
+                renderMaterials();
+            } catch (err) { console.error('backToFolders failed:', err); }
+        };
+        window.backToFavFolders = function () {
+            try {
+                activeFavFolder = null;
+                const favs = document.getElementById('favsContainer');
+                if (favs) favs.innerHTML = '';
+                renderFavs();
+            } catch (err) { console.error('backToFavFolders failed:', err); }
+        };
+
+        const sectionTitles = {
+            'menu': '<i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal',
+            'find': '<i class="fa-solid fa-book" style="color:var(--btn-color)"></i> Materials',
+            'upload': '<i class="fa-solid fa-cloud-arrow-up" style="color:var(--btn-color)"></i> Upload Material',
+            'video': '<i class="fa-brands fa-youtube" style="color:var(--btn-color)"></i> Video Tutorials',
+            'gpa': '<i class="fa-solid fa-calculator" style="color:var(--btn-color)"></i> GPA Calculator',
+            'game': '<i class="fa-solid fa-bomb" style="color:var(--btn-color)"></i> Minesweeper',
+            'favs': '<i class="fa-solid fa-star" style="color:var(--btn-color)"></i> Saved Favorites',
+            'addVideo': '<i class="fa-solid fa-link" style="color:var(--btn-color)"></i> Suggest Video',
+            'feedback': '<i class="fa-solid fa-star-half-stroke" style="color:var(--btn-color)"></i> Rate & Feedback',
+            'help': '<i class="fa-solid fa-circle-question" style="color:var(--btn-color)"></i> Help & FAQ',
+            'adminNews': '<i class="fa-solid fa-shield-halved" style="color:#d32f2f"></i> Admin Portal',
+            'news': '<i class="fa-solid fa-bell" style="color:var(--btn-color)"></i> Announcements',
+            'requests': '<i class="fa-solid fa-hand-holding-heart" style="color:var(--btn-color)"></i> Request a Resource',
+            'leaderboard': '<i class="fa-solid fa-ranking-star" style="color:var(--btn-color)"></i> Popular Files'
+        };
+
+        window.openMenuHub = function() {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById('menuHubSection').classList.add('active');
+            document.getElementById('navTitle').innerHTML = sectionTitles['menu'];
+            if (tg.BackButton) { try { tg.BackButton.hide(); } catch (_) {} }
+            loadDashboardWidgets();
+        };
+
+        window.switchSection = async function(sec) {
+            if (tg.BackButton) { try { tg.BackButton.show(); } catch (_) {} }
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+
+            if (sec === 'upload') document.getElementById('uploadSection').classList.add('active');
+            else if (sec === 'find') { document.getElementById('findSection').classList.add('active'); if (Object.keys(allMaterials).length === 0) await fetchAllMaterials(); else renderMaterials(); }
+            else if (sec === 'video') { document.getElementById('videoSection').classList.add('active'); if (Object.keys(allVideos).length === 0) await fetchAllVideos(); else renderVideos(); }
+            else if (sec === 'gpa') document.getElementById('gpaSection').classList.add('active');
+            else if (sec === 'game') { document.getElementById('gameSection').classList.add('active'); if (!MS.board.length) msInit(); else msRender(); }
+            else if (sec === 'favs') { document.getElementById('favsSection').classList.add('active'); activeFavFolder = null; renderFavs(); }
+            else if (sec === 'addVideo') document.getElementById('addVideoSection').classList.add('active');
+            else if (sec === 'feedback') document.getElementById('feedbackSection').classList.add('active');
+            else if (sec === 'help') document.getElementById('helpSection').classList.add('active');
+            else if (sec === 'adminNews') document.getElementById('adminNewsSection').classList.add('active');
+            else if (sec === 'news') { document.getElementById('newsSection').classList.add('active'); renderNewsList(); markNewsSeen(); }
+            else if (sec === 'requests') { document.getElementById('requestsSection').classList.add('active'); }
+            else if (sec === 'leaderboard') { document.getElementById('leaderboardSection').classList.add('active'); loadLeaderboard(); }
+
+            document.getElementById('navTitle').innerHTML = sectionTitles[sec] || sectionTitles['menu'];
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        function renderMaterials() {
+            const container = document.getElementById('resultsContainer');
+            const searchEl = document.getElementById('globalMatSearch');
+            const searchQ = (searchEl ? searchEl.value : '').toLowerCase();
+            const filterCourse = filters.course;
+            const filterType = filters.type;
+            const sortOrder = document.getElementById('matSortOrder').value;
+
+            let html = ""; let totalFiles = 0; let grouped = {};
+
+            for (const [key, items] of Object.entries(allMaterials)) {
+                const parts = key.split('_');
+                const course = parts[0];
+                const type = parts.slice(1).join('_');
+                if (filterCourse && course !== filterCourse) continue;
+                if (filterType && type !== filterType) continue;
+                items.forEach((item, idx) => {
+                    const folderName = item.title || "Other Files";
+                    const courseName = getCourseName(course);
+                    if (searchQ && !(item.name || '').toLowerCase().includes(searchQ)
+                        && !course.toLowerCase().includes(searchQ)
+                        && !(courseName || '').toLowerCase().includes(searchQ)
+                        && !folderName.toLowerCase().includes(searchQ)) return;
+                    if (!grouped[key]) grouped[key] = {};
+                    if (!grouped[key][folderName]) grouped[key][folderName] = [];
+                    grouped[key][folderName].push(Object.assign({}, item, { originalIdx: idx, course, type }));
+                    totalFiles++;
+                });
+            }
+
+            let bannerHtml = "";
+            if (filterCourse) {
+                if (activeExams[filterCourse]) {
+                    const exam = activeExams[filterCourse];
+                    const daysLeft = Math.ceil((new Date(exam.date) - new Date()) / (1000 * 60 * 60 * 24));
+                    if (daysLeft >= 0) {
+                        bannerHtml += '<div style="background: linear-gradient(135deg, #ff3b30, #ff7a7a); color: white; padding: 12px 16px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; box-shadow: 0 10px 22px rgba(255, 59, 48, 0.25); display: flex; justify-content: space-between; align-items: center; gap: 10px;">'
+                            + '<div style="min-width:0;"><div style="font-size: 15px; word-break: break-word; overflow-wrap: anywhere;"><i class="fa-solid fa-clock"></i> ' + esc(exam.title) + '</div>'
+                            + '<div style="font-size: 12px; margin-top: 4px; opacity: 0.95;"><i class="fa-regular fa-calendar"></i> Date: ' + esc(exam.date) + '</div></div>'
+                            + '<div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">'
+                            + '<div style="background: rgba(255,255,255,0.25); padding: 6px 12px; border-radius: 8px; font-size: 13px;">' + (daysLeft === 0 ? 'Today!' : daysLeft + ' days left') + '</div>'
+                            + '<a href="' + examIcsLink(filterCourse, exam) + '" download="' + esc(filterCourse) + '.ics" class="dl-btn" style="background:rgba(255,255,255,0.3); color:#fff; padding:6px 10px;" title="Add to Calendar"><i class="fa-solid fa-calendar-plus"></i></a>'
+                            + '</div></div>';
+                    }
+                }
+                const isSubbed = userSubs.indexOf(filterCourse) !== -1;
+                const subBtnText = isSubbed ? '<i class="fa-solid fa-bell-slash"></i> Unsubscribe from Updates' : '<i class="fa-solid fa-bell"></i> Notify Me of New Files';
+                const subBtnStyle = isSubbed ? 'background: var(--bg-color); color: var(--hint-color); border: 1px solid var(--hint-color);' : 'background: var(--btn-color); color: var(--btn-text);';
+                bannerHtml += '<button class="action-btn" style="margin-bottom: 15px; width: 100%; font-size: 14px; padding: 10px; box-shadow: none; ' + subBtnStyle + '" onclick="toggleSubscription(\'' + esc(filterCourse) + '\')">' + subBtnText + '</button>';
+            }
+
+            if (totalFiles === 0) {
+                container.innerHTML = bannerHtml + '<div class="empty-state"><i class="fa-solid fa-folder-open"></i><br>No materials found.</div>';
+                return;
+            }
+
+            if (activeFolderContext) {
+                const key = activeFolderContext.key;
+                const folderName = activeFolderContext.folderName;
+                const items = grouped[key] && grouped[key][folderName];
+                if (!items) { activeFolderContext = null; renderMaterials(); return; }
                 
-    return jsonify(data), 200
-
-
-PDF_CACHE_DIR = os.path.join(tempfile.gettempdir(), "astu_pdf_cache")
-PDF_CACHE_MAX_FILES = 40
-_pdf_dl_lock = threading.Lock()
-
-
-def _cache_pdf(file_id):
-    """Download a Telegram file once into a local cache and return its path.
-    Serving from disk lets Flask answer HTTP Range requests, so PDF.js can
-    load pages progressively instead of downloading the whole file first."""
-    os.makedirs(PDF_CACHE_DIR, exist_ok=True)
-    path = os.path.join(PDF_CACHE_DIR, hashlib.sha1(file_id.encode()).hexdigest() + ".pdf")
-    if os.path.exists(path):
-        os.utime(path, None)
-        return path
-    with _pdf_dl_lock:
-        if os.path.exists(path):
-            return path
-        info = bot.get_file(file_id)
-        url = f"https://api.telegram.org/file/bot{TOKEN}/{info.file_path}"
-        r = requests.get(url, stream=True, timeout=(10, 60))
-        r.raise_for_status()
-        tmp = path + ".part"
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(chunk_size=65536):
-                f.write(chunk)
-        os.replace(tmp, path)
-        # Evict least-recently-used files
-        files = sorted(
-            (os.path.join(PDF_CACHE_DIR, n) for n in os.listdir(PDF_CACHE_DIR) if n.endswith(".pdf")),
-            key=os.path.getmtime,
-        )
-        for old in files[:-PDF_CACHE_MAX_FILES]:
-            try:
-                os.remove(old)
-            except OSError:
-                pass
-    return path
-
-
-@app.route('/api/serve_pdf/<course_code>/<mat_type>/<int:idx>', methods=['GET'])
-def serve_pdf(course_code, mat_type, idx):
-    # 0. Only verified Telegram Mini App users may download files.
-    #    (verify_init_data directly: get_auth_user would re-register the user on every Range request)
-    init_data = request.headers.get("X-Telegram-Init-Data") or request.args.get("initData")
-    if not verify_init_data(init_data):
-        return jsonify({"error": "Unauthorized"}), 401
-
-    # 1. Find the file record in the database
-    materials = load_json(DATA_FILE).get(f"{course_code}_{mat_type}", [])
-    if idx < 0 or idx >= len(materials):
-        return jsonify({"error": "File not found"}), 404
-
-    file_id = materials[idx].get("file_id")
-    if not file_id:
-        return jsonify({"error": "Invalid file record"}), 400
-
-    # 2. Fetch (or reuse) the file from Telegram
-    try:
-        path = _cache_pdf(file_id)
-    except Exception as e:
-        if "too big" in str(e).lower():
-            return jsonify({"error": "File too large for the Telegram Bot API (20 MB limit)"}), 413
-        log.error(f"Failed to fetch file {file_id}: {e}")
-        return jsonify({"error": "Failed to fetch file from Telegram"}), 500
-
-    # 3. Refuse non-PDF documents (docx, pptx, ...) so the viewer can explain why
-    try:
-        with open(path, "rb") as f:
-            if b"%PDF-" not in f.read(1024):
-                return jsonify({"error": "Not a PDF"}), 415
-    except OSError as e:
-        log.error(f"Failed to read cached PDF: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-    # 4. conditional=True enables Range / If-Modified-Since handling
-    resp = send_file(path, mimetype="application/pdf", conditional=True)
-    resp.headers["Cache-Control"] = "private, max-age=3600"
-    return resp
-
-
-@app.route('/api/videos', methods=['GET'])
-def get_videos():
-    return jsonify(load_json(VIDEOS_FILE)), 200
-
-
-@app.route('/api/exams', methods=['GET'])
-def get_exams():
-    return jsonify(load_json(EXAMS_FILE)), 200
-
-
-@app.route('/api/dashboard', methods=['GET'])
-def get_dashboard():
-    news = load_json(NEWS_FILE)
-    if isinstance(news, dict):
-        if news.get("text") or news.get("image"):
-            news = [{
-                "id": "legacy",
-                "title": news.get("text", "Announcement"),
-                "link": "#", "date": "",
-            }]
-        else:
-            news = []
-    if not isinstance(news, list):
-        news = []
-
-    events = load_json(EVENTS_FILE)
-    if isinstance(events, dict):
-        events = []
-    return jsonify({"news": news, "events": events}), 200
-
-
-@app.route('/api/leaderboard', methods=['GET'])
-def api_leaderboard():
-    stats = load_json(STATS_FILE) or {}
-    top = sorted(
-        ((k, v) for k, v in stats.items() if isinstance(v, int)),
-        key=lambda x: x[1], reverse=True,
-    )[:20]
-    return jsonify([{"resource": k, "opens": v} for k, v in top]), 200
-
-
-@app.route('/api/track_open', methods=['POST'])
-def api_track_open():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-    body = request.get_json(silent=True) or {}
-    course = body.get("course")
-    kind = body.get("kind")
-    name = body.get("name")
-    if not (course and kind and name):
-        return jsonify({"error": "Missing fields"}), 400
-    threading.Thread(target=bump_stat, args=(course, kind, name), daemon=True).start()
-    return jsonify({"status": "ok"}), 200
-
-
-@app.route('/api/upload', methods=['POST'])
-def handle_webapp_upload():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    file = request.files['file']
-    course = request.form.get('course', 'Unknown')
-    mat_type = request.form.get('type', 'Unknown')
-    username = user.get("username") or user.get("first_name", "Student")
-    chat_id = user.get("id")
-
-    file_bytes = file.read()
-    if not file_bytes:
-        return jsonify({"error": "Empty file"}), 400
-    if len(file_bytes) > 45 * 1024 * 1024:
-        return jsonify({"error": "File exceeds 45 MB limit"}), 413
-
-    admin_text = (
-        f"🌐 WEB APP Upload from {escape_md(username)}\n"
-        f"Course: {escape_md(course_display(course))}\n"
-        f"Type: {escape_md(mat_type.upper())}"
-    )
-
-    file_id = None
-    used_admin = None
-    for admin in ADMIN_IDS:
-        try:
-            msg = bot.send_document(
-                admin,
-                io.BytesIO(file_bytes),
-                caption=admin_text,
-                parse_mode="HTML",
-                visible_file_name=file.filename,
-            )
-            file_id = msg.document.file_id
-            used_admin = admin
-            break
-        except Exception as e:
-            log.warning("upload to admin %s failed: %s", admin, e)
-
-    if not file_id:
-        return jsonify({"error": "Failed to forward file to any admin"}), 500
-
-    req_id = os.urandom(4).hex()
-    PENDING_UPLOADS[req_id] = _stamp({
-        "course_code": course,
-        "material_type": mat_type,
-        "files": [{
-            "file_id": file_id,
-            "file_name": file.filename,
-            "content_type": "document",
-        }],
-        "chat_id": int(chat_id) if chat_id else used_admin,
-        "username": username,
-    })
-
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("✅ Approve", callback_data=f"approve_upload_{req_id}"),
-        InlineKeyboardButton("❌ Reject", callback_data=f"reject_upload_{req_id}"),
-    )
-    for admin in ADMIN_IDS:
-        try:
-            bot.send_message(
-                admin,
-                f"Review web upload from {escape_md(username)} "
-                f"({escape_md(course_display(course))} / {escape_md(mat_type.upper())}):",
-                parse_mode="HTML",
-                reply_markup=markup,
-            )
-        except Exception:
-            pass
-
-    return jsonify({"status": "success"}), 200
-
-
-@app.route('/api/upload_video', methods=['POST'])
-def handle_video_upload():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    body = request.get_json(silent=True) or {}
-    course = body.get('course')
-    title = body.get('title')
-    url = body.get('url')
-    if not (course and title and url):
-        return jsonify({"error": "Invalid data"}), 400
-
-    username = user.get("username") or user.get("first_name", "Student")
-
-    req_id = os.urandom(4).hex()
-    PENDING_VIDEOS[req_id] = _stamp({
-        "course": course, "title": title, "url": url, "username": username,
-    })
-
-    admin_text = (
-        f"📺 New Video Submission from {escape_md(username)}\n\n"
-        f"Course: {escape_md(course_display(course))}\n"
-        f"Title: {escape_md(title)}\n"
-        f"URL: {escape_md(url)}"
-    )
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("✅ Approve Video",
-                             callback_data=f"approve_vid_{req_id}"),
-        InlineKeyboardButton("❌ Reject",
-                             callback_data=f"reject_vid_{req_id}"),
-    )
-    for admin in ADMIN_IDS:
-        try:
-            bot.send_message(admin, admin_text, parse_mode="HTML",
-                             reply_markup=markup)
-        except Exception:
-            pass
-
-    return jsonify({"status": "pending_approval"}), 200
-
-
-@app.route('/api/subscribe', methods=['POST'])
-def handle_subscribe():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-    uid = str(user["id"])
-    body = request.get_json(silent=True) or {}
-    course = body.get("course")
-    is_subbing = bool(body.get("subscribe", True))
-    if not course:
-        return jsonify({"error": "Missing course"}), 400
-
-    def mutator(data):
-        arr = data.setdefault(course, [])
-        if is_subbing and uid not in arr:
-            arr.append(uid)
-        elif not is_subbing and uid in arr:
-            arr.remove(uid)
-        if not arr:
-            data.pop(course, None)
-        return True
-
-    update_json(SUBS_FILE, mutator)
-    return jsonify({"status": "success"}), 200
-
-
-@app.route('/api/subscriptions', methods=['GET'])
-def get_subs():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-    uid = str(user["id"])
-    subs = load_json(SUBS_FILE)
-    return jsonify([c for c, users in (subs or {}).items() if uid in users]), 200
-
-
-@app.route('/api/favorites', methods=['GET'])
-def get_favorites():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-    uid = str(user["id"])
-    favs = load_json(FAVS_FILE)
-    return jsonify(favs.get(uid, []) if isinstance(favs, dict) else []), 200
-
-
-@app.route('/api/favorites', methods=['POST'])
-def toggle_favorite():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-    uid = str(user["id"])
-    body = request.get_json(silent=True) or {}
-    item = body.get("item")
-    if not item or not item.get("id"):
-        return jsonify({"error": "Invalid item"}), 400
-
-    action_holder = {}
-
-    def mutator(data):
-        if not isinstance(data, dict):
-            data = {}
-        user_favs = data.setdefault(uid, [])
-        existing = next(
-            (i for i, f in enumerate(user_favs) if f.get("id") == item["id"]),
-            None,
-        )
-        if existing is not None:
-            user_favs.pop(existing)
-            action_holder["action"] = "removed"
-        else:
-            user_favs.append(item)
-            action_holder["action"] = "added"
-        return True
-
-    update_json(FAVS_FILE, mutator)
-    return jsonify({"status": "ok", "action": action_holder.get("action")}), 200
-
-
-@app.route('/api/post_news', methods=['POST'])
-def api_post_news():
-    user = get_auth_user()
-    if not is_admin(user):
-        return jsonify({"error": "Unauthorized"}), 403
-
-    title = (request.form.get('title') or '').strip()
-    link = (request.form.get('link') or '').strip()
-    if not title or not link:
-        return jsonify({"error": "Title and link are required"}), 400
-    if not (link.startswith("https://t.me/") or link.startswith("http://t.me/")):
-        return jsonify({"error": "Link must be a t.me URL"}), 400
-
-    item = _publish_news(title, link)
-    if not item:
-        return jsonify({"error": "Failed to save"}), 500
-    return jsonify({"status": "success", "item": item}), 200
-
-
-@app.route('/api/delete_news', methods=['POST'])
-def api_delete_news():
-    user = get_auth_user()
-    if not is_admin(user):
-        return jsonify({"error": "Unauthorized"}), 403
-    nid = (request.get_json(silent=True) or {}).get("id")
-    if not nid:
-        return jsonify({"error": "Missing id"}), 400
-
-    def mutator(data):
-        return [n for n in (data if isinstance(data, list) else [])
-                if n.get("id") != nid]
-
-    update_json(NEWS_FILE, mutator)
-    return jsonify({"status": "success"}), 200
-
-
-@app.route('/api/clear_news', methods=['POST'])
-def api_clear_news():
-    user = get_auth_user()
-    if not is_admin(user):
-        return jsonify({"error": "Unauthorized"}), 403
-    save_json(NEWS_FILE, [])
-    return jsonify({"status": "success"}), 200
-
-
-@app.route('/api/submit_feedback', methods=['POST'])
-def handle_feedback():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify({"error": "Feedback must be a JSON object"}), 400
-    raw_rating = body.get("rating")
-    if isinstance(raw_rating, bool) or not isinstance(raw_rating, (int, str)):
-        return jsonify({"error": "Choose a whole-number rating from 1 to 5"}), 400
-    try:
-        rating = int(raw_rating)
-    except (ValueError, TypeError):
-        return jsonify({"error": "Choose a whole-number rating from 1 to 5"}), 400
-    if not 1 <= rating <= 5:
-        return jsonify({"error": "Choose a rating from 1 to 5"}), 400
-    msg_content = body.get("message", "")
-    username = user.get("username") or user.get("first_name", "Student")
-    uid = user.get("id")
-
-    stars = "⭐" * max(0, min(5, rating))
-    admin_text = (
-        f"📝 <b>New Bot Feedback</b>\n\n"
-        f"👤 From: {escape_md(username)} (<code>{escape_md(uid)}</code>)\n"
-        f"🌟 Rating: {stars} ({rating}/5)\n\n"
-        f"💬 <b>Message:</b>\n{escape_md(msg_content)}"
-    )
-    for admin in ADMIN_IDS:
-        try:
-            bot.send_message(admin, admin_text, parse_mode="HTML")
-        except Exception:
-            pass
-    return jsonify({"status": "success"}), 200
-
-
-@app.route('/api/report_issue', methods=['POST'])
-def handle_report_issue():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    body = request.get_json(silent=True) or {}
-    item_type = body.get('type', 'Item')
-    course = body.get('course', 'Unknown')
-    title = body.get('title', 'Unknown')
-    comment = (body.get('comment') or '').strip()
-    username = user.get("username") or user.get("first_name", "Student")
-    uid = user.get("id")
-
-    comment_block = (
-        f"\n💬 <b>Student Comment:</b>\n<i>{escape_md(comment)}</i>"
-        if comment else "\n💬 <b>Student Comment:</b>\n<i>No comment provided.</i>"
-    )
-    admin_text = (
-        f"⚠️ <b>Issue Reported</b>\n\n"
-        f"👤 From: {escape_md(username)} (<code>{escape_md(uid)}</code>)\n"
-        f"📚 Course: {escape_md(course_display(course))}\n"
-        f"📂 Type: {escape_md(item_type)}\n"
-        f"📄 Title: {escape_md(title)}\n"
-        f"{comment_block}"
-    )
-    for admin in ADMIN_IDS:
-        try:
-            bot.send_message(admin, admin_text, parse_mode="HTML")
-        except Exception:
-            pass
-    return jsonify({"status": "success"}), 200
-
-
-@app.route('/api/request_resource', methods=['POST'])
-def handle_request_resource():
-    user = get_auth_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    body = request.get_json(silent=True) or {}
-    course = (body.get("course") or "").strip()
-    detail = (body.get("detail") or "").strip()
-    if not course and not detail:
-        return jsonify({"error": "Provide a course or detail"}), 400
-
-    username = user.get("username") or user.get("first_name", "Student")
-    uid = user.get("id")
-
-    def mutator(data):
-        if not isinstance(data, list):
-            data = []
-        data.insert(0, {
-            "id": os.urandom(4).hex(),
-            "course": course,
-            "detail": detail,
-            "username": username,
-            "chat_id": uid,
-            "date": datetime.now().strftime("%b %d, %Y - %H:%M"),
-        })
-        del data[50:]
-        return True
-
-    update_json(REQUESTS_FILE, mutator)
-
-    admin_text = (
-        f"🙋 <b>Resource Request</b>\n\n"
-        f"👤 From: {escape_md(username)} (<code>{escape_md(uid)}</code>)\n"
-        f"📚 Course: {escape_md(course_display(course) or '—')}\n"
-        f"📝 Detail: {escape_md(detail or '—')}"
-    )
-    for admin in ADMIN_IDS:
-        try:
-            bot.send_message(admin, admin_text, parse_mode="HTML")
-        except Exception:
-            pass
-    return jsonify({"status": "success"}), 200
-
-
-# ==========================================================================
-#  ENTRY POINT
-# ==========================================================================
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    render_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if render_url:
-        try:
-            bot.remove_webhook()
-            kwargs = {"url": render_url + '/' + TOKEN}
-            if WEBHOOK_SECRET:
-                kwargs["secret_token"] = WEBHOOK_SECRET
-            bot.set_webhook(**kwargs)
-            log.info("Webhook set: %s", render_url)
-        except Exception as e:
-            log.exception("Failed to set webhook: %s", e)
-    app.run(host="0.0.0.0", port=port)
+                const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+                items.sort((a, b) => {
+                    if (sortOrder === 'az') return collator.compare(a.name || '', b.name || '');
+                    if (sortOrder === 'za') return collator.compare(b.name || '', a.name || '');
+                    if (sortOrder === 'old') return parseDateAdded(a.date_added) - parseDateAdded(b.date_added);
+                    return parseDateAdded(b.date_added) - parseDateAdded(a.date_added);
+                });
+
+                html += '<button type="button" class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="window.backToFolders()"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>';
+                html += '<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px; word-break: break-word; overflow-wrap: anywhere;">📁 ' + esc(folderName) + ' <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(' + items.length + ' files)</span></div>';
+                
+                items.forEach(item => {
+                    // NOTE: Uses the direct_pdf_url injected by the backend
+                    const pdfUrl = item.direct_pdf_url || '#';
+                    
+                    const favId = 'mat_' + item.course + '_' + item.type + '_' + item.originalIdx;
+                    const isStarred = isFav(favId);
+                    const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
+                    const dateAdded = item.date_added ? ' • Added: ' + item.date_added : '';
+                    const courseLine = courseDisplay(item.course);
+                    
+                    html += '<div class="material-card"><div class="material-info">'
+                        + '<span class="material-name">📄 ' + esc(item.name) + '</span>'
+                        + '<span class="material-type" style="text-transform:none;">' + esc(courseLine) + '</span>'
+                        + '<span class="material-type">' + esc(item.type.toUpperCase()) + esc(dateAdded) + '</span></div>'
+                        + '<div class="card-actions">'
+                        + '<button class="fav-btn" style="color:#ff3b30; opacity: 0.6; font-size:16px;" data-action="report" data-rtype="Material" data-course="' + esc(item.course) + '" data-title="' + esc(item.name) + '"><i class="fa-solid fa-triangle-exclamation"></i></button>'
+                        + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(item.name) + '" data-url="' + esc(pdfUrl) + '" data-type="material" data-meta="' + esc(courseLine) + ' • ' + esc(item.type.toUpperCase()) + '"><i class="' + starClass + '"></i></button>'
+                        + '<button class="dl-btn" onclick="openPdf(\'' + esc(pdfUrl) + '\')">Open</button>'
+                        + '</div></div>';
+                });
+                container.innerHTML = bannerHtml + html;
+                wireDelegation(container);
+                return;
+            }
+
+            let folderList = [];
+            for (const [key, folders] of Object.entries(grouped)) {
+                const parts = key.split('_');
+                const course = parts[0];
+                const type = parts.slice(1).join('_');
+                for (const [folderName, items] of Object.entries(folders)) {
+                    const folderDate = (items[0] && items[0].date_added) || '';
+                    folderList.push({ key, course, type, folderName, items, folderDate, sortKey: parseDateAdded(folderDate) });
+                }
+            }
+            folderList.sort((a, b) => sortOrder === 'old' ? (a.sortKey - b.sortKey) : (b.sortKey - a.sortKey));
+
+            folderList.forEach(folder => {
+                const { key, course, type, folderName, items, folderDate } = folder;
+                const favId = 'folder_' + key + '_' + folderName;
+                const isStarred = isFav(favId);
+                const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
+                const courseName = getCourseName(course);
+                const metaCourse = courseName ? (course + ' · ' + courseName) : course;
+                const dateLine = folderDate ? '<div class="folder-date"><i class="fa-regular fa-clock"></i> Uploaded: ' + esc(folderDate) + '</div>' : '';
+                html += '<div class="folder-card" data-action="open-folder" data-key="' + esc(key) + '" data-folder="' + esc(folderName) + '">'
+                    + '<div class="folder-thumb"><i class="fa-solid fa-folder folder-big-icon"></i></div>'
+                    + '<div class="folder-bottom"><div class="folder-info">'
+                    + '<div class="folder-title"><i class="fa-solid fa-folder" style="color:var(--btn-color); margin-right:6px;"></i> ' + esc(folderName) + '</div>'
+                    + '<div class="folder-meta" style="text-transform:none; font-weight:500; color:var(--btn-color);">' + esc(metaCourse) + '</div>'
+                    + '<div class="folder-meta">' + esc(type.toUpperCase()) + ' · ' + items.length + ' file(s)</div>'
+                    + dateLine + '</div>'
+                    + '<div class="folder-actions">'
+                    + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(folderName) + '" data-url="' + esc(key) + '" data-type="folder" data-meta="' + esc(metaCourse) + '"><i class="' + starClass + '"></i></button>'
+                    + '<i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i>'
+                    + '</div></div></div>';
+            });
+            container.innerHTML = bannerHtml + '<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ' + folderList.length + ' folder(s)</div>' + html;
+            wireDelegation(container);
+        }
+
+        window.openFolder = function(key, folderName) {
+            activeFolderContext = { key, folderName };
+            renderMaterials();
+        };
+
+        function examIcsLink(code, exam) {
+            const dt = exam.date.replace(/-/g, '');
+            const uid = code + '-' + dt + '@astuece';
+            const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ASTU ECE//EN", "BEGIN:VEVENT", "UID:" + uid,
+                "DTSTART;VALUE=DATE:" + dt, "DTEND;VALUE=DATE:" + dt, "SUMMARY:" + exam.title + " (" + code + ")",
+                "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+            return "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
+        }
+
+        function generateVideoCard(v, courseCode, idx) {
+            const ytId = getYouTubeId(v.url);
+            const listId = !ytId ? getPlaylistId(v.url) : null;
+            const thumbId = 'ytthumb_' + courseCode + '_' + idx;
+            const watchUrl = ytId ? 'https://www.youtube.com/watch?v=' + ytId : v.url;
+            const favId = 'vid_' + courseCode + '_' + idx;
+            const isStarred = isFav(favId);
+            const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
+            const dateAdded = v.date_added ? ' • Added: ' + v.date_added : '';
+            const courseLine = courseDisplay(courseCode);
+            let thumbHtml;
+            if (ytId) {
+                const thumbUrl = 'https://img.youtube.com/vi/' + ytId + '/hqdefault.jpg';
+                thumbHtml = '<div class="yt-thumb" id="' + thumbId + '"><img src="' + thumbUrl + '" alt="Thumbnail" loading="lazy"><div class="yt-overlay"><i class="fa-solid fa-play"></i></div></div>';
+            } else {
+                thumbHtml = '<div class="yt-thumb playlist-placeholder" id="' + thumbId + '"><div class="yt-overlay" style="background:rgba(0,0,0,0.1)"><i class="fa-solid ' + (listId ? 'fa-list' : 'fa-play') + '"></i></div></div>';
+                pendingRemoteThumbs.push({ url: v.url, elId: thumbId });
+            }
+            return '<div class="yt-card searchable-vid"><a href="' + esc(watchUrl) + '" target="_blank" rel="noopener" data-action="track-open" data-course="' + esc(courseCode) + '" data-kind="video" data-name="' + esc(v.title) + '">' + thumbHtml + '</a>'
+                + '<div class="yt-details"><div class="yt-avatar"><i class="fa-solid fa-graduation-cap"></i></div>'
+                + '<div class="yt-info"><div class="yt-title">' + esc(v.title) + '</div>'
+                + '<div class="yt-channel">' + esc(courseLine) + ' · Tutorial' + esc(dateAdded) + '</div></div>'
+                + '<div style="display:flex; flex-direction:column; gap:8px; flex-shrink:0;">'
+                + '<button class="fav-btn ' + (isStarred ? '' : 'unstarred') + '" data-action="toggle-fav" data-fav-id="' + esc(favId) + '" data-title="' + esc(v.title) + '" data-url="' + esc(v.url) + '" data-type="video" data-meta="' + esc(courseLine) + '"><i class="' + starClass + '"></i></button>'
+                + '<button class="fav-btn" style="color:#ff3b30; opacity: 0.6; font-size:16px;" data-action="report" data-rtype="Video" data-course="' + esc(courseCode) + '" data-title="' + esc(v.title) + '"><i class="fa-solid fa-triangle-exclamation"></i></button>'
+                + '</div></div></div>';
+        }
+
+        async function loadRemoteThumb(url, elId) {
+            try {
+                const res = await fetch('https://www.youtube.com/oembed?url=' + encodeURIComponent(url) + '&format=json');
+                if (!res.ok) return;
+                const data = await res.json();
+                const el = document.getElementById(elId);
+                if (el && data.thumbnail_url) {
+                    el.classList.remove('playlist-placeholder');
+                    const overlay = el.querySelector('.yt-overlay');
+                    el.innerHTML = '<img src="' + esc(data.thumbnail_url) + '" alt="Thumbnail" loading="lazy">' + (overlay ? overlay.outerHTML : '');
+                }
+            } catch (e) {}
+        }
+        function flushRemoteThumbs() {
+            const batch = pendingRemoteThumbs;
+            pendingRemoteThumbs = [];
+            batch.forEach(function(item) { loadRemoteThumb(item.url, item.elId); });
+        }
+
+        function renderVideos() {
+            const container = document.getElementById('videoResultsContainer');
+            const searchEl = document.getElementById('globalVidSearch');
+            const searchQ = (searchEl ? searchEl.value : '').toLowerCase();
+            const filterCourse = videoFilters.course;
+            const sortOrder = document.getElementById('vidSortOrder').value;
+            let html = ""; let count = 0; let allVidsFlat = [];
+            for (const [courseCode, vids] of Object.entries(allVideos)) {
+                if (filterCourse && courseCode !== filterCourse) continue;
+                const courseName = getCourseName(courseCode);
+                vids.forEach((v, idx) => {
+                    if (searchQ && !(v.title || '').toLowerCase().includes(searchQ)
+                        && !courseCode.toLowerCase().includes(searchQ)
+                        && !(courseName || '').toLowerCase().includes(searchQ)) return;
+                    allVidsFlat.push({ v, courseCode, idx, sortKey: parseDateAdded(v.date_added) });
+                });
+            }
+            
+            const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
+            allVidsFlat.sort((a, b) => {
+                if (sortOrder === 'az') return collator.compare(a.v.title || '', b.v.title || '');
+                if (sortOrder === 'za') return collator.compare(b.v.title || '', a.v.title || '');
+                if (sortOrder === 'old') return a.sortKey - b.sortKey;
+                return b.sortKey - a.sortKey;
+            });
+
+            pendingRemoteThumbs = [];
+            allVidsFlat.forEach(item => { html += generateVideoCard(item.v, item.courseCode, item.idx); count++; });
+            let bannerHtml = "";
+            if (filterCourse) {
+                const isSubbed = userSubs.indexOf(filterCourse) !== -1;
+                const subBtnText = isSubbed ? '<i class="fa-solid fa-bell-slash"></i> Unsubscribe from Updates' : '<i class="fa-solid fa-bell"></i> Notify Me of New Videos';
+                const subBtnStyle = isSubbed ? 'background: var(--bg-color); color: var(--hint-color); border: 1px solid rgba(142,142,147,0.3);' : 'background: rgba(0, 122, 255, 0.1); color: var(--btn-color); border: 1px solid rgba(0, 122, 255, 0.2);';
+                bannerHtml += '<button class="action-btn" style="margin-bottom: 15px; width: 100%; font-size: 14px; padding: 10px; box-shadow: none; ' + subBtnStyle + '" onclick="toggleSubscription(\'' + esc(filterCourse) + '\')">' + subBtnText + '</button>';
+            }
+            if (count === 0) container.innerHTML = bannerHtml + '<div class="empty-state"><i class="fa-brands fa-youtube" style="font-size:50px"></i><br>No videos found.</div>';
+            else container.innerHTML = bannerHtml + html;
+            wireDelegation(container);
+            flushRemoteThumbs();
+        }
+
+        function openFavFolder(folderName) { activeFavFolder = folderName; renderFavs(); }
+
+        function renderFavs() {
+            const container = document.getElementById('favsContainer');
+            const searchEl = document.getElementById('favSearchInput');
+            const searchInput = (searchEl ? searchEl.value : '').toLowerCase();
+            container.innerHTML = "";
+            if (favorites.length === 0) {
+                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-star"></i><br>No favorites yet.<br>Click the star on any folder, material or video to save it here!</div>';
+                document.getElementById('favSearchBox').style.display = 'none';
+                activeFavFolder = null;
+                return;
+            }
+            document.getElementById('favSearchBox').style.display = 'block';
+            let html = ""; let totalMatches = 0; let groupedFavs = {};
+            favorites.forEach(fav => {
+                const meta = fav.meta || '';
+                if (searchInput && !(fav.title || '').toLowerCase().includes(searchInput) && !meta.toLowerCase().includes(searchInput)) return;
+                let folderName = meta || "Other Saved Items";
+                if (!groupedFavs[folderName]) groupedFavs[folderName] = [];
+                groupedFavs[folderName].push(fav);
+                totalMatches++;
+            });
+            if (totalMatches === 0) { container.innerHTML = "<p style='text-align:center'>No matches found.</p>"; return; }
+            if (activeFavFolder) {
+                const items = groupedFavs[activeFavFolder];
+                if (!items || items.length === 0) { activeFavFolder = null; renderFavs(); return; }
+                html += '<button type="button" class="action-btn" style="margin-bottom: 15px; background: var(--bg-color); color: var(--text-color); border: 1px solid rgba(142, 142, 147, 0.2); box-shadow:none;" onclick="window.backToFavFolders()"><i class="fa-solid fa-arrow-left"></i> Back to Folders</button>';
+                html += '<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px; word-break: break-word; overflow-wrap: anywhere;">📁 ' + esc(activeFavFolder) + ' <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(' + items.length + ' saved)</span></div>';
+                pendingRemoteThumbs = [];
+                items.forEach(fav => {
+                    if (fav.type === 'material') {
+                        html += '<div class="material-card"><div class="material-info"><span class="material-name">📄 ' + esc(fav.title) + '</span>'
+                            + '<span class="material-type" style="text-transform:none;">' + esc(fav.meta) + '</span></div>'
+                            + '<div class="card-actions"><button class="fav-btn" data-action="toggle-fav" data-fav-id="' + esc(fav.id) + '" data-title="' + esc(fav.title) + '" data-url="' + esc(fav.url) + '" data-type="material" data-meta="' + esc(fav.meta) + '"><i class="fa-solid fa-star"></i></button>'
+                            + '<button class="dl-btn" onclick="openPdf(\'' + esc(fav.url) + '\')">Open</button></div></div>';
+                    } else if (fav.type === 'video') {
+                        html += generateVideoCard({ title: fav.title, url: fav.url }, fav.meta, fav.id.split('_').pop());
+                    } else if (fav.type === 'folder') {
+                        html += '<div class="folder-card" data-action="open-fav-folder" data-folder-name="' + esc(fav.title) + '">'
+                            + '<div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);"><i class="fa-solid fa-star folder-big-icon"></i></div>'
+                            + '<div class="folder-bottom"><div class="folder-info"><div class="folder-title"><i class="fa-solid fa-folder" style="color:#ffb300; margin-right:6px;"></i> ' + esc(fav.title) + '</div>'
+                            + '<div class="folder-meta" style="text-transform:none; font-weight:500;">' + esc(fav.meta) + '</div></div>'
+                            + '<div class="folder-actions"><button class="fav-btn" data-action="toggle-fav" data-fav-id="' + esc(fav.id) + '" data-title="' + esc(fav.title) + '" data-url="' + esc(fav.url) + '" data-type="folder" data-meta="' + esc(fav.meta) + '"><i class="fa-solid fa-star"></i></button>'
+                            + '<i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i></div></div></div>';
+                    }
+                });
+                container.innerHTML = html; wireDelegation(container); flushRemoteThumbs();
+                return;
+            }
+            let folderCount = 0;
+            for (const [folderName, items] of Object.entries(groupedFavs)) {
+                folderCount++;
+                html += '<div class="folder-card" data-action="open-fav-folder" data-folder-name="' + esc(folderName) + '">'
+                    + '<div class="folder-thumb" style="background: linear-gradient(135deg, #ffb300, #ff8c00);"><i class="fa-solid fa-star folder-big-icon"></i></div>'
+                    + '<div class="folder-bottom"><div class="folder-info"><div class="folder-title"><i class="fa-solid fa-folder" style="color:#ffb300; margin-right:6px;"></i> ' + esc(folderName) + '</div>'
+                    + '<div class="folder-meta">' + items.length + ' saved item(s)</div></div>'
+                    + '<div class="folder-actions"><i class="fa-solid fa-chevron-right" style="color:var(--hint-color)"></i></div></div></div>';
+            }
+            container.innerHTML = '<div style="margin-bottom:15px; font-weight:600; color:var(--hint-color)">Found ' + folderCount + ' saved folder(s)</div>' + html;
+            wireDelegation(container);
+        }
+
+        function renderLeaderboard() {
+            const container = document.getElementById('leaderboardContainer');
+            const searchEl = document.getElementById('lbSearch');
+            const q = (searchEl ? searchEl.value : '').toLowerCase();
+            const list = (leaderboard || []).filter(r => {
+                if (!q) return true;
+                const parts = (r.resource || '').split(':');
+                const name = parts.slice(2).join(':') || '';
+                const code = parts[1] || '';
+                const cName = getCourseName(code);
+                return (r.resource || '').toLowerCase().includes(q) || name.toLowerCase().includes(q) || (cName || '').toLowerCase().includes(q);
+            });
+            if (!list.length) { container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-ranking-star"></i><br>No data yet. Open some files!</div>'; return; }
+            container.innerHTML = list.map((r, i) => {
+                const parts = (r.resource || '').split(':');
+                const code = parts[1] || '';
+                const name = parts.slice(2).join(':') || r.resource;
+                const courseName = getCourseName(code);
+                const subline = (code ? (courseName ? code + ' · ' + courseName : code) + ' · ' : '') + r.opens + ' opens';
+                return '<div class="material-card"><div class="material-info"><span class="material-name">#' + (i + 1) + ' ' + esc(name) + '</span>'
+                    + '<span class="material-type" style="text-transform:none;">' + esc(subline) + '</span></div></div>';
+            }).join('');
+        }
+
+        // ==================== MINESWEEPER (Google-style) ====================
+        const MS_DIFFICULTIES = {
+            easy:   { rows: 8,  cols: 8,  mines: 10 },
+            medium: { rows: 16, cols: 16, mines: 40 },
+            hard:   { rows: 16, cols: 30, mines: 99 }
+        };
+
+        const MS = {
+            difficulty: 'medium',
+            rows: 0, cols: 0, mines: 0,
+            board: [],
+            revealedCount: 0,
+            totalSafe: 0,
+            started: false,
+            over: false,
+            won: false,
+            flagMode: false,
+            timer: null,
+            elapsed: 0
+        };
+
+        let msLongPressTimer = null;
+        let msLongPressTriggered = false;
+
+        function msComputeTileSize() {
+            const wrap = document.querySelector('.ms-board-wrap');
+            const wrapW = (wrap && wrap.clientWidth) ? wrap.clientWidth : Math.min(window.innerWidth, 520);
+            const availW = wrapW - 20;
+            let size = Math.floor(availW / MS.cols);
+            if (size > 38) size = 38;
+            if (size < 20) size = 20;
+            return size;
+        }
+
+        function msApplyTileSize() {
+            const boardEl = document.getElementById('msBoard');
+            if (!boardEl) return;
+            boardEl.style.setProperty('--ms-tile-size', msComputeTileSize() + 'px');
+        }
+
+        window.msInit = function() {
+            const cfg = MS_DIFFICULTIES[MS.difficulty] || MS_DIFFICULTIES.medium;
+            MS.rows = cfg.rows;
+            MS.cols = cfg.cols;
+            MS.mines = cfg.mines;
+            MS.board = [];
+            MS.revealedCount = 0;
+            MS.totalSafe = MS.rows * MS.cols - MS.mines;
+            MS.started = false;
+            MS.over = false;
+            MS.won = false;
+            MS.elapsed = 0;
+            if (MS.timer) { clearInterval(MS.timer); MS.timer = null; }
+
+            const timerEl = document.getElementById('msTimer');
+            if (timerEl) timerEl.textContent = '000';
+
+            for (let r = 0; r < MS.rows; r++) {
+                const row = [];
+                for (let c = 0; c < MS.cols; c++) {
+                    row.push({ mine: false, revealed: false, flagged: false, count: 0, wrongFlag: false });
+                }
+                MS.board.push(row);
+            }
+
+            const status = document.getElementById('msStatus');
+            if (status) status.textContent = 'Tap a tile to begin';
+            msRender();
+            msUpdateMeta();
+        };
+
+        window.msChangeDifficulty = function(val) {
+            MS.difficulty = val;
+            msInit();
+        };
+
+        function msPlaceMines(safeR, safeC) {
+            const forbidden = new Set();
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    const r = safeR + dr, c = safeC + dc;
+                    if (r >= 0 && r < MS.rows && c >= 0 && c < MS.cols) forbidden.add(r * MS.cols + c);
+                }
+            }
+            if (MS.mines > MS.rows * MS.cols - forbidden.size) {
+                forbidden.clear();
+                forbidden.add(safeR * MS.cols + safeC);
+            }
+            let placed = 0, guard = 0;
+            while (placed < MS.mines && guard < 10000) {
+                guard++;
+                const idx = Math.floor(Math.random() * MS.rows * MS.cols);
+                if (forbidden.has(idx)) continue;
+                const r = Math.floor(idx / MS.cols);
+                const c = idx % MS.cols;
+                if (MS.board[r][c].mine) continue;
+                MS.board[r][c].mine = true;
+                placed++;
+            }
+            for (let r = 0; r < MS.rows; r++) {
+                for (let c = 0; c < MS.cols; c++) {
+                    if (MS.board[r][c].mine) continue;
+                    let n = 0;
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            if (dr === 0 && dc === 0) continue;
+                            const nr = r + dr, nc = c + dc;
+                            if (nr >= 0 && nr < MS.rows && nc >= 0 && nc < MS.cols && MS.board[nr][nc].mine) n++;
+                        }
+                    }
+                    MS.board[r][c].count = n;
+                }
+            }
+        }
+
+        function msRevealFlood(r0, c0) {
+            const stack = [[r0, c0]];
+            while (stack.length) {
+                const [rr, cc] = stack.pop();
+                const cell = MS.board[rr][cc];
+                if (cell.revealed || cell.flagged || cell.mine) continue;
+                cell.revealed = true;
+                MS.revealedCount++;
+                if (cell.count === 0) {
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            if (dr === 0 && dc === 0) continue;
+                            const nr = rr + dr, nc = cc + dc;
+                            if (nr >= 0 && nr < MS.rows && nc >= 0 && nc < MS.cols) {
+                                const n = MS.board[nr][nc];
+                                if (!n.revealed && !n.flagged && !n.mine) stack.push([nr, nc]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        function msRevealAllMines() {
+            for (let r = 0; r < MS.rows; r++) {
+                for (let c = 0; c < MS.cols; c++) {
+                    const cell = MS.board[r][c];
+                    if (cell.mine && !cell.flagged) cell.revealed = true;
+                    if (cell.flagged && !cell.mine) cell.wrongFlag = true;
+                }
+            }
+        }
+
+        function msHandleClick(r, c) {
+            if (MS.over) return;
+            const cell = MS.board[r][c];
+
+            if (cell.revealed && cell.count > 0 && !MS.flagMode) { msChord(r, c); return; }
+            if (MS.flagMode) { msToggleFlag(r, c); return; }
+            if (cell.revealed || cell.flagged) return;
+
+            if (!MS.started) {
+                MS.started = true;
+                msPlaceMines(r, c);
+                msStartTimer();
+            }
+
+            if (cell.mine) {
+                cell.revealed = true;
+                MS.over = true;
+                MS.won = false;
+                msRevealAllMines();
+                msStopTimer();
+                msRender(r, c);
+                msUpdateMeta();
+                const status = document.getElementById('msStatus');
+                if (status) status.innerHTML = '<span style="color:#ff8a80">💥 Boom! You hit a mine.</span>';
+                if (tg.HapticFeedback) { try { tg.HapticFeedback.notificationOccurred('error'); } catch (_) {} }
+                return;
+            }
+
+            msRevealFlood(r, c);
+            msRender();
+            msUpdateMeta();
+            msCheckWin();
+        }
+
+        function msChord(r, c) {
+            const cell = MS.board[r][c];
+            if (!cell.revealed || cell.count === 0) return;
+            let flags = 0;
+            const candidates = [];
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const nr = r + dr, nc = c + dc;
+                    if (nr < 0 || nr >= MS.rows || nc < 0 || nc >= MS.cols) continue;
+                    const n = MS.board[nr][nc];
+                    if (n.flagged) flags++;
+                    else if (!n.revealed) candidates.push([nr, nc]);
+                }
+            }
+            if (flags !== cell.count) return;
+            let hitMine = false;
+            for (const [nr, nc] of candidates) {
+                const n = MS.board[nr][nc];
+                if (n.mine) { n.revealed = true; hitMine = true; }
+                else msRevealFlood(nr, nc);
+            }
+            if (hitMine) {
+                MS.over = true;
+                MS.won = false;
+                msRevealAllMines();
+                msStopTimer();
+                msRender();
+                msUpdateMeta();
+                const status = document.getElementById('msStatus');
+                if (status) status.innerHTML = '<span style="color:#ff8a80">💥 Boom! You hit a mine.</span>';
+                if (tg.HapticFeedback) { try { tg.HapticFeedback.notificationOccurred('error'); } catch (_) {} }
+                return;
+            }
+            msRender();
+            msUpdateMeta();
+            msCheckWin();
+        }
+
+        function msCheckWin() {
+            if (MS.revealedCount >= MS.totalSafe) {
+                MS.over = true;
+                MS.won = true;
+                msStopTimer();
+                for (let r = 0; r < MS.rows; r++) {
+                    for (let c = 0; c < MS.cols; c++) {
+                        if (MS.board[r][c].mine && !MS.board[r][c].flagged) MS.board[r][c].flagged = true;
+                    }
+                }
+                msRender();
+                msUpdateMeta();
+                const status = document.getElementById('msStatus');
+                if (status) status.innerHTML = '<span style="color:#ffe082">🎉 Cleared! You won.</span>';
+                if (tg.HapticFeedback) { try { tg.HapticFeedback.notificationOccurred('success'); } catch (_) {} }
+            }
+        }
+
+        function msToggleFlag(r, c) {
+            if (MS.over) return;
+            const cell = MS.board[r][c];
+            if (cell.revealed) return;
+            if (!cell.flagged) {
+                let flags = 0;
+                for (let rr = 0; rr < MS.rows; rr++)
+                    for (let cc = 0; cc < MS.cols; cc++)
+                        if (MS.board[rr][cc].flagged) flags++;
+                if (flags >= MS.mines) return;
+            }
+            cell.flagged = !cell.flagged;
+            msRender();
+            msUpdateMeta();
+            if (tg.HapticFeedback) { try { tg.HapticFeedback.impactOccurred('light'); } catch (_) {} }
+        }
+
+        function msUpdateMeta() {
+            let flags = 0;
+            for (let r = 0; r < MS.rows; r++)
+                for (let c = 0; c < MS.cols; c++)
+                    if (MS.board[r][c].flagged) flags++;
+            const el = document.getElementById('msMinesLeft');
+            if (el) el.textContent = String(Math.max(0, MS.mines - flags));
+        }
+
+        function msStartTimer() {
+            if (MS.timer) clearInterval(MS.timer);
+            MS.timer = setInterval(function() {
+                MS.elapsed++;
+                if (MS.elapsed > 999) MS.elapsed = 999;
+                const el = document.getElementById('msTimer');
+                if (el) el.textContent = String(MS.elapsed).padStart(3, '0');
+            }, 1000);
+        }
+
+        function msStopTimer() {
+            if (MS.timer) { clearInterval(MS.timer); MS.timer = null; }
+        }
+
+        function msRender(triggerR, triggerC) {
+            const boardEl = document.getElementById('msBoard');
+            if (!boardEl) return;
+            msApplyTileSize();
+            boardEl.style.gridTemplateColumns = 'repeat(' + MS.cols + ', var(--ms-tile-size, 32px))';
+
+            const frag = document.createDocumentFragment();
+            for (let r = 0; r < MS.rows; r++) {
+                for (let c = 0; c < MS.cols; c++) {
+                    const cell = MS.board[r][c];
+                    const tile = document.createElement('div');
+                    tile.className = 'ms-tile';
+                    if ((r + c) % 2 === 1) tile.classList.add('dark');
+
+                    if (cell.revealed) {
+                        tile.classList.add('revealed');
+                        if (cell.mine) {
+                            tile.classList.add('mine');
+                            if (r === triggerR && c === triggerC) tile.classList.add('triggered');
+                        } else if (cell.count > 0) {
+                            tile.classList.add('n' + cell.count);
+                            tile.textContent = cell.count;
+                        }
+                        if (cell.wrongFlag) tile.classList.add('wrong-flag');
+                    } else if (cell.flagged) {
+                        tile.classList.add('flagged');
+                    } else {
+                        tile.classList.add('covered');
+                    }
+
+                    tile.addEventListener('contextmenu', function(ev) {
+                        ev.preventDefault();
+                        msToggleFlag(r, c);
+                    });
+
+                    tile.addEventListener('touchstart', function() {
+                        msLongPressTriggered = false;
+                        clearTimeout(msLongPressTimer);
+                        msLongPressTimer = setTimeout(function() {
+                            msLongPressTriggered = true;
+                            msToggleFlag(r, c);
+                            if (tg.HapticFeedback) { try { tg.HapticFeedback.impactOccurred('medium'); } catch (_) {} }
+                        }, 420);
+                    }, { passive: true });
+                    tile.addEventListener('touchend', function(ev) {
+                        clearTimeout(msLongPressTimer);
+                        if (msLongPressTriggered) {
+                            ev.preventDefault();
+                            msLongPressTriggered = false;
+                        }
+                    });
+                    tile.addEventListener('touchmove', function() {
+                        clearTimeout(msLongPressTimer);
+                    }, { passive: true });
+                    tile.addEventListener('touchcancel', function() {
+                        clearTimeout(msLongPressTimer);
+                    }, { passive: true });
+
+                    tile.addEventListener('click', function(ev) {
+                        if (msLongPressTriggered) { msLongPressTriggered = false; ev.preventDefault(); return; }
+                        msHandleClick(r, c);
+                    });
+
+                    frag.appendChild(tile);
+                }
+            }
+            boardEl.innerHTML = '';
+            boardEl.appendChild(frag);
+
+            msApplyRevealedBorders();
+        }
+
+        function msApplyRevealedBorders() {
+            const boardEl = document.getElementById('msBoard');
+            if (!boardEl) return;
+            const tiles = boardEl.children;
+            for (let r = 0; r < MS.rows; r++) {
+                for (let c = 0; c < MS.cols; c++) {
+                    const cell = MS.board[r][c];
+                    if (!cell.revealed) continue;
+                    const tile = tiles[r * MS.cols + c];
+                    if (!tile) continue;
+                    const shadows = [];
+                    if (r === 0 || !MS.board[r-1][c].revealed) shadows.push('inset 0 3px 0 0 #7ba838');
+                    if (r === MS.rows-1 || !MS.board[r+1][c].revealed) shadows.push('inset 0 -3px 0 0 #7ba838');
+                    if (c === 0 || !MS.board[r][c-1].revealed) shadows.push('inset 3px 0 0 0 #7ba838');
+                    if (c === MS.cols-1 || !MS.board[r][c+1].revealed) shadows.push('inset -3px 0 0 0 #7ba838');
+                    tile.style.boxShadow = shadows.length ? shadows.join(', ') : 'none';
+                }
+            }
+        }
+
+        window.msToggleFlagMode = function() {
+            MS.flagMode = !MS.flagMode;
+            const btn = document.getElementById('msFlagToggle');
+            if (btn) btn.classList.toggle('active', MS.flagMode);
+            if (tg.HapticFeedback) { try { tg.HapticFeedback.impactOccurred('light'); } catch (_) {} }
+        };
+
+        window.addEventListener('resize', function() {
+            if (MS.board.length) {
+                msApplyTileSize();
+                const boardEl = document.getElementById('msBoard');
+                if (boardEl) boardEl.style.gridTemplateColumns = 'repeat(' + MS.cols + ', var(--ms-tile-size, 32px))';
+                msApplyRevealedBorders();
+            }
+        });
+
+        // ==================== PDF VIEWER LOGIC ====================
+        // Continuous scroll, lazy page rendering, zoom (buttons + pinch), text layer, search, resume page.
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const PV_MIN = 0.5, PV_MAX = 4;
+        const pv = { doc: null, task: null, key: '', zoom: 1, scale: 1, base: { w: 612, h: 792 }, pages: [], io: null, cur: 1, raf: 0, query: '', hits: [], hitIdx: -1, searchId: 0, txt: {} };
+        const pvEl = function(id) { return document.getElementById(id); };
+        const pvWrap = pvEl('pdf-canvas-wrap');
+        const pvStatus = function(t) { pvEl('pdf-status').textContent = t || ''; };
+
+        // Tapping "Open" asks: view inside the app, or send the file to the student's bot chat
+        window.openPdf = function(url) {
+            const m = /^\/api\/serve_pdf\/([^\/]+)\/([^\/]+)\/(\d+)$/.exec(url || '');
+            const wa = window.Telegram && window.Telegram.WebApp;
+            if (!m || !wa || typeof wa.showPopup !== 'function' || !wa.isVersionAtLeast('6.2')) { pvOpen(url); return; }
+            try {
+                wa.showPopup({
+                    title: 'Open file',
+                    message: 'View it here, or send it to your chat with the bot so you can download or share it.',
+                    buttons: [
+                        { id: 'view', type: 'default', text: 'View here' },
+                        { id: 'bot', type: 'default', text: 'Send to bot chat' },
+                        { type: 'cancel' }
+                    ]
+                }, function(id) {
+                    if (id === 'view') pvOpen(url);
+                    else if (id === 'bot') pvSend(m[1], m[2], parseInt(m[3], 10));
+                });
+            } catch (_) { pvOpen(url); }
+        };
+
+        async function pvSend(course, type, idx) {
+            const wa = window.Telegram.WebApp;
+            try {
+                await api('/api/send_file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ course: course, type: type, idx: idx }) });
+                wa.showPopup({
+                    title: 'Sent',
+                    message: 'The file is in your chat with the bot. Open it there to download or share.',
+                    buttons: [{ id: 'chat', type: 'default', text: 'Go to chat' }, { id: 'stay', type: 'cancel' }]
+                }, function(id) { if (id === 'chat') wa.close(); });
+            } catch (e) {
+                wa.showAlert(e.message === 'bot_blocked'
+                    ? "⚠️ The bot can't message you yet. Open the bot chat, press Start, then try again."
+                    : "⚠️ Couldn't send the file. Please try again.");
+            }
+        }
+
+        function pvOpen(url) {
+            let finalUrl = url, own = false;
+            if (url && url.startsWith('/api/')) { finalUrl = RENDER_URL + url; own = true; }
+            else if (url && url.startsWith(RENDER_URL)) own = true;
+
+            const activeSection = document.querySelector('.section.active');
+            if (activeSection) activeSection.style.display = 'none';
+            pvEl('pdf-viewer-view').style.display = 'flex';
+
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.BackButton.offClick(defaultBackButtonAction);
+                window.Telegram.WebApp.BackButton.onClick(closePdf);
+                window.Telegram.WebApp.BackButton.show();
+            }
+            pv.key = 'astu_pdfpos:' + url;
+            loadPdf(finalUrl, own);
+        }
+
+        window.closePdf = function() {
+            pv.searchId++;
+            if (pv.io) { pv.io.disconnect(); pv.io = null; }
+            pv.pages.forEach(pvRelease);
+            pv.pages = [];
+            pvEl('pdf-pages').innerHTML = '';
+            if (pv.task) { try { pv.task.destroy(); } catch (_) {} pv.task = null; }
+            pv.doc = null; pv.zoom = 1; pv.cur = 1; pv.query = ''; pv.hits = []; pv.hitIdx = -1; pv.txt = {};
+            pvEl('pdf-search-input').value = '';
+            pvEl('pdf-hit-label').textContent = '';
+            pvEl('pdf-searchbar').hidden = true;
+            pvEl('pdf-zoom-label').textContent = '100%';
+            pvEl('page-count').textContent = '--';
+            pvStatus('');
+            pvEl('pdf-viewer-view').style.display = 'none';
+
+            const activeSection = document.querySelector('.section.active');
+            if (activeSection) activeSection.style.display = 'block';
+
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.BackButton.offClick(closePdf);
+                window.Telegram.WebApp.BackButton.onClick(defaultBackButtonAction);
+                window.Telegram.WebApp.BackButton.hide();
+            }
+        };
+
+        function pvFail(err) {
+            const s = err && err.status;
+            const msg = s === 413 ? "This file is over Telegram's 20 MB limit for bots, so it can't be opened here."
+                : s === 415 ? "This file isn't a PDF, so it can't be previewed."
+                : s === 401 ? "Your session expired. Close and reopen the app, then try again."
+                : "Failed to load the PDF. The link might be invalid or expired.";
+            console.error("Error loading PDF:", err);
+            if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert("⚠️ " + msg);
+            closePdf();
+        }
+
+        function loadPdf(url, own) {
+            pvStatus('Loading…');
+            const opts = { url: url };
+            if (own && INIT_DATA) opts.httpHeaders = { 'X-Telegram-Init-Data': INIT_DATA };
+            const task = pdfjsLib.getDocument(opts);
+            pv.task = task;
+            task.onProgress = function(p) { if (p.total) pvStatus('Loading ' + Math.round(p.loaded / p.total * 100) + '%'); };
+            task.promise.then(async function(doc) {
+                if (pv.task !== task) { doc.destroy(); return; }
+                const v = (await doc.getPage(1)).getViewport({ scale: 1 });
+                if (pv.task !== task) return;
+                pv.doc = doc;
+                pv.base = { w: v.width, h: v.height };
+                pvEl('page-count').textContent = doc.numPages;
+                pvBuild();
+                pvStatus('');
+                let saved = 0;
+                try { saved = parseInt(localStorage.getItem(pv.key), 10) || 0; } catch (_) {}
+                if (saved > 1 && saved <= doc.numPages) pvGo(saved);
+            }).catch(function(err) { if (pv.task === task) pvFail(err); });
+        }
+
+        function pvBuild() {
+            const host = pvEl('pdf-pages');
+            host.innerHTML = '';
+            pv.pages = [];
+            for (let i = 1; i <= pv.doc.numPages; i++) {
+                const el = document.createElement('div');
+                el.className = 'pdf-page';
+                el.dataset.n = i;
+                host.appendChild(el);
+                pv.pages.push({ n: i, el: el, divs: [], rendered: false, scale: 0, job: 0, task: null, dim: null });
+            }
+            pvLayout();
+            pv.io = new IntersectionObserver(function(entries) {
+                entries.forEach(function(e) {
+                    const pg = pv.pages[e.target.dataset.n - 1];
+                    if (!pg) return;
+                    if (e.isIntersecting) pvRender(pg); else pvRelease(pg);
+                });
+            }, { root: pvWrap, rootMargin: '150% 0px' });
+            pv.pages.forEach(function(pg) { pv.io.observe(pg.el); });
+        }
+
+        function pvLayout() {
+            const fitW = Math.max(120, pvWrap.clientWidth - 24);
+            pv.scale = fitW / pv.base.w * pv.zoom;
+            pv.pages.forEach(function(pg) {
+                const d = pg.dim || pv.base;
+                pg.el.style.width = d.w * pv.scale + 'px';
+                pg.el.style.height = d.h * pv.scale + 'px';
+            });
+        }
+
+        function pvRelease(pg) {
+            pg.job++;
+            if (pg.task) { try { pg.task.cancel(); } catch (_) {} pg.task = null; }
+            pg.el.replaceChildren();
+            pg.rendered = false; pg.scale = 0; pg.divs = [];
+        }
+
+        async function pvRender(pg) {
+            if (!pv.doc || (pg.rendered && pg.scale === pv.scale)) return;
+            const doc = pv.doc, scale = pv.scale, job = ++pg.job;
+            if (pg.task) { try { pg.task.cancel(); } catch (_) {} }
+            pg.rendered = true; pg.scale = scale;
+            try {
+                const page = await doc.getPage(pg.n);
+                if (pv.doc !== doc || job !== pg.job) return;
+                const vp = page.getViewport({ scale: scale });
+                pg.dim = { w: vp.width / scale, h: vp.height / scale };
+                pg.el.style.width = vp.width + 'px';
+                pg.el.style.height = vp.height + 'px';
+
+                // Sharp on phones, but cap canvas size so high zoom can't exhaust memory
+                let out = Math.min(window.devicePixelRatio || 1, 2);
+                out = Math.min(out, Math.sqrt(16e6 / (vp.width * vp.height)));
+                const cv = document.createElement('canvas');
+                cv.width = Math.floor(vp.width * out);
+                cv.height = Math.floor(vp.height * out);
+                cv.style.width = '100%'; cv.style.height = '100%';
+                pg.task = page.render({ canvasContext: cv.getContext('2d'), viewport: vp, transform: out !== 1 ? [out, 0, 0, out, 0, 0] : null });
+                await pg.task.promise;
+                if (pv.doc !== doc || job !== pg.job) return;
+
+                const tl = document.createElement('div');
+                tl.className = 'pdf-text';
+                tl.style.setProperty('--scale-factor', scale);
+                const divs = [];
+                await pdfjsLib.renderTextLayer({ textContentSource: page.streamTextContent(), container: tl, viewport: vp, textDivs: divs }).promise;
+                if (pv.doc !== doc || job !== pg.job) return;
+
+                pg.divs = divs;
+                pg.el.replaceChildren(cv, tl);
+                pvMark(pg);
+            } catch (err) {
+                if (err && err.name === 'RenderingCancelledException') return;
+                if (job === pg.job) { pg.rendered = false; pg.scale = 0; console.error('PDF page render failed', err); }
+            }
+        }
+
+        // ----- navigation -----
+        function pvGo(n) {
+            if (!pv.pages.length) return;
+            n = Math.max(1, Math.min(pv.pages.length, n | 0));
+            pvWrap.scrollTop = pv.pages[n - 1].el.offsetTop - 8;
+            pv.cur = n;
+            pvEl('pdf-page-input').value = n;
+        }
+
+        function pvUpdateCur() {
+            if (!pv.pages.length) return;
+            const mid = pvWrap.scrollTop + pvWrap.clientHeight / 3;
+            let n = 1;
+            for (let i = 0; i < pv.pages.length; i++) { if (pv.pages[i].el.offsetTop <= mid) n = i + 1; else break; }
+            pv.cur = n;
+            const inp = pvEl('pdf-page-input');
+            if (document.activeElement !== inp) inp.value = n;
+            try { localStorage.setItem(pv.key, n); } catch (_) {}
+        }
+
+        pvWrap.addEventListener('scroll', function() {
+            if (pv.raf) return;
+            pv.raf = requestAnimationFrame(function() { pv.raf = 0; pvUpdateCur(); });
+        }, { passive: true });
+
+        pvEl('pdf-page-input').addEventListener('change', function() { pvGo(parseInt(this.value, 10) || pv.cur); this.blur(); });
+
+        // ----- zoom -----
+        function pvSetZoom(z) {
+            z = Math.max(PV_MIN, Math.min(PV_MAX, z));
+            if (!pv.doc || Math.abs(z - pv.zoom) < 0.001) return;
+            const cur = pv.pages[pv.cur - 1];
+            const frac = (pvWrap.scrollTop - cur.el.offsetTop) / cur.el.offsetHeight;
+            pv.zoom = z;
+            pvLayout();
+            pvWrap.scrollTop = cur.el.offsetTop + frac * cur.el.offsetHeight;
+            pv.pages.forEach(function(pg) { if (pg.rendered) pvRender(pg); });
+            pvEl('pdf-zoom-label').textContent = Math.round(z * 100) + '%';
+        }
+        window.pvZoomBy = function(d) { pvSetZoom(Math.round((pv.zoom + d) * 100) / 100); };
+        window.pvFit = function() { pvSetZoom(1); };
+
+        let pvPinch = null;
+        const pvDist = function(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); };
+        pvWrap.addEventListener('touchstart', function(e) { if (e.touches.length === 2) pvPinch = { d: pvDist(e.touches), r: 1 }; }, { passive: true });
+        pvWrap.addEventListener('touchmove', function(e) {
+            if (!pvPinch || e.touches.length !== 2) return;
+            e.preventDefault();
+            pvPinch.r = Math.max(PV_MIN / pv.zoom, Math.min(PV_MAX / pv.zoom, pvDist(e.touches) / pvPinch.d));
+            pvEl('pdf-pages').style.transform = 'scale(' + pvPinch.r + ')';
+        }, { passive: false });
+        pvWrap.addEventListener('touchend', function(e) {
+            if (!pvPinch || e.touches.length >= 2) return;
+            const r = pvPinch.r; pvPinch = null;
+            pvEl('pdf-pages').style.transform = '';
+            pvSetZoom(pv.zoom * r);
+        });
+
+        window.addEventListener('resize', function() {
+            if (!pv.doc) return;
+            pvLayout();
+            pv.pages.forEach(function(pg) { if (pg.rendered) pvRender(pg); });
+        });
+
+        // ----- search -----
+        function pvMark(pg) {
+            const q = pv.query;
+            pg.divs.forEach(function(d) { d.classList.toggle('hit', !!q && d.textContent.toLowerCase().indexOf(q) !== -1); });
+        }
+        function pvHitLabel() {
+            const l = pvEl('pdf-hit-label');
+            if (!pv.query) l.textContent = '';
+            else if (!pv.hits.length) l.textContent = 'No matches';
+            else l.textContent = (pv.hitIdx + 1) + ' of ' + pv.hits.length + ' pages';
+        }
+        async function pvSearch(q) {
+            q = q.trim().toLowerCase();
+            pv.query = q; pv.hits = []; pv.hitIdx = -1;
+            pv.pages.forEach(pvMark);
+            pvHitLabel();
+            if (!q || !pv.doc) return;
+            const doc = pv.doc, id = ++pv.searchId;
+            pvEl('pdf-hit-label').textContent = 'Searching…';
+            for (let i = 1; i <= doc.numPages; i++) {
+                if (pv.doc !== doc || id !== pv.searchId) return;
+                if (pv.txt[i] === undefined) {
+                    const tc = await (await doc.getPage(i)).getTextContent();
+                    pv.txt[i] = tc.items.map(function(it) { return it.str; }).join(' ').toLowerCase();
+                }
+                if (pv.txt[i].indexOf(q) !== -1) {
+                    pv.hits.push(i);
+                    if (pv.hitIdx < 0) { pv.hitIdx = 0; pvGo(i); }
+                }
+            }
+            if (id === pv.searchId) pvHitLabel();
+        }
+        window.pvStep = function(dir) {
+            if (!pv.hits.length) return;
+            pv.hitIdx = (pv.hitIdx + dir + pv.hits.length) % pv.hits.length;
+            pvGo(pv.hits[pv.hitIdx]);
+            pvHitLabel();
+        };
+        window.pvToggleSearch = function() {
+            const bar = pvEl('pdf-searchbar');
+            bar.hidden = !bar.hidden;
+            if (!bar.hidden) pvEl('pdf-search-input').focus();
+            else pvSearch('');
+        };
+        pvEl('pdf-search-input').addEventListener('keydown', function(e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            if (this.value.trim().toLowerCase() === pv.query && pv.hits.length) window.pvStep(1);
+            else pvSearch(this.value);
+            this.blur();
+        });
+        // ==========================================================
+
+        // ---------- GPA ----------
+        const ASTU_GRADES = { "A+": 4.0, "A": 4.0, "A-": 3.75, "B+": 3.5, "B": 3.0, "B-": 2.75, "C+": 2.5, "C": 2.0, "C-": 1.75, "D": 1.0, "F": 0.0 };
+
+        window.loadSemesterGPA = function() {
+            const y = document.getElementById('gpaYear').value;
+            const s = document.getElementById('gpaSem').value;
+            const container = document.getElementById('courseRows');
+            container.innerHTML = '';
+            const courses = (curriculum[y] && curriculum[y][s]) || [];
+            if (y && s && courses.length) {
+                courses.forEach(course => {
+                    const row = document.createElement('div');
+                    row.className = 'course-row';
+                    row.innerHTML = '<input type="text" value="' + esc(course.title) + '" readonly style="flex:2; background: var(--bg-color); opacity:0.8; font-size:12px;">'
+                        + '<input type="number" value="' + course.cr + '" class="gpa-cr" readonly style="flex:1; background: var(--bg-color); opacity:0.8; text-align:center;">'
+                        + '<select class="gpa-gr" style="flex:1"><option value="">Gr</option>' + Object.keys(ASTU_GRADES).map(g => '<option value="' + g + '">' + g + '</option>').join('') + '</select>'
+                        + '<button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>';
+                    container.appendChild(row);
+                });
+            } else {
+                for (let i = 0; i < 5; i++) addCourseRow();
+            }
+            document.getElementById('gpaResult').innerHTML = '';
+        };
+
+        window.addCourseRow = function() {
+            const row = document.createElement('div');
+            row.className = 'course-row';
+            row.innerHTML = '<input type="text" placeholder="Subject (Opt)" style="flex:2">'
+                + '<input type="number" placeholder="Cr" class="gpa-cr" style="flex:1" min="1" max="10">'
+                + '<select class="gpa-gr" style="flex:1"><option value="">Gr</option>' + Object.keys(ASTU_GRADES).map(g => '<option value="' + g + '">' + g + '</option>').join('') + '</select>'
+                + '<button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>';
+            document.getElementById('courseRows').appendChild(row);
+        };
+
+        window.calculateGPA = function() {
+            let cr = 0, pts = 0, valid = false;
+            document.querySelectorAll('.course-row').forEach(row => {
+                const c = parseFloat(row.querySelector('.gpa-cr').value);
+                const g = row.querySelector('.gpa-gr').value;
+                if (!isNaN(c) && g && ASTU_GRADES[g] !== undefined) { cr += c; pts += (c * ASTU_GRADES[g]); valid = true; }
+            });
+            const res = document.getElementById('gpaResult');
+            if (!valid) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Fill at least one Credit and Grade.</span>'; return; }
+            const gpa = (pts / cr).toFixed(2);
+            res.innerHTML = '🌟 Semester GPA: <span style="color:var(--btn-color)">' + gpa + '</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ' + cr + '</div>';
+        };
+
+        function getSemCredits(y, s) {
+            const courses = (curriculum[y] && curriculum[y][s]) || [];
+            let total = 0;
+            courses.forEach(c => total += c.cr);
+            return total;
+        }
+
+        window.addCGPARow = function() {
+            const row = document.createElement('div');
+            row.className = 'cgpa-row';
+            let options = '<option value="">Select Sem...</option>';
+            const years = Object.keys(curriculum).sort();
+            years.forEach(y => {
+                const sems = Object.keys(curriculum[y]).sort();
+                sems.forEach(s => { options += '<option value="' + y + '_' + s + '">Year ' + y + ' Sem ' + s + '</option>'; });
+            });
+            options += '<option value="custom">Custom / Other</option>';
+            row.innerHTML = '<select style="flex:2;" onchange="autoFillCr(this)">' + options + '</select>'
+                + '<input type="number" class="cgpa-cr" placeholder="Cr" style="flex:1;">'
+                + '<input type="number" class="cgpa-gpa" placeholder="GPA" step="0.01" min="0" max="4" style="flex:1;">'
+                + '<button type="button" class="remove-btn" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>';
+            document.getElementById('cgpaRows').appendChild(row);
+        };
+
+        window.autoFillCr = function(selectEl) {
+            const val = selectEl.value;
+            const crInput = selectEl.parentElement.querySelector('.cgpa-cr');
+            if (val && val !== 'custom') { const parts = val.split('_'); crInput.value = getSemCredits(parts[0], parts[1]); }
+            else crInput.value = '';
+        };
+
+        window.calculateMultiCGPA = function() {
+            let tCr = 0, tPts = 0, valid = false;
+            document.querySelectorAll('.cgpa-row').forEach(row => {
+                const cr = parseFloat(row.querySelector('.cgpa-cr').value);
+                const gpa = parseFloat(row.querySelector('.cgpa-gpa').value);
+                if (!isNaN(cr) && !isNaN(gpa)) { tCr += cr; tPts += (cr * gpa); valid = true; }
+            });
+            const res = document.getElementById('multiCgpaResult');
+            if (!valid) { res.innerHTML = '<span style="color:var(--hint-color);font-weight:normal;font-size:14px;">Please fill at least one row correctly.</span>'; return; }
+            const cgpa = (tPts / tCr).toFixed(2);
+            res.innerHTML = '🎓 Cumulative CGPA: <span style="color:var(--btn-color)">' + cgpa + '</span> <div style="font-size:12px;color:var(--hint-color);font-weight:normal;margin-top:4px;">Total Credits: ' + tCr + '</div>';
+        };
+
+        window.reportIssue = async function(type, course, title) {
+            const userComment = prompt('You are reporting an issue with "' + title + '".\n\nPlease tell the admins what is wrong with it:');
+            if (userComment === null) return;
+            try {
+                const res = await api('/api/report_issue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, course, title, comment: userComment }) });
+                if (res.ok) tg.showAlert("✅ Thanks! Your report has been sent to the admins.");
+            } catch (e) { tg.showAlert("⚠️ Failed to send report."); }
+        };
+
+        const upYear = document.getElementById('upYear'), upSem = document.getElementById('upSem'), upCourse = document.getElementById('upCourse'), upType = document.getElementById('upType'), fileInput = document.getElementById('fileInput'), submitBtn = document.getElementById('submitBtn');
+        upYear.onchange = () => {
+            rebuildSemesterSelect(upSem, upYear.value);
+            upCourse.innerHTML = '<option value="">Select Course...</option>'; upCourse.disabled = true;
+            upType.disabled = true; fileInput.disabled = true; submitBtn.disabled = true;
+        };
+        upSem.onchange = () => {
+            upCourse.innerHTML = '<option value="">Select Course...</option>';
+            const courses = (curriculum[upYear.value] && curriculum[upYear.value][upSem.value]) || [];
+            if (upYear.value && upSem.value && courses.length) {
+                courses.forEach(c => upCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
+                upCourse.disabled = false;
+            } else upCourse.disabled = true;
+            upType.disabled = true; fileInput.disabled = true; submitBtn.disabled = true;
+        };
+        upCourse.onchange = () => { upType.disabled = !upCourse.value; fileInput.disabled = true; submitBtn.disabled = true; };
+        upType.onchange = () => { fileInput.disabled = !upType.value; submitBtn.disabled = true; };
+        fileInput.onchange = () => { submitBtn.disabled = !fileInput.files.length; };
+
+        const findYear = document.getElementById('findYear'), findSem = document.getElementById('findSem'), findCourse = document.getElementById('findCourse'), findType = document.getElementById('findType');
+
+        // ---------- Shared helper: reset Course + Type dropdowns ----------
+        function resetCourseAndType() {
+            findCourse.innerHTML = '<option value="">Select Course...</option>';
+            findCourse.disabled = true;
+            filters.course = '';
+            findType.value = '';
+            findType.disabled = true;
+            filters.type = '';
+        }
+
+        // ---------- Academic Year ----------
+        findYear.onchange = () => {
+            activeFolderContext = null;
+            filters.year = findYear.value;
+
+            if (!findYear.value) {
+                rebuildSemesterSelect(findSem, '');
+                findSem.value = '';
+                filters.sem = '';
+                resetCourseAndType();
+            } else {
+                rebuildSemesterSelect(findSem, findYear.value);
+                findSem.value = '';
+                filters.sem = '';
+                resetCourseAndType();
+            }
+            renderMaterials();
+        };
+
+        // ---------- Semester ----------
+        findSem.onchange = () => {
+            activeFolderContext = null;
+            filters.sem = findSem.value;
+            resetCourseAndType();
+
+            if (findSem.value) {
+                const courses = (curriculum[filters.year] && curriculum[filters.year][filters.sem]) || [];
+                if (courses.length) {
+                    courses.forEach(c => findCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
+                    findCourse.disabled = false;
+                }
+            }
+            renderMaterials();
+        };
+
+        // ---------- Course ----------
+        findCourse.onchange = () => {
+            activeFolderContext = null;
+            filters.course = findCourse.value;
+
+            if (!findCourse.value) {
+                findType.value = '';
+                findType.disabled = true;
+                filters.type = '';
+            } else {
+                findType.disabled = false;
+            }
+            renderMaterials();
+        };
+
+        // ---------- Material Type ----------
+        findType.onchange = () => {
+            activeFolderContext = null;
+            filters.type = findType.value;
+            renderMaterials();
+        };
+
+        // ---------- Clear Filters ----------
+        function clearFilters() {
+            filters = { year: '', sem: '', course: '', type: '' };
+            activeFolderContext = null;
+
+            findYear.value = '';
+            findSem.innerHTML = '<option value="">Select Semester...</option>';
+            findSem.value = '';
+            findSem.disabled = true;
+            findCourse.innerHTML = '<option value="">Select Course...</option>';
+            findCourse.value = '';
+            findCourse.disabled = true;
+            findType.value = '';
+            findType.disabled = true;
+
+            renderMaterials();
+        }
+        document.getElementById('clearFiltersBtn').addEventListener('click', clearFilters);
+
+        const vidYear = document.getElementById('vidYear'), vidSem = document.getElementById('vidSem'), vidCourse = document.getElementById('vidCourse');
+
+        // ---------- Shared helper: reset Video Course dropdown ----------
+        function resetVideoCourse() {
+            vidCourse.innerHTML = '<option value="">Select Course...</option>';
+            vidCourse.disabled = true;
+            videoFilters.course = '';
+        }
+
+        // ---------- Video Academic Year ----------
+        vidYear.onchange = () => {
+            videoFilters.year = vidYear.value;
+
+            if (!vidYear.value) {
+                rebuildSemesterSelect(vidSem, '');
+                vidSem.value = '';
+                videoFilters.sem = '';
+                resetVideoCourse();
+            } else {
+                rebuildSemesterSelect(vidSem, vidYear.value);
+                vidSem.value = '';
+                videoFilters.sem = '';
+                resetVideoCourse();
+            }
+            renderVideos();
+        };
+
+        // ---------- Video Semester ----------
+        vidSem.onchange = () => {
+            videoFilters.sem = vidSem.value;
+            resetVideoCourse();
+
+            if (vidSem.value) {
+                const courses = (curriculum[videoFilters.year] && curriculum[videoFilters.year][videoFilters.sem]) || [];
+                if (courses.length) {
+                    courses.forEach(c => vidCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
+                    vidCourse.disabled = false;
+                }
+            }
+            renderVideos();
+        };
+
+        // ---------- Video Course ----------
+        vidCourse.onchange = () => {
+            videoFilters.course = vidCourse.value;
+            renderVideos();
+        };
+
+        // ---------- Clear Video Filters ----------
+        function clearVideoFilters() {
+            videoFilters = { year: '', sem: '', course: '' };
+
+            vidYear.value = '';
+            vidSem.innerHTML = '<option value="">Select Semester...</option>';
+            vidSem.value = '';
+            vidSem.disabled = true;
+            vidCourse.innerHTML = '<option value="">Select Course...</option>';
+            vidCourse.value = '';
+            vidCourse.disabled = true;
+
+            renderVideos();
+        }
+        document.getElementById('clearVideoFiltersBtn').addEventListener('click', clearVideoFilters);
+
+        const subVidYear = document.getElementById('subVidYear'), subVidSem = document.getElementById('subVidSem'), subVidCourse = document.getElementById('subVidCourse'), vidTitle = document.getElementById('vidTitle'), vidUrl = document.getElementById('vidUrl'), subVidBtn = document.getElementById('subVidBtn');
+        subVidYear.onchange = () => {
+            rebuildSemesterSelect(subVidSem, subVidYear.value);
+            subVidCourse.innerHTML = '<option value="">Select Course...</option>'; subVidCourse.disabled = true;
+            vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true;
+        };
+        subVidSem.onchange = () => {
+            subVidCourse.innerHTML = '<option value="">Select Course...</option>';
+            const courses = (curriculum[subVidYear.value] && curriculum[subVidYear.value][subVidSem.value]) || [];
+            if (subVidYear.value && subVidSem.value && courses.length) {
+                courses.forEach(c => subVidCourse.innerHTML += '<option value="' + esc(c.code) + '">' + esc(c.code) + ' — ' + esc(c.title) + '</option>');
+                subVidCourse.disabled = false;
+            } else subVidCourse.disabled = true;
+            vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true;
+        };
+        subVidCourse.onchange = () => {
+            vidTitle.disabled = !subVidCourse.value;
+            vidUrl.disabled = !subVidCourse.value;
+            subVidBtn.disabled = !subVidCourse.value;
+        };
+
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const files = fileInput.files;
+            if (files.length === 0) return;
+            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uploading (0/' + files.length + ')...';
+            submitBtn.disabled = true;
+            let successCount = 0;
+            for (let i = 0; i < files.length; i++) {
+                const formData = new FormData();
+                formData.append('file', files[i]);
+                formData.append('course', upCourse.value);
+                formData.append('type', upType.value);
+                try {
+                    const res = await api('/api/upload', { method: 'POST', body: formData });
+                    if (res.ok) successCount++;
+                } catch (err) {}
+                if (i < files.length - 1) submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uploading (' + (i + 1) + '/' + files.length + ')...';
+            }
+            if (successCount > 0) {
+                tg.showAlert('✅ Success! ' + successCount + '/' + files.length + ' file(s) sent to admin for review.');
+                document.getElementById('uploadForm').reset();
+                upSem.disabled = true; upCourse.disabled = true; upType.disabled = true; fileInput.disabled = true;
+            } else tg.showAlert("⚠️ All uploads failed. Please check your connection.");
+            submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Upload to Admin';
+            submitBtn.disabled = false;
+        });
+
+        document.getElementById('videoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            subVidBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Submitting...';
+            subVidBtn.disabled = true;
+            try {
+                const res = await api('/api/upload_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ course: subVidCourse.value, title: vidTitle.value, url: vidUrl.value }) });
+                if (res.ok) {
+                    tg.showAlert("✅ Success! Video submitted for admin approval.");
+                    document.getElementById('videoForm').reset();
+                    subVidSem.disabled = true; subVidCourse.disabled = true; vidTitle.disabled = true; vidUrl.disabled = true; subVidBtn.disabled = true;
+                }
+            } catch (e) { tg.showAlert("⚠️ " + e.message); }
+            subVidBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Submit for Review';
+            subVidBtn.disabled = false;
+        });
+
+        document.getElementById('adminNewsForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitNewsBtn');
+            const title = document.getElementById('adminNewsTitle').value.trim();
+            const link = document.getElementById('adminNewsLink').value.trim();
+            if (!title || !link) { tg.showAlert("⚠️ Please fill in both title and link."); return; }
+            if (link.indexOf("https://t.me/") !== 0 && link.indexOf("http://t.me/") !== 0) {
+                tg.showAlert("⚠️ Link must be a valid Telegram post URL (https://t.me/...)");
+                return;
+            }
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Publishing...';
+            btn.disabled = true;
+            const formData = new FormData();
+            formData.append('title', title);
+            formData.append('link', link);
+            try {
+                const res = await api('/api/post_news', { method: 'POST', body: formData });
+                if (res.ok) {
+                    tg.showAlert("✅ News published! Subscribers have been notified.");
+                    document.getElementById('adminNewsForm').reset();
+                    await loadDashboardWidgets();
+                }
+            } catch (e) { tg.showAlert("⚠️ " + e.message); }
+            btn.innerHTML = '<i class="fa-solid fa-bullhorn"></i> Publish to Dashboard';
+            btn.disabled = false;
+        });
+
+        document.getElementById('feedbackForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitFeedbackBtn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+            btn.disabled = true;
+            const ratingInput = document.querySelector('input[name="rating"]:checked');
+            if (!ratingInput) {
+                tg.showAlert("⚠️ Please select a star rating!");
+                btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Feedback';
+                btn.disabled = false;
+                return;
+            }
+            try {
+                const res = await api('/api/submit_feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating: parseInt(ratingInput.value), message: document.getElementById('feedbackText').value }) });
+                if (res.ok) {
+                    tg.showAlert("✅ Thank you! Your feedback has been sent.");
+                    document.getElementById('feedbackForm').reset();
+                    openMenuHub();
+                }
+            } catch (e) { tg.showAlert("⚠️ " + e.message); }
+            btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Feedback';
+            btn.disabled = false;
+        });
+
+        document.getElementById('requestForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submitReqBtn');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+            btn.disabled = true;
+            try {
+                const res = await api('/api/request_resource', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ course: document.getElementById('reqCourse').value, detail: document.getElementById('reqDetail').value }) });
+                if (res.ok) {
+                    tg.showAlert("✅ Request sent to admins. Thank you!");
+                    document.getElementById('requestForm').reset();
+                    openMenuHub();
+                }
+            } catch (e) { tg.showAlert("⚠️ " + e.message); }
+            btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Request';
+            btn.disabled = false;
+        });
+
+        window.toggleSubscription = toggleSubscription;
+        window.renderMaterials = renderMaterials;
+        window.renderVideos = renderVideos;
+        window.renderFavs = renderFavs;
+        window.deleteNewsItem = deleteNewsItem;
+        window.clearAllNews = clearAllNews;
+        window.renderLeaderboard = renderLeaderboard;
+        window.openFavFolder = openFavFolder;
+
+        document.getElementById('globalMatSearch').addEventListener('input', debounce(() => { activeFolderContext = null; renderMaterials(); }));
+        document.getElementById('globalVidSearch').addEventListener('input', debounce(() => renderVideos()));
+        document.getElementById('favSearchInput').addEventListener('input', debounce(() => { activeFavFolder = null; renderFavs(); }));
+        document.getElementById('newsSearchInput').addEventListener('input', debounce(() => renderNewsList()));
+        document.getElementById('lbSearch').addEventListener('input', debounce(() => renderLeaderboard()));
+
+        function checkWhatsNew() {
+            const currentVersion = "v3.4";
+            const userVersion = localStorage.getItem('astu_ece_version');
+            if (userVersion !== currentVersion) document.getElementById('whatsNewModal').style.display = 'flex';
+        }
+        window.closeWhatsNew = function() {
+            localStorage.setItem('astu_ece_version', "v3.4");
+            document.getElementById('whatsNewModal').style.display = 'none';
+        };
+        setTimeout(checkWhatsNew, 500);
+
+        (async function bootstrap() {
+            await loadCurriculum();
+            addCGPARow(); addCGPARow();
+            for (let i = 0; i < 5; i++) addCourseRow();
+            msInit();
+            await Promise.all([
+                loadSubscriptions(),
+                fetchExams(),
+                loadFavorites(),
+                loadDashboardWidgets(),
+                loadLeaderboard()
+            ]);
+        })();
+
+        setTimeout(() => {
+            if (document.getElementById('courseRows').children.length === 0) { for (let i = 0; i < 5; i++) addCourseRow(); }
+            if (document.getElementById('cgpaRows').children.length === 0) { addCGPARow(); addCGPARow(); }
+        }, 1500);
+
+    })();
+    </script>
+    <style>
+        body { max-width: 960px; margin-inline: auto; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+        :focus-visible { outline: 3px solid var(--btn-color); outline-offset: 4px; }
+        .portal-welcome { position: relative; overflow: hidden; padding: 24px; margin-bottom: 18px; border-radius: 24px; background: var(--sec-bg); border: 1px solid var(--hint-color); box-shadow: var(--shadow-soft); }
+        .portal-welcome h1 { font-size: clamp(22px, 5vw, 32px); margin: 0 0 8px; }
+        .portal-welcome p { line-height: 1.6; margin: 0 0 16px; max-width: 48ch; }
+        .portal-welcome button { width: auto; min-height: 44px; cursor: pointer; }
+        .portal-scene { float: right; width: 96px; height: 110px; display: grid; place-items: center; perspective: 500px; }
+        .portal-book { width: 64px; height: 80px; display: grid; place-items: center; border-radius: 5px 14px 14px 5px; border-left: 8px solid var(--text-color); background: var(--btn-color); color: var(--btn-text); box-shadow: 6px 6px 0 var(--bg-color), 10px 12px 18px rgba(0,0,0,.18); font-size: 32px; }
+        .portal-effects .portal-book { animation: portal-float 6s ease-in-out infinite; }
+        @keyframes portal-float { 0%, 100% { transform: rotateY(-22deg) rotateZ(-6deg); } 50% { transform: translateY(-8px) rotateY(22deg) rotateZ(3deg); } }
+        .portal-tools { margin-bottom: 18px; }
+        .portal-search-row { display: flex; gap: 8px; }
+        .portal-search-row input { min-width: 0; }
+        .portal-search-row button { width: auto; cursor: pointer; }
+        .portal-search-status { font-size: 13px; margin: 8px 0; }
+        .menu-card[hidden] { display: none !important; }
+        .portal-connection { border: 1px solid var(--hint-color); background: var(--sec-bg); border-radius: 12px; padding: 12px; margin-bottom: 16px; }
+        .portal-back-top { display: block; width: auto; margin: 20px auto; cursor: pointer; }
+        .nav-menu-btn, .fav-btn, .dl-btn { min-height: 44px; }
+        .top-navbar { flex-wrap: wrap; gap: 12px; }
+        @media (min-width: 700px) { .menu-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+            .portal-effects .menu-card:hover { transform: perspective(700px) translateY(-3px) rotateX(3deg); box-shadow: 0 14px 26px rgba(0,0,0,.13); }
+        }
+        body:not(.portal-effects) .portal-book { animation: none; transform: none; }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+        }
+    </style>
+    <section id="portalWelcome" class="portal-welcome" aria-labelledby="portalWelcomeTitle">
+        <div class="portal-scene" aria-hidden="true"><div class="portal-book">✦</div></div>
+        <h1 id="portalWelcomeTitle">Your study space</h1>
+        <p>Find course materials, save favorites, and plan your next semester. Choose a tool below to get started.</p>
+        <button id="portalEffects" type="button" aria-pressed="false">3D effects: off</button>
+    </section>
+    <div id="portalTools" class="portal-tools">
+        <label for="portalMenuSearch">Find a tool</label>
+        <div class="portal-search-row">
+            <input id="portalMenuSearch" type="search" placeholder="Try materials, GPA, or favorites" autocomplete="off" aria-controls="portalMenuGrid">
+            <button id="portalClearSearch" type="button">Clear</button>
+        </div>
+        <p id="portalSearchStatus" class="portal-search-status" role="status" aria-live="polite"></p>
+    </div>
+    <div id="portalConnection" class="portal-connection" role="status" hidden>You're offline. Reconnect to load resources or save changes. Keep this page open to preserve your current work.</div>
+    <button id="portalBackTop" class="portal-back-top" type="button">Back to top ↑</button>
+    <script>
+    (function enhancePortal() {
+        'use strict';
+        const hub = document.getElementById('menuHubSection');
+        const grid = hub && hub.querySelector('.menu-grid');
+        if (!grid) return;
+        grid.id = 'portalMenuGrid';
+        hub.prepend(document.getElementById('portalWelcome'));
+        grid.before(document.getElementById('portalTools'));
+        document.querySelector('.top-navbar').after(document.getElementById('portalConnection'));
+
+        document.querySelector('meta[name="viewport"]').content = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
+        const effectsButton = document.getElementById('portalEffects');
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let effectsPreference = true;
+        try { effectsPreference = localStorage.getItem('astu_portal_effects') !== 'off'; } catch (_) {}
+        function updateEffects() {
+            const enabled = effectsPreference && !reducedMotion.matches;
+            document.body.classList.toggle('portal-effects', enabled);
+            effectsButton.setAttribute('aria-pressed', String(enabled));
+            effectsButton.textContent = reducedMotion.matches ? '3D effects: reduced motion enabled' : '3D effects: ' + (enabled ? 'on' : 'off');
+            effectsButton.disabled = reducedMotion.matches;
+        }
+        effectsButton.addEventListener('click', function () {
+            effectsPreference = !effectsPreference;
+            try { localStorage.setItem('astu_portal_effects', effectsPreference ? 'on' : 'off'); } catch (_) {}
+            updateEffects();
+        });
+        if (reducedMotion.addEventListener) reducedMotion.addEventListener('change', updateEffects);
+        else if (reducedMotion.addListener) reducedMotion.addListener(updateEffects);
+        updateEffects();
+        document.addEventListener('visibilitychange', function () {
+            const pb = document.querySelector('.portal-book');
+            if (pb) pb.style.animationPlayState = document.hidden ? 'paused' : 'running';
+        });
+
+        const cards = Array.from(grid.querySelectorAll('.menu-card'));
+        cards.forEach(function (card) {
+            card.setAttribute('role', 'button');
+            card.tabIndex = 0;
+            const label = card.querySelector('.menu-label');
+            if (label) card.setAttribute('aria-label', label.textContent.trim());
+            card.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); card.click(); }
+            });
+        });
+        const search = document.getElementById('portalMenuSearch');
+        const status = document.getElementById('portalSearchStatus');
+        function filterTools() {
+            const words = search.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+            let count = 0;
+            cards.forEach(function (card) {
+                const available = !card.classList.contains('admin-only') || card.style.display === 'block';
+                const text = card.textContent.toLocaleLowerCase();
+                const matches = words.every(function (word) { return text.includes(word); });
+                card.hidden = !available || !matches;
+                if (!card.hidden) count++;
+            });
+            status.textContent = !count ? 'No tools match. Try another word or clear the search.' : words.length ? count + (count === 1 ? ' tool found.' : ' tools found.') : '';
+        }
+        search.addEventListener('input', filterTools);
+        document.getElementById('portalClearSearch').addEventListener('click', function () {
+            search.value = ''; filterTools(); search.focus();
+        });
+        search.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') { search.value = ''; filterTools(); }
+        });
+        filterTools();
+
+        const connection = document.getElementById('portalConnection');
+        function updateConnection() { connection.hidden = navigator.onLine; }
+        window.addEventListener('online', updateConnection);
+        window.addEventListener('offline', updateConnection);
+        updateConnection();
+        document.getElementById('portalBackTop').addEventListener('click', function () {
+            window.scrollTo({ top: 0, behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+            const nav = document.querySelector('.nav-menu-btn');
+            if (nav) nav.focus({ preventScroll: true });
+        });
+        const newsButton = document.querySelector('.nav-menu-btn[onclick="switchSection(\'news\')"]');
+        if (newsButton) newsButton.setAttribute('aria-label', 'Open announcements');
+    })();
+    </script>
+</body>
+</html>
