@@ -2845,7 +2845,7 @@ def api_ask_ai():
                 payload = {
                     "model": provider["model"],
                     "messages": [
-                        {"role": "system", "content": "You are a helpful AI study assistant for engineering students at ASTU (Adama Science and Technology University). Provide clear, concise, and educational answers."},
+                        {"role": "system", "content": "You are a helpful AI study assistant for engineering students at ASTU (Adama Science and Technology University). Provide clear, concise, and educational answers. Use Markdown for formatting. IMPORTANT: For mathematical formulas, always use standard LaTeX with $...$ for inline math and $$...$$ for display math. Do NOT use [ ... ] or ( ... ) for math."},
                         {"role": "user", "content": prompt}
                     ],
                     "max_tokens": 1024
@@ -2861,7 +2861,9 @@ def api_ask_ai():
                 headers = {"Content-Type": "application/json"}
                 payload = {
                     "contents": [{"parts": [{"text": prompt}]}],
-                    "systemInstruction": {"parts": [{"text": "You are a helpful AI study assistant for engineering students at ASTU."}]}
+                    "systemInstruction": {
+                        "parts": [{"text": "You are a helpful AI study assistant for engineering students at ASTU (Adama Science and Technology University). Provide clear, concise, and educational answers. Use Markdown for formatting. IMPORTANT: For mathematical formulas, always use standard LaTeX with $...$ for inline math and $$...$$ for display math. Do NOT use [ ... ] or ( ... ) for math."}]
+                    }
                 }
                 resp = requests.post(url, headers=headers, json=payload, timeout=30)
                 resp.raise_for_status()
