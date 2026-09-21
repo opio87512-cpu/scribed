@@ -55,8 +55,15 @@ WEBAPP_URL = os.environ.get(
     "WEBAPP_URL", "https://opio87512-cpu.github.io/scribed/"
 )
 
-# --- NEW: Google Gemini API Key for AI Study Buddy ---
+# --- AI Provider API Keys ---
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")
+NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY")
+# Jina and Voyage are for embeddings/RAG, not chat completion.
+# Cloudflare requires an Account ID, so it's skipped for this chat fallback.
 
 # ==========================================================================
 #  LOGGING
@@ -2760,63 +2767,126 @@ def handle_request_resource():
 
 
 # ==========================================================================
-#  NEW: AI STUDY BUDDY ENDPOINT
+#  AI STUDY BUDDY ENDPOINT (MULTI-PROVIDER FALLBACK)
 # ==========================================================================
+AI_PROVIDERS = [
+    {
+        "name": "Groq",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "key": GROQ_API_KEY,
+        "model": "llama-3.3-70b-versatile",
+        "type": "openai"
+    },
+    {
+        "name": "Cerebras",
+        "url": "https://api.cerebras.ai/v1/chat/completions",
+        "key": CEREBRAS_API_KEY,
+        "model": "llama-3.3-70b",
+        "type": "openai"
+    },
+    {
+        "name": "OpenRouter",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "key": OPENROUTER_API_KEY,
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "type": "openai"
+    },
+    {
+        "name": "Mistral",
+        "url": "https://api.mistral.ai/v1/chat/completions",
+        "key": MISTRAL_API_KEY,
+        "model": "open-mistral-7b",
+        "type": "openai"
+    },
+    {
+        "name": "NVIDIA",
+        "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "key": NVIDIA_API_KEY,
+        "model": "meta/llama-3.1-8b-instruct",
+        "type": "openai"
+    },
+    {
+        "name": "Google Gemini",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models",
+        "key": GOOGLE_API_KEY,
+        "model": "gemini-3.6-flash",
+        "type": "gemini"
+    },
+]
+# Filter out providers that don't have a key set
+AI_PROVIDERS = [p for p in AI_PROVIDERS if p.get("key")]
+
+
 @app.route('/api/ask_ai', methods=['POST'])
 def api_ask_ai():
-    # 1. Verify the user is a legitimate Telegram user
     user = get_auth_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
     body = request.get_json(silent=True) or {}
     prompt = (body.get("prompt") or "").strip()
-    
     if not prompt:
         return jsonify({"error": "Prompt is required"}), 400
-
-    if not GOOGLE_API_KEY:
-        return jsonify({"error": "AI service is not configured. Missing GOOGLE_API_KEY."}), 500
-
-    # Limit prompt length to avoid abuse and excessive token usage
     if len(prompt) > 4000:
         prompt = prompt[:4000]
 
-    # 2. Call the Gemini API (Free Tier model)
-    # FIXED: Changed model from gemini-2.5-flash to gemini-3.6-flash
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }],
-        "systemInstruction": {
-            "parts": [{"text": "You are a helpful AI study assistant for engineering students at ASTU (Adama Science and Technology University). Provide clear, concise, and educational answers. If asked about a specific course, provide relevant academic help."}]
-        }
-    }
+    if not AI_PROVIDERS:
+        return jsonify({"error": "No AI providers are configured."}), 500
 
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        # 3. Extract the text from Gemini's response
-        candidates = data.get("candidates", [])
-        if candidates:
-            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        else:
-            text = "I couldn't generate a response. Please try again."
-            
-        return jsonify({"response": text}), 200
+    last_error = "Unknown error"
 
-    except requests.exceptions.HTTPError as e:
-        if response.status_code == 429:
-            return jsonify({"error": "I'm thinking a lot right now. Please try again in a moment."}), 429
-        log.error(f"Gemini API error: {e} - {response.text}")
-        return jsonify({"error": "Failed to get AI response"}), 500
-    except Exception as e:
-        log.error(f"AI request failed: {e}")
-        return jsonify({"error": "Internal server error"}), 500
+    for provider in AI_PROVIDERS:
+        try:
+            if provider["type"] == "openai":
+                headers = {
+                    "Authorization": f"Bearer {provider['key']}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": provider["model"],
+                    "messages": [
+                        {"role": "system", "content": "You are a helpful AI study assistant for engineering students at ASTU (Adama Science and Technology University). Provide clear, concise, and educational answers."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "max_tokens": 1024
+                }
+                resp = requests.post(provider["url"], headers=headers, json=payload, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                text = data["choices"][0]["message"]["content"]
+                return jsonify({"response": text, "provider": provider["name"]}), 200
+
+            elif provider["type"] == "gemini":
+                url = f"{provider['url']}/{provider['model']}:generateContent?key={provider['key']}"
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "systemInstruction": {"parts": [{"text": "You are a helpful AI study assistant for engineering students at ASTU."}]}
+                }
+                resp = requests.post(url, headers=headers, json=payload, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    return jsonify({"response": text, "provider": provider["name"]}), 200
+                last_error = "Empty response from Gemini"
+                continue
+
+        except requests.exceptions.HTTPError as e:
+            if resp.status_code == 429:
+                log.warning(f"{provider['name']} rate-limited. Trying next provider.")
+                last_error = f"{provider['name']} rate-limited"
+                continue
+            log.error(f"{provider['name']} HTTP error: {e} - {resp.text[:200]}")
+            last_error = f"{provider['name']} failed"
+            continue
+        except Exception as e:
+            log.error(f"{provider['name']} failed: {e}")
+            last_error = str(e)
+            continue
+
+    return jsonify({"error": f"All AI providers failed. Last error: {last_error}"}), 500
 
 
 # ==========================================================================
