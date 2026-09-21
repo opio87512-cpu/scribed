@@ -55,6 +55,9 @@ WEBAPP_URL = os.environ.get(
     "WEBAPP_URL", "https://opio87512-cpu.github.io/scribed/"
 )
 
+# --- NEW: Google Gemini API Key for AI Study Buddy ---
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+
 # ==========================================================================
 #  LOGGING
 # ==========================================================================
@@ -2754,6 +2757,65 @@ def handle_request_resource():
         except Exception:
             pass
     return jsonify({"status": "success"}), 200
+
+
+# ==========================================================================
+#  NEW: AI STUDY BUDDY ENDPOINT
+# ==========================================================================
+@app.route('/api/ask_ai', methods=['POST'])
+def api_ask_ai():
+    # 1. Verify the user is a legitimate Telegram user
+    user = get_auth_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    body = request.get_json(silent=True) or {}
+    prompt = (body.get("prompt") or "").strip()
+    
+    if not prompt:
+        return jsonify({"error": "Prompt is required"}), 400
+
+    if not GOOGLE_API_KEY:
+        return jsonify({"error": "AI service is not configured. Missing GOOGLE_API_KEY."}), 500
+
+    # Limit prompt length to avoid abuse and excessive token usage
+    if len(prompt) > 4000:
+        prompt = prompt[:4000]
+
+    # 2. Call the Gemini API (Free Tier model)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }],
+        "systemInstruction": {
+            "parts": [{"text": "You are a helpful AI study assistant for engineering students at ASTU (Adama Science and Technology University). Provide clear, concise, and educational answers. If asked about a specific course, provide relevant academic help."}]
+        }
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        # 3. Extract the text from Gemini's response
+        candidates = data.get("candidates", [])
+        if candidates:
+            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        else:
+            text = "I couldn't generate a response. Please try again."
+            
+        return jsonify({"response": text}), 200
+
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 429:
+            return jsonify({"error": "I'm thinking a lot right now. Please try again in a moment."}), 429
+        log.error(f"Gemini API error: {e} - {response.text}")
+        return jsonify({"error": "Failed to get AI response"}), 500
+    except Exception as e:
+        log.error(f"AI request failed: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # ==========================================================================
