@@ -196,5 +196,16 @@
         "last_active": "2026-09-21T15:42:55",
         "active": true,
         "source": "webapp"
+    },
+    "6557456365": {
+        "user_id": "6557456365",
+        "username": "Lil_balian",
+        "first_name": "\u0142\u00ee\u0142 \u0253\u00e2\u0142\u00ee\u00e2\u014b",
+        "last_name": "",
+        "full_name": "\u0142\u00ee\u0142 \u0253\u00e2\u0142\u00ee\u00e2\u014b",
+        "joined_at": "2026-09-21T16:14:00",
+        "last_active": "2026-09-21T16:14:00",
+        "active": true,
+        "source": "bot"
     }
 }
