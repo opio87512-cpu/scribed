@@ -11,6 +11,14 @@
     <!-- PDF.js Library added here -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- NEW: KaTeX for Math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <!-- NEW: Marked for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
     <style>
         :root {
             /* --- DARK THEME OVERRIDES FOR BACKGROUND --- */
@@ -428,6 +436,19 @@
         #aiSection { display: flex; flex-direction: column; height: calc(100vh - 150px); }
         #aiChatContainer::-webkit-scrollbar { width: 6px; }
         #aiChatContainer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        
+        /* NEW: Markdown & Math formatting inside AI chat */
+        .ai-chat-content { width: 100%; word-wrap: break-word; overflow-wrap: anywhere; }
+        .ai-chat-content p { margin: 0 0 10px 0; }
+        .ai-chat-content p:last-child { margin-bottom: 0; }
+        .ai-chat-content ul, .ai-chat-content ol { margin: 0 0 10px 20px; padding: 0; }
+        .ai-chat-content li { margin-bottom: 4px; }
+        .ai-chat-content code { background: rgba(0,0,0,0.3); padding: 2px 5px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+        .ai-chat-content pre { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; overflow-x: auto; margin-bottom: 10px; }
+        .ai-chat-content pre code { background: none; padding: 0; }
+        .ai-chat-content h1, .ai-chat-content h2, .ai-chat-content h3, .ai-chat-content h4 { margin: 10px 0 5px 0; font-size: 16px; font-weight: 700; }
+        .ai-chat-content hr { border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 10px 0; }
+        .ai-chat-content blockquote { border-left: 3px solid var(--btn-color); margin: 0 0 10px 0; padding-left: 10px; color: var(--hint-color); }
     </style>
 </head>
 <body>
@@ -1778,9 +1799,31 @@
                 
                 // 4. Display AI response
                 const aiMsg = document.createElement('div');
-                aiMsg.style.cssText = 'align-self: flex-start; background: var(--sec-bg); color: var(--text-color); padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px; word-break: break-word; line-height: 1.5; white-space: pre-wrap;';
-                aiMsg.textContent = data.response || "Sorry, I couldn't get a response.";
+                aiMsg.style.cssText = 'align-self: flex-start; background: var(--sec-bg); color: var(--text-color); padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px; line-height: 1.5;';
+                aiMsg.className = 'ai-chat-content'; // NEW: Added class for styling
+
+                // NEW: Parse Markdown to HTML
+                if (typeof marked !== 'undefined') {
+                    aiMsg.innerHTML = marked.parse(data.response || "Sorry, I couldn't get a response.");
+                } else {
+                    aiMsg.textContent = data.response || "Sorry, I couldn't get a response.";
+                }
+
                 container.appendChild(aiMsg);
+
+                // NEW: Render LaTeX math inside the AI message
+                if (typeof renderMathInElement !== 'undefined') {
+                    renderMathInElement(aiMsg, {
+                        delimiters: [
+                            {left: '$$', right: '$$', display: true},
+                            {left: '$', right: '$', display: false},
+                            {left: '\\(', right: '\\)', display: false},
+                            {left: '\\[', right: '\\]', display: true}
+                        ],
+                        throwOnError: false
+                    });
+                }
+
             } catch (err) {
                 container.removeChild(loadingMsg);
                 const errorMsg = document.createElement('div');
