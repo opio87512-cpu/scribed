@@ -423,6 +423,11 @@
         .pdf-text ::selection { background: rgba(0, 122, 255, 0.35); }
         #pdf-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #b0b0b0; font-size: 14px; pointer-events: none; }
         #pdf-status:empty { display: none; }
+
+        /* ============ AI CHAT STYLES ============ */
+        #aiSection { display: flex; flex-direction: column; height: calc(100vh - 150px); }
+        #aiChatContainer::-webkit-scrollbar { width: 6px; }
+        #aiChatContainer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
     </style>
 </head>
 <body>
@@ -440,6 +445,7 @@
                 <li><b>🔥 Popular Files:</b> See what your classmates are opening.</li>
                 <li><b>🙋 Request a Resource:</b> Tell the admins what's missing.</li>
                 <li><b>🔔 News Bell:</b> All official announcements, always available.</li>
+                <li><b>🤖 AI Study Buddy:</b> Ask any academic question and get instant help!</li>
             </ul>
             <button class="action-btn" onclick="closeWhatsNew()"><i class="fa-solid fa-check"></i> Got it, thanks!</button>
         </div>
@@ -474,6 +480,12 @@
                 <i class="fa-solid fa-book menu-icon"></i>
                 <div class="menu-label">Find Materials</div>
                 <div class="menu-sub">Notes, exams, assignments</div>
+            </div>
+            <!-- NEW: AI STUDY BUDDY CARD -->
+            <div class="menu-card" onclick="switchSection('ai')">
+                <i class="fa-solid fa-robot menu-icon"></i>
+                <div class="menu-label">AI Study Buddy</div>
+                <div class="menu-sub">Ask questions, get help</div>
             </div>
             <div class="menu-card" onclick="switchSection('upload')">
                 <i class="fa-solid fa-cloud-arrow-up menu-icon"></i>
@@ -630,6 +642,23 @@
         </div>
     </div>
 
+    <!-- NEW: AI STUDY BUDDY -->
+    <div id="aiSection" class="section card-container" style="display: flex; flex-direction: column; height: calc(100vh - 150px);">
+        <h3 style="margin-top:0; text-align:center;"><i class="fa-solid fa-robot" style="color:var(--btn-color)"></i> AI Study Buddy</h3>
+        <p style="font-size:12px; color:var(--hint-color); text-align:center; margin-top:-6px;">Ask any academic question. Powered by Gemini.</p>
+        
+        <div id="aiChatContainer" style="flex: 1; overflow-y: auto; padding: 10px; margin-bottom: 10px; border-radius: 12px; background: var(--bg-color); border: 1px solid rgba(142, 142, 147, 0.3); display: flex; flex-direction: column; gap: 10px;">
+            <div style="text-align: center; color: var(--hint-color); font-size: 13px; margin-top: auto; margin-bottom: auto;">
+                👋 Hello! I'm your AI study assistant.<br>Ask me anything about your courses.
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 8px;">
+            <input type="text" id="aiInput" placeholder="Ask a question..." style="flex: 1; border-radius: 20px; padding: 12px 16px;" onkeypress="if(event.key === 'Enter') sendAiMessage()">
+            <button type="button" id="aiSendBtn" class="action-btn" style="width: auto; padding: 0 20px; border-radius: 20px;" onclick="sendAiMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+
     <!-- GAME: GOOGLE-STYLE MINESWEEPER -->
     <div id="gameSection" class="section">
         <div class="ms-app">
@@ -743,6 +772,13 @@
             <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
                 The <b>bell icon</b> at the top shows all official announcements from the admins — old ones stay there forever, and a red badge tells you how many are unread. Tap any announcement to open the full post on Telegram.<br><br>
                 To get a <b>direct message</b> whenever new files or videos are added to a course, open that course's filter and tap <b>Notify Me of New Files</b>. You'll get a private DM from the bot the moment something new appears — no need to check the app manually.
+            </div>
+        </details>
+
+        <details class="filter-accordion" style="margin-bottom:10px;">
+            <summary><i class="fa-solid fa-robot" style="margin-right:6px; color:var(--btn-color)"></i> AI Study Buddy <i class="fa-solid fa-chevron-down"></i></summary>
+            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
+                Open <b>AI Study Buddy</b> from the Menu to ask questions about your courses. It uses Google's Gemini AI to provide clear, concise answers. You can ask it to explain concepts, solve practice problems, or summarize topics. It's like having a tutor in your pocket!
             </div>
         </details>
 
@@ -1348,7 +1384,8 @@
             'adminNews': '<i class="fa-solid fa-shield-halved" style="color:#d32f2f"></i> Admin Portal',
             'news': '<i class="fa-solid fa-bell" style="color:var(--btn-color)"></i> Announcements',
             'requests': '<i class="fa-solid fa-hand-holding-heart" style="color:var(--btn-color)"></i> Request a Resource',
-            'leaderboard': '<i class="fa-solid fa-ranking-star" style="color:var(--btn-color)"></i> Popular Files'
+            'leaderboard': '<i class="fa-solid fa-ranking-star" style="color:var(--btn-color)"></i> Popular Files',
+            'ai': '<i class="fa-solid fa-robot" style="color:var(--btn-color)"></i> AI Study Buddy'
         };
 
         window.openMenuHub = function() {
@@ -1376,6 +1413,7 @@
             else if (sec === 'news') { document.getElementById('newsSection').classList.add('active'); renderNewsList(); markNewsSeen(); }
             else if (sec === 'requests') { document.getElementById('requestsSection').classList.add('active'); }
             else if (sec === 'leaderboard') { document.getElementById('leaderboardSection').classList.add('active'); loadLeaderboard(); }
+            else if (sec === 'ai') document.getElementById('aiSection').classList.add('active');
 
             document.getElementById('navTitle').innerHTML = sectionTitles[sec] || sectionTitles['menu'];
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1703,6 +1741,56 @@
                     + '<span class="material-type" style="text-transform:none;">' + esc(subline) + '</span></div></div>';
             }).join('');
         }
+
+        // ==================== NEW: AI STUDY BUDDY LOGIC ====================
+        window.sendAiMessage = async function() {
+            const input = document.getElementById('aiInput');
+            const prompt = input.value.trim();
+            if (!prompt) return;
+            
+            input.value = '';
+            const container = document.getElementById('aiChatContainer');
+            
+            // 1. Add user message to UI
+            const userMsg = document.createElement('div');
+            userMsg.style.cssText = 'align-self: flex-end; background: var(--btn-color); color: var(--btn-text); padding: 10px 14px; border-radius: 16px 16px 4px 16px; max-width: 85%; font-size: 14px; word-break: break-word;';
+            userMsg.textContent = prompt;
+            container.appendChild(userMsg);
+            container.scrollTop = container.scrollHeight;
+            
+            // 2. Add loading indicator
+            const loadingMsg = document.createElement('div');
+            loadingMsg.style.cssText = 'align-self: flex-start; background: var(--sec-bg); color: var(--hint-color); padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px; display: flex; align-items: center; gap: 6px;';
+            loadingMsg.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Thinking...';
+            container.appendChild(loadingMsg);
+            container.scrollTop = container.scrollHeight;
+            
+            try {
+                // 3. Call your backend
+                const res = await api('/api/ask_ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+                const data = await res.json();
+                
+                container.removeChild(loadingMsg);
+                
+                // 4. Display AI response
+                const aiMsg = document.createElement('div');
+                aiMsg.style.cssText = 'align-self: flex-start; background: var(--sec-bg); color: var(--text-color); padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px; word-break: break-word; line-height: 1.5; white-space: pre-wrap;';
+                aiMsg.textContent = data.response || "Sorry, I couldn't get a response.";
+                container.appendChild(aiMsg);
+            } catch (err) {
+                container.removeChild(loadingMsg);
+                const errorMsg = document.createElement('div');
+                errorMsg.style.cssText = 'align-self: flex-start; background: #ffebee; color: #c62828; padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px;';
+                errorMsg.textContent = "⚠️ " + (err.message || "Failed to reach AI. Please try again.");
+                container.appendChild(errorMsg);
+            }
+            container.scrollTop = container.scrollHeight;
+        };
+        // ===================================================================
 
         // ==================== MINESWEEPER (Google-style) ====================
         const MS_DIFFICULTIES = {
@@ -2831,12 +2919,12 @@
         document.getElementById('lbSearch').addEventListener('input', debounce(() => renderLeaderboard()));
 
         function checkWhatsNew() {
-            const currentVersion = "v3.4";
+            const currentVersion = "v3.5";
             const userVersion = localStorage.getItem('astu_ece_version');
             if (userVersion !== currentVersion) document.getElementById('whatsNewModal').style.display = 'flex';
         }
         window.closeWhatsNew = function() {
-            localStorage.setItem('astu_ece_version', "v3.4");
+            localStorage.setItem('astu_ece_version', "v3.5");
             document.getElementById('whatsNewModal').style.display = 'none';
         };
         setTimeout(checkWhatsNew, 500);
