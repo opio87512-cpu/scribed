@@ -13,22 +13,21 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <!-- NEW: KaTeX for Math rendering -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
     <!-- NEW: Marked for Markdown parsing -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
 
     <style>
         :root {
-            /* --- DARK THEME OVERRIDES FOR BACKGROUND --- */
-            --bg-color: transparent; /* Transparent so the Liverpool image shows through */
+            --bg-color: transparent;
             --text-color: #ffffff;
             --hint-color: #b0b0b0;
             --link-color: #3b82f6;
             --btn-color: var(--tg-theme-button-color, #007aff);
             --btn-text: var(--tg-theme-button-text-color, #ffffff);
-            --sec-bg: rgba(20, 20, 20, 0.88); /* Dark translucent cards */
+            --sec-bg: rgba(20, 20, 20, 0.88);
             --shadow-soft: 0 1px 0 rgba(255,255,255,0.05) inset,
                            0 8px 22px rgba(0,0,0,0.5),
                            0 2px 5px rgba(0,0,0,0.3);
@@ -1514,9 +1513,7 @@
                 html += '<div style="margin-bottom:15px; font-weight:600; color:var(--text-color); font-size:16px; word-break: break-word; overflow-wrap: anywhere;">📁 ' + esc(folderName) + ' <span style="color:var(--hint-color); font-weight:normal; font-size:13px;">(' + items.length + ' files)</span></div>';
                 
                 items.forEach(item => {
-                    // NOTE: Uses the direct_pdf_url injected by the backend
                     const pdfUrl = item.direct_pdf_url || '#';
-                    
                     const favId = 'mat_' + item.course + '_' + item.type + '_' + item.originalIdx;
                     const isStarred = isFav(favId);
                     const starClass = isStarred ? "fa-solid fa-star" : "fa-regular fa-star unstarred";
@@ -1764,6 +1761,38 @@
         }
 
         // ==================== NEW: AI STUDY BUDDY LOGIC ====================
+        window.formatAIResponse = function(text) {
+            if (!text) return "";
+            
+            // 1. Preprocess AI's non-standard math delimiters
+            // Convert \[ ... \] to $$ ... $$
+            let processed = text.replace(/\\\[/g, '$$$$').replace(/\\\]/g, '$$$$');
+            // Convert \( ... \) to $ ... $
+            processed = processed.replace(/\\\(/g, '$$').replace(/\\\)/g, '$$');
+            
+            // Handle AI quirk: [ ... ] -> $$ ... $$ (if contains clear math symbols)
+            processed = processed.replace(/\[\s*([^\]]*?(?:\\int|\\sqrt|\\frac|\\sum|\^|_|\=)[^\]]*?)\s*\]/g, '$$$$1$$');
+            // Handle AI quirk: ( ... ) -> $ ... $ (if contains clear math symbols)
+            processed = processed.replace(/\(\s*([^)]*?(?:\\int|\\sqrt|\\frac|\\sum|\^|_|\=)[^)]*?)\s*\)/g, '$$$1$$');
+            
+            // 2. Extract math blocks to protect them from Marked.js
+            const mathBlocks = [];
+            let tempText = processed.replace(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g, (match) => {
+                mathBlocks.push(match);
+                return `@@MATH_BLOCK_${mathBlocks.length - 1}@@`;
+            });
+            
+            // 3. Parse Markdown
+            let html = typeof marked !== 'undefined' ? marked.parse(tempText) : tempText;
+            
+            // 4. Restore math blocks
+            html = html.replace(/@@MATH_BLOCK_(\d+)@@/g, (match, index) => {
+                return mathBlocks[parseInt(index, 10)];
+            });
+            
+            return html;
+        };
+
         window.sendAiMessage = async function() {
             const input = document.getElementById('aiInput');
             const prompt = input.value.trim();
@@ -1802,12 +1831,7 @@
                 aiMsg.style.cssText = 'align-self: flex-start; background: var(--sec-bg); color: var(--text-color); padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px; line-height: 1.5;';
                 aiMsg.className = 'ai-chat-content'; // NEW: Added class for styling
 
-                // NEW: Parse Markdown to HTML
-                if (typeof marked !== 'undefined') {
-                    aiMsg.innerHTML = marked.parse(data.response || "Sorry, I couldn't get a response.");
-                } else {
-                    aiMsg.textContent = data.response || "Sorry, I couldn't get a response.";
-                }
+                aiMsg.innerHTML = window.formatAIResponse(data.response);
 
                 container.appendChild(aiMsg);
 
@@ -1816,9 +1840,7 @@
                     renderMathInElement(aiMsg, {
                         delimiters: [
                             {left: '$$', right: '$$', display: true},
-                            {left: '$', right: '$', display: false},
-                            {left: '\\(', right: '\\)', display: false},
-                            {left: '\\[', right: '\\]', display: true}
+                            {left: '$', right: '$', display: false}
                         ],
                         throwOnError: false
                     });
@@ -2962,12 +2984,12 @@
         document.getElementById('lbSearch').addEventListener('input', debounce(() => renderLeaderboard()));
 
         function checkWhatsNew() {
-            const currentVersion = "v3.5";
+            const currentVersion = "v3.6";
             const userVersion = localStorage.getItem('astu_ece_version');
             if (userVersion !== currentVersion) document.getElementById('whatsNewModal').style.display = 'flex';
         }
         window.closeWhatsNew = function() {
-            localStorage.setItem('astu_ece_version', "v3.5");
+            localStorage.setItem('astu_ece_version', "v3.6");
             document.getElementById('whatsNewModal').style.display = 'none';
         };
         setTimeout(checkWhatsNew, 500);
