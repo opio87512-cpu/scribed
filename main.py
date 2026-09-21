@@ -2783,7 +2783,8 @@ def api_ask_ai():
         prompt = prompt[:4000]
 
     # 2. Call the Gemini API (Free Tier model)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
+    # FIXED: Changed model from gemini-2.5-flash to gemini-3.6-flash
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{
