@@ -18,6 +18,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
     <!-- NEW: Marked for Markdown parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+    <!-- NEW: DOMPurify to sanitize AI output before it is put on the page -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.9/purify.min.js"></script>
 
     <style>
         :root {
@@ -430,6 +432,40 @@
         .pdf-text ::selection { background: rgba(0, 122, 255, 0.35); }
         #pdf-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #b0b0b0; font-size: 14px; pointer-events: none; }
         #pdf-status:empty { display: none; }
+
+        /* ============ PER-PDF AI PANEL ============ */
+        .pai-fab { position: absolute; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: auto; height: 44px; padding: 0 18px; border-radius: 22px; border: none; background: var(--btn-color); color: #fff; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.55); cursor: pointer; z-index: 5; }
+        #pdf-ai-panel { flex: 0 0 55%; min-height: 0; display: flex; flex-direction: column; background: #202020; border-top: 1px solid #3a3a3a; color: #fff; }
+        #pdf-ai-panel[hidden], .pai-pane[hidden] { display: none; }
+        .pai-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #2a2a2a; flex-shrink: 0; }
+        .pai-tabs { display: flex; gap: 6px; flex: 1; }
+        .pai-tab { width: auto; height: 34px; padding: 0 14px; border-radius: 17px; border: 1px solid #444; background: transparent; color: #b0b0b0; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .pai-tab.active { background: var(--btn-color); color: #fff; border-color: transparent; }
+        .pai-x { width: 36px; height: 34px; padding: 0; border-radius: 8px; border: none; background: #3a3a3a; color: #fff; cursor: pointer; flex-shrink: 0; }
+        .pai-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .pai-chat { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; -webkit-overflow-scrolling: touch; }
+        .pai-msg { max-width: 90%; padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.5; word-break: break-word; }
+        .pai-msg.user { align-self: flex-end; background: var(--btn-color); color: #fff; border-radius: 16px 16px 4px 16px; }
+        .pai-msg.bot { align-self: flex-start; background: #2f2f2f; border-radius: 16px 16px 16px 4px; }
+        .pai-msg.err { align-self: flex-start; background: #3b1f1f; color: #ff8a80; border-radius: 16px 16px 16px 4px; }
+        .pai-chips { display: flex; gap: 6px; padding: 0 10px 8px; overflow-x: auto; flex-shrink: 0; }
+        .pai-chip { width: auto; flex: none; height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid #444; background: #2a2a2a; color: #fff; font-size: 12px; cursor: pointer; white-space: nowrap; }
+        .pai-input { display: flex; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid #3a3a3a; flex-shrink: 0; }
+        .pai-input input { flex: 1; width: auto; min-width: 0; height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid #444; background: #1a1a1a; color: #fff; font-size: 14px; }
+        .pai-input button { width: 40px; height: 40px; padding: 0; border-radius: 50%; border: none; background: var(--btn-color); color: #fff; cursor: pointer; flex-shrink: 0; }
+        .pai-input button:disabled { opacity: 0.5; }
+        .pai-vids { flex: 1; overflow-y: auto; padding: 10px; -webkit-overflow-scrolling: touch; }
+        .pai-sub { font-size: 12px; font-weight: 700; color: #b0b0b0; text-transform: uppercase; letter-spacing: .04em; margin: 12px 0 8px; }
+        .pai-topics { font-size: 13px; color: #d0d0d0; line-height: 1.5; }
+        .pai-note { font-size: 14px; color: #b0b0b0; padding: 16px 4px; }
+        .pai-note.err { color: #ff8a80; }
+        .pai-vid { display: flex; gap: 10px; padding: 8px; margin-bottom: 8px; border-radius: 12px; background: #2a2a2a; cursor: pointer; align-items: center; }
+        .pai-vid img { width: 120px; height: 68px; object-fit: cover; border-radius: 8px; flex: none; background: #111; }
+        .pai-vt { font-size: 13px; font-weight: 600; line-height: 1.3; }
+        .pai-vc { font-size: 12px; color: #b0b0b0; margin-top: 4px; }
+        .pai-search { display: flex; gap: 10px; align-items: center; padding: 12px; margin-bottom: 8px; border-radius: 12px; background: #2a2a2a; font-size: 14px; cursor: pointer; }
+        .pai-search i { color: #ff3b30; font-size: 18px; }
+        .pai-retry { width: auto; padding: 0 16px; height: 36px; border-radius: 18px; border: none; background: var(--btn-color); color: #fff; font-weight: 600; cursor: pointer; }
 
         /* ============ AI CHAT STYLES ============ */
         #aiSection { display: flex; flex-direction: column; height: calc(100vh - 150px); }
@@ -897,6 +933,32 @@
         <div class="pdf-canvas-wrap" id="pdf-canvas-wrap">
             <div id="pdf-pages"></div>
             <div id="pdf-status"></div>
+        </div>
+        <button type="button" id="pdf-ai-fab" class="pai-fab" style="display:none" onclick="paiToggle(true)"><i class="fa-solid fa-robot"></i> Ask AI</button>
+        <div id="pdf-ai-panel" hidden>
+            <div class="pai-head">
+                <div class="pai-tabs">
+                    <button type="button" id="paiTabAsk" class="pai-tab active" onclick="paiTab('ask')"><i class="fa-solid fa-robot"></i> Ask this PDF</button>
+                    <button type="button" id="paiTabVid" class="pai-tab" onclick="paiTab('vid')"><i class="fa-brands fa-youtube"></i> Videos</button>
+                </div>
+                <button type="button" class="pai-x" onclick="paiToggle(false)" aria-label="Close AI panel"><i class="fa-solid fa-chevron-down"></i></button>
+            </div>
+            <div id="paiAsk" class="pai-pane">
+                <div id="paiChat" class="pai-chat"></div>
+                <div class="pai-chips">
+                    <button type="button" class="pai-chip" onclick="paiAsk('Summarize this document in clear bullet points.')">Summarize</button>
+                    <button type="button" class="pai-chip" onclick="paiAsk('What are the most important concepts and formulas in this document?')">Key points</button>
+                    <button type="button" class="pai-chip" onclick="paiAsk('Explain the main idea of this document in simple words, with a short example.')">Explain simply</button>
+                    <button type="button" class="pai-chip" onclick="paiAsk('Ask me 3 short quiz questions about this document, one at a time. Wait for my answer before the next one.')">Quiz me</button>
+                </div>
+                <div class="pai-input">
+                    <input id="paiInput" type="text" placeholder="Ask about this PDF..." maxlength="800" autocomplete="off" enterkeyhint="send">
+                    <button type="button" id="paiSend" onclick="paiAsk()" aria-label="Send"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+            </div>
+            <div id="paiVid" class="pai-pane" hidden>
+                <div id="paiVidList" class="pai-vids"></div>
+            </div>
         </div>
     </div>
 
@@ -1761,6 +1823,11 @@
         }
 
         // ==================== NEW: AI STUDY BUDDY LOGIC ====================
+        if (typeof DOMPurify !== 'undefined') {
+            DOMPurify.addHook('afterSanitizeAttributes', function(node) {
+                if (node.tagName === 'A') { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
+            });
+        }
         window.formatAIResponse = function(text) {
             if (!text) return "";
             
@@ -1787,10 +1854,12 @@
             
             // 4. Restore math blocks
             html = html.replace(/@@MATH_BLOCK_(\d+)@@/g, (match, index) => {
-                return mathBlocks[parseInt(index, 10)];
+                // escape <, > and & so the sanitizer can't eat math like $x<y$; KaTeX reads the decoded text
+                return mathBlocks[parseInt(index, 10)].replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             });
             
-            return html;
+            if (typeof DOMPurify === 'undefined') return esc(text).replace(/\n/g, '<br>');
+            return DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
         };
 
         window.sendAiMessage = async function() {
@@ -2306,11 +2375,13 @@
                 window.Telegram.WebApp.BackButton.show();
             }
             pv.key = 'astu_pdfpos:' + url;
+            paiSetRef(url);
             loadPdf(finalUrl, own);
         }
 
         window.closePdf = function() {
             pv.searchId++;
+            paiReset();
             if (pv.io) { pv.io.disconnect(); pv.io = null; }
             pv.pages.forEach(pvRelease);
             pv.pages = [];
@@ -2334,6 +2405,173 @@
                 window.Telegram.WebApp.BackButton.hide();
             }
         };
+
+
+        // ==================== PER-PDF AI: ask about this PDF + suggested videos ====================
+        const pai = { ref: null, history: [], busy: false, vidBusy: false, videosFor: null };
+
+        function paiParseRef(url) {
+            const m = /^\/api\/serve_pdf\/([^\/]+)\/([^\/]+)\/(\d+)$/.exec(url || '');
+            if (!m) return null;
+            try { return { course: decodeURIComponent(m[1]), type: decodeURIComponent(m[2]), idx: parseInt(m[3], 10) }; }
+            catch (_) { return null; }
+        }
+
+        function paiSetRef(url) {
+            paiReset();
+            pai.ref = paiParseRef(url);
+            pvEl('pdf-ai-fab').style.display = pai.ref ? 'flex' : 'none';
+        }
+
+        function paiReset() {
+            pai.ref = null; pai.history = []; pai.busy = false; pai.vidBusy = false; pai.videosFor = null;
+            pvEl('pdf-ai-panel').hidden = true;
+            pvEl('pdf-ai-fab').style.display = 'none';
+            pvEl('paiChat').innerHTML = '';
+            pvEl('paiVidList').innerHTML = '';
+            pvEl('paiInput').value = '';
+            pvEl('paiSend').disabled = false;
+            pvEl('paiAsk').hidden = false;
+            pvEl('paiVid').hidden = true;
+            pvEl('paiTabAsk').classList.add('active');
+            pvEl('paiTabVid').classList.remove('active');
+        }
+
+        window.paiToggle = function(force) {
+            if (!pai.ref) return;
+            const panel = pvEl('pdf-ai-panel');
+            const open = typeof force === 'boolean' ? force : panel.hidden;
+            panel.hidden = !open;
+            pvEl('pdf-ai-fab').style.display = open ? 'none' : 'flex';
+            if (open && !pvEl('paiChat').children.length) {
+                paiBubble('bot', 'Ask me anything about **this PDF**, or tap a shortcut below.', true);
+            }
+        };
+
+        window.paiTab = function(which) {
+            const ask = which !== 'vid';
+            pvEl('paiAsk').hidden = !ask;
+            pvEl('paiVid').hidden = ask;
+            pvEl('paiTabAsk').classList.toggle('active', ask);
+            pvEl('paiTabVid').classList.toggle('active', !ask);
+            if (!ask) paiLoadVideos();
+        };
+
+        function paiMath(el) {
+            if (typeof renderMathInElement === 'undefined') return;
+            try {
+                renderMathInElement(el, {
+                    delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }],
+                    throwOnError: false
+                });
+            } catch (_) {}
+        }
+
+        function paiBubble(role, content, md) {
+            const chat = pvEl('paiChat');
+            const d = document.createElement('div');
+            d.className = 'pai-msg ' + role;
+            if (md) { d.classList.add('ai-chat-content'); d.innerHTML = window.formatAIResponse(content); paiMath(d); }
+            else d.textContent = content;
+            chat.appendChild(d);
+            chat.scrollTop = chat.scrollHeight;
+            return d;
+        }
+
+        window.paiAsk = async function(preset) {
+            const ref = pai.ref;
+            const input = pvEl('paiInput');
+            const question = String(typeof preset === 'string' ? preset : input.value).trim();
+            if (!ref || !question || pai.busy) return;
+            input.value = '';
+            pai.busy = true;
+            pvEl('paiSend').disabled = true;
+            paiBubble('user', question, false);
+            const wait = paiBubble('bot', '', false);
+            wait.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Reading the PDF...';
+            try {
+                const res = await api('/api/ask_pdf', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ course: ref.course, type: ref.type, idx: ref.idx, question: question, history: pai.history.slice(-6) })
+                });
+                const data = await res.json();
+                if (pai.ref !== ref) return;
+                wait.classList.add('ai-chat-content');
+                wait.innerHTML = window.formatAIResponse(data.response);
+                paiMath(wait);
+                pai.history.push({ role: 'user', content: question }, { role: 'assistant', content: data.response });
+            } catch (e) {
+                if (pai.ref !== ref) return;
+                wait.className = 'pai-msg err';
+                wait.textContent = '\u26A0\uFE0F ' + (e.message || 'Something went wrong. Please try again.');
+            } finally {
+                if (pai.ref === ref) {
+                    pai.busy = false;
+                    pvEl('paiSend').disabled = false;
+                    const chat = pvEl('paiChat');
+                    chat.scrollTop = chat.scrollHeight;
+                }
+            }
+        };
+
+        function paiRenderVideos(list, data) {
+            const videos = (data && data.videos) || [];
+            const searches = (data && data.searches) || [];
+            const topics = (data && data.topics) || [];
+            let h = '';
+            if (topics.length) h += '<div class="pai-topics"><b>Topics in this PDF:</b> ' + topics.map(esc).join(' \u2022 ') + '</div>';
+            if (videos.length) {
+                h += '<div class="pai-sub">Suggested videos</div>';
+                videos.forEach(function(v) {
+                    h += '<div class="pai-vid" data-url="' + esc(v.url) + '"><img loading="lazy" alt="" src="https://i.ytimg.com/vi/' + esc(v.id) + '/mqdefault.jpg">'
+                        + '<div><div class="pai-vt">' + esc(v.title) + '</div><div class="pai-vc">' + esc(v.channel) + '</div></div></div>';
+                });
+            }
+            if (searches.length) {
+                h += '<div class="pai-sub">' + (videos.length ? 'More on YouTube' : 'Search YouTube for this PDF') + '</div>';
+                searches.forEach(function(q) {
+                    h += '<div class="pai-search" data-url="' + esc(q.url) + '"><i class="fa-brands fa-youtube"></i><span>' + esc(q.query) + '</span></div>';
+                });
+            }
+            list.innerHTML = h || '<div class="pai-note">No suggestions found for this PDF.</div>';
+        }
+
+        async function paiLoadVideos() {
+            const ref = pai.ref;
+            if (!ref || pai.vidBusy) return;
+            const key = ref.course + '/' + ref.type + '/' + ref.idx;
+            if (pai.videosFor === key) return;
+            const list = pvEl('paiVidList');
+            pai.vidBusy = true;
+            list.innerHTML = '<div class="pai-note"><i class="fa-solid fa-circle-notch fa-spin"></i> Finding videos for this PDF...</div>';
+            try {
+                const res = await api('/api/pdf_videos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ course: ref.course, type: ref.type, idx: ref.idx })
+                });
+                const data = await res.json();
+                if (pai.ref !== ref) return;
+                pai.videosFor = key;
+                paiRenderVideos(list, data);
+            } catch (e) {
+                if (pai.ref !== ref) return;
+                list.innerHTML = '<div class="pai-note err">\u26A0\uFE0F ' + esc(e.message || 'Could not load suggestions.') + '</div>'
+                    + '<button type="button" class="pai-retry" onclick="paiTab(\'vid\')">Try again</button>';
+            } finally {
+                if (pai.ref === ref) pai.vidBusy = false;
+            }
+        }
+
+        pvEl('paiVidList').addEventListener('click', function(e) {
+            const el = e.target.closest('[data-url]');
+            const url = el && el.getAttribute('data-url');
+            if (url && /^https:\/\/(www\.youtube\.com|youtu\.be)\//.test(url)) openFileInExternalWindow(url);
+        });
+        pvEl('paiInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); window.paiAsk(); }
+        });
 
         function pvFail(err) {
             const s = err && err.status;
