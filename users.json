@@ -185,5 +185,16 @@
         "last_active": "2026-09-18T15:13:51",
         "active": true,
         "source": "webapp"
+    },
+    "6633086736": {
+        "user_id": "6633086736",
+        "username": "ayantu2025",
+        "first_name": "X\u012bw\u00e0ng",
+        "last_name": "",
+        "full_name": "X\u012bw\u00e0ng",
+        "joined_at": "2026-09-21T15:30:01",
+        "last_active": "2026-09-21T15:30:01",
+        "active": true,
+        "source": "bot"
     }
 }
