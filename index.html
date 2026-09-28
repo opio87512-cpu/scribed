@@ -479,11 +479,7 @@
         .pai-search i { color: #ff3b30; font-size: 18px; }
         .pai-retry { width: auto; padding: 0 16px; height: 36px; border-radius: 18px; border: none; background: var(--btn-color); color: #fff; font-weight: 600; cursor: pointer; }
 
-        /* ============ AI CHAT STYLES ============ */
-        #aiSection { display: flex; flex-direction: column; height: calc(100vh - 150px); }
-        #aiChatContainer::-webkit-scrollbar { width: 6px; }
-        #aiChatContainer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
-        
+        /* ============ AI CONTENT FORMATTING (video reasons) ============ */
         /* NEW: Markdown & Math formatting inside AI chat */
         .ai-chat-content { width: 100%; word-wrap: break-word; overflow-wrap: anywhere; }
         .ai-chat-content p { margin: 0 0 10px 0; }
@@ -513,7 +509,7 @@
                 <li><b>🔥 Popular Files:</b> See what your classmates are opening.</li>
                 <li><b>🙋 Request a Resource:</b> Tell the admins what's missing.</li>
                 <li><b>🔔 News Bell:</b> All official announcements, always available.</li>
-                <li><b>🤖 AI Study Buddy:</b> Ask any academic question and get instant help!</li>
+                <li><b>🎬 PDF Video Finder:</b> Open any PDF and tap "Videos" for matched lectures — chat features removed.</li>
             </ul>
             <button class="action-btn" onclick="closeWhatsNew()"><i class="fa-solid fa-check"></i> Got it, thanks!</button>
         </div>
@@ -548,12 +544,6 @@
                 <i class="fa-solid fa-book menu-icon"></i>
                 <div class="menu-label">Find Materials</div>
                 <div class="menu-sub">Notes, exams, assignments</div>
-            </div>
-            <!-- NEW: AI STUDY BUDDY CARD -->
-            <div class="menu-card" onclick="switchSection('ai')">
-                <i class="fa-solid fa-robot menu-icon"></i>
-                <div class="menu-label">AI Study Buddy</div>
-                <div class="menu-sub">Ask questions, get help</div>
             </div>
             <div class="menu-card" onclick="switchSection('upload')">
                 <i class="fa-solid fa-cloud-arrow-up menu-icon"></i>
@@ -827,13 +817,6 @@
         </details>
 
         <details class="filter-accordion" style="margin-bottom:10px;">
-            <summary><i class="fa-solid fa-robot" style="margin-right:6px; color:var(--btn-color)"></i> AI Study Buddy <i class="fa-solid fa-chevron-down"></i></summary>
-            <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
-                Open <b>AI Study Buddy</b> from the Menu to ask questions about your courses. It uses Google's Gemini AI to provide clear, concise answers. You can ask it to explain concepts, solve practice problems, or summarize topics. It's like having a tutor in your pocket!
-            </div>
-        </details>
-
-        <details class="filter-accordion" style="margin-bottom:10px;">
             <summary><i class="fa-solid fa-bomb" style="margin-right:6px; color:var(--btn-color)"></i> 3D Minesweeper <i class="fa-solid fa-chevron-down"></i></summary>
             <div class="filter-content" style="font-size:13px; color:var(--hint-color); padding-top: 5px; line-height:1.6;">
                 Open <b>Minesweeper</b> from the Menu. Pick your difficulty: <b>Easy</b> (8×8, 10 mines), <b>Medium</b> (16×16, 40 mines), or <b>Hard</b> (30×16, 99 mines).<br><br>
@@ -929,29 +912,15 @@
             <div id="pdf-pages"></div>
             <div id="pdf-status"></div>
         </div>
-        <button type="button" id="pdf-ai-fab" class="pai-fab" style="display:none" onclick="paiToggle(true)"><i class="fa-solid fa-robot"></i> Ask AI</button>
+        <button type="button" id="pdf-ai-fab" class="pai-fab" style="display:none" onclick="paiToggle(true)"><i class="fa-brands fa-youtube"></i> Videos</button>
         <div id="pdf-ai-panel" hidden>
             <div class="pai-head">
                 <div class="pai-tabs">
-                    <button type="button" id="paiTabAsk" class="pai-tab active" onclick="paiTab('ask')"><i class="fa-solid fa-robot"></i> Ask this PDF</button>
-                    <button type="button" id="paiTabVid" class="pai-tab" onclick="paiTab('vid')"><i class="fa-brands fa-youtube"></i> Videos</button>
+                    <button type="button" id="paiTabVid" class="pai-tab active" disabled><i class="fa-brands fa-youtube"></i> Videos for this PDF</button>
                 </div>
-                <button type="button" class="pai-x" onclick="paiToggle(false)" aria-label="Close AI panel"><i class="fa-solid fa-chevron-down"></i></button>
+                <button type="button" class="pai-x" onclick="paiToggle(false)" aria-label="Close videos panel"><i class="fa-solid fa-chevron-down"></i></button>
             </div>
-            <div id="paiAsk" class="pai-pane">
-                <div id="paiChat" class="pai-chat"></div>
-                <div class="pai-chips">
-                    <button type="button" class="pai-chip" onclick="paiAsk('Summarize this document in clear bullet points.')">Summarize</button>
-                    <button type="button" class="pai-chip" onclick="paiAsk('What are the most important concepts and formulas in this document?')">Key points</button>
-                    <button type="button" class="pai-chip" onclick="paiAsk('Explain the main idea of this document in simple words, with a short example.')">Explain simply</button>
-                    <button type="button" class="pai-chip" onclick="paiAsk('Ask me 3 short quiz questions about this document, one at a time. Wait for my answer before the next one.')">Quiz me</button>
-                </div>
-                <div class="pai-input">
-                    <input id="paiInput" type="text" placeholder="Ask about this PDF..." maxlength="800" autocomplete="off" enterkeyhint="send">
-                    <button type="button" id="paiSend" onclick="paiAsk()" aria-label="Send"><i class="fa-solid fa-paper-plane"></i></button>
-                </div>
-            </div>
-            <div id="paiVid" class="pai-pane" hidden>
+            <div id="paiVid" class="pai-pane">
                 <div id="paiVidList" class="pai-vids"></div>
             </div>
         </div>
@@ -1461,8 +1430,7 @@
             'adminNews': '<i class="fa-solid fa-shield-halved" style="color:#d32f2f"></i> Admin Portal',
             'news': '<i class="fa-solid fa-bell" style="color:var(--btn-color)"></i> Announcements',
             'requests': '<i class="fa-solid fa-hand-holding-heart" style="color:var(--btn-color)"></i> Request a Resource',
-            'leaderboard': '<i class="fa-solid fa-ranking-star" style="color:var(--btn-color)"></i> Popular Files',
-            'ai': '<i class="fa-solid fa-robot" style="color:var(--btn-color)"></i> AI Study Buddy'
+            'leaderboard': '<i class="fa-solid fa-ranking-star" style="color:var(--btn-color)"></i> Popular Files'
         };
 
         window.openMenuHub = function() {
@@ -1490,7 +1458,6 @@
             else if (sec === 'news') { document.getElementById('newsSection').classList.add('active'); renderNewsList(); markNewsSeen(); }
             else if (sec === 'requests') { document.getElementById('requestsSection').classList.add('active'); }
             else if (sec === 'leaderboard') { document.getElementById('leaderboardSection').classList.add('active'); loadLeaderboard(); }
-            else if (sec === 'ai') document.getElementById('aiSection').classList.add('active');
 
             document.getElementById('navTitle').innerHTML = sectionTitles[sec] || sectionTitles['menu'];
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1870,61 +1837,7 @@
             });
         };
 
-        window.sendAiMessage = async function() {
-            const input = document.getElementById('aiInput');
-            const prompt = input.value.trim();
-            if (!prompt) return;
-            
-            input.value = '';
-            const container = document.getElementById('aiChatContainer');
-            
-            // 1. Add user message to UI
-            const userMsg = document.createElement('div');
-            userMsg.style.cssText = 'align-self: flex-end; background: var(--btn-color); color: var(--btn-text); padding: 10px 14px; border-radius: 16px 16px 4px 16px; max-width: 85%; font-size: 14px; word-break: break-word;';
-            userMsg.textContent = prompt;
-            container.appendChild(userMsg);
-            container.scrollTop = container.scrollHeight;
-            
-            // 2. Add loading indicator
-            const loadingMsg = document.createElement('div');
-            loadingMsg.style.cssText = 'align-self: flex-start; background: var(--sec-bg); color: var(--hint-color); padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px; display: flex; align-items: center; gap: 6px;';
-            loadingMsg.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Thinking...';
-            container.appendChild(loadingMsg);
-            container.scrollTop = container.scrollHeight;
-            
-            try {
-                // 3. Call your backend
-                const res = await api('/api/ask_ai', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: prompt })
-                });
-                const data = await res.json();
-                
-                container.removeChild(loadingMsg);
-                
-                // 4. Display AI response
-                const aiMsg = document.createElement('div');
-                aiMsg.style.cssText = 'align-self: flex-start; background: var(--sec-bg); color: var(--text-color); padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px; line-height: 1.5;';
-                aiMsg.className = 'ai-chat-content'; // NEW: Added class for styling
-
-                aiMsg.innerHTML = window.formatAIResponse(data.response);
-
-                container.appendChild(aiMsg);
-
-                // NEW: Render LaTeX math inside the AI message
-                window.renderAIMath(aiMsg);
-
-            } catch (err) {
-                container.removeChild(loadingMsg);
-                const errorMsg = document.createElement('div');
-                errorMsg.style.cssText = 'align-self: flex-start; background: #ffebee; color: #c62828; padding: 10px 14px; border-radius: 16px 16px 16px 4px; max-width: 85%; font-size: 14px;';
-                errorMsg.textContent = "⚠️ " + (err.message || "Failed to reach AI. Please try again.");
-                container.appendChild(errorMsg);
-            }
-            container.scrollTop = container.scrollHeight;
-        };
-        // ===================================================================
+        // (AI Study Buddy chat removed — app is video-only)
 
         // ==================== MINESWEEPER (Google-style) ====================
         const MS_DIFFICULTIES = {
@@ -2407,8 +2320,8 @@
         };
 
 
-        // ==================== PER-PDF AI: ask about this PDF + suggested videos ====================
-        const pai = { ref: null, history: [], busy: false, vidBusy: false, videosFor: null };
+        // ==================== PER-PDF VIDEO FINDER (chat removed — videos only) ====================
+        const pai = { ref: null, vidBusy: false, videosFor: null };
 
         function paiParseRef(url) {
             const m = /^\/api\/serve_pdf\/([^\/]+)\/([^\/]+)\/(\d+)$/.exec(url || '');
@@ -2424,17 +2337,10 @@
         }
 
         function paiReset() {
-            pai.ref = null; pai.history = []; pai.busy = false; pai.vidBusy = false; pai.videosFor = null;
+            pai.ref = null; pai.vidBusy = false; pai.videosFor = null;
             pvEl('pdf-ai-panel').hidden = true;
             pvEl('pdf-ai-fab').style.display = 'none';
-            pvEl('paiChat').innerHTML = '';
             pvEl('paiVidList').innerHTML = '';
-            pvEl('paiInput').value = '';
-            pvEl('paiSend').disabled = false;
-            pvEl('paiAsk').hidden = false;
-            pvEl('paiVid').hidden = true;
-            pvEl('paiTabAsk').classList.add('active');
-            pvEl('paiTabVid').classList.remove('active');
         }
 
         window.paiToggle = function(force) {
@@ -2443,68 +2349,7 @@
             const open = typeof force === 'boolean' ? force : panel.hidden;
             panel.hidden = !open;
             pvEl('pdf-ai-fab').style.display = open ? 'none' : 'flex';
-            if (open && !pvEl('paiChat').children.length) {
-                paiBubble('bot', 'Ask me anything about **this PDF**, or tap a shortcut below.', true);
-            }
-        };
-
-        window.paiTab = function(which) {
-            const ask = which !== 'vid';
-            pvEl('paiAsk').hidden = !ask;
-            pvEl('paiVid').hidden = ask;
-            pvEl('paiTabAsk').classList.toggle('active', ask);
-            pvEl('paiTabVid').classList.toggle('active', !ask);
-            if (!ask) paiLoadVideos();
-        };
-
-        function paiMath(el) { window.renderAIMath(el); }
-
-        function paiBubble(role, content, md) {
-            const chat = pvEl('paiChat');
-            const d = document.createElement('div');
-            d.className = 'pai-msg ' + role;
-            if (md) { d.classList.add('ai-chat-content'); d.innerHTML = window.formatAIResponse(content); paiMath(d); }
-            else d.textContent = content;
-            chat.appendChild(d);
-            chat.scrollTop = chat.scrollHeight;
-            return d;
-        }
-
-        window.paiAsk = async function(preset) {
-            const ref = pai.ref;
-            const input = pvEl('paiInput');
-            const question = String(typeof preset === 'string' ? preset : input.value).trim();
-            if (!ref || !question || pai.busy) return;
-            input.value = '';
-            pai.busy = true;
-            pvEl('paiSend').disabled = true;
-            paiBubble('user', question, false);
-            const wait = paiBubble('bot', '', false);
-            wait.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Reading the PDF...';
-            try {
-                const res = await api('/api/ask_pdf', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ course: ref.course, type: ref.type, idx: ref.idx, question: question, history: pai.history.slice(-6) })
-                });
-                const data = await res.json();
-                if (pai.ref !== ref) return;
-                wait.classList.add('ai-chat-content');
-                wait.innerHTML = window.formatAIResponse(data.response);
-                paiMath(wait);
-                pai.history.push({ role: 'user', content: question }, { role: 'assistant', content: data.response });
-            } catch (e) {
-                if (pai.ref !== ref) return;
-                wait.className = 'pai-msg err';
-                wait.textContent = '\u26A0\uFE0F ' + (e.message || 'Something went wrong. Please try again.');
-            } finally {
-                if (pai.ref === ref) {
-                    pai.busy = false;
-                    pvEl('paiSend').disabled = false;
-                    const chat = pvEl('paiChat');
-                    chat.scrollTop = chat.scrollHeight;
-                }
-            }
+            if (open) paiLoadVideos();
         };
 
         function paiRenderVideos(list, data) {
@@ -2535,7 +2380,7 @@
 
             if (items.length) {
                 if (data.overall === 'likely') {
-                    h += '<div class="pai-note">No exact match found. These are the closest videos to this PDF.</div>';
+                    h += '<div class="pai-note">No exact match found. These are the closest verified lectures to this PDF.</div>';
                 }
                 h += '<div class="pai-sub">' + (data.overall === 'likely' ? 'Closest video' : 'Best video for this PDF') + '</div>' + card(items[0], true, data.reason);
                 if (items.length > 1) {
@@ -2546,7 +2391,7 @@
                 const msg = note === 'no_key' ? 'Video finding is not set up yet. The admin needs to add a YouTube API key (or a Google key).'
                     : note === 'quota' ? 'The daily YouTube limit was reached. Please try again tomorrow.'
                     : note === 'key' ? 'The YouTube API key is not working. The admin needs to check it.'
-                    : 'No matching video was found for this PDF yet.';
+                    : 'No matching lecture was found for this PDF. Off-topic results were filtered out.';
                 h += '<div class="pai-note">' + esc(msg) + '</div>';
                 if (searches.length) {
                     h += '<div class="pai-sub">Search YouTube instead</div>';
@@ -2565,7 +2410,7 @@
             if (pai.videosFor === key) return;
             const list = pvEl('paiVidList');
             pai.vidBusy = true;
-            list.innerHTML = '<div class="pai-note"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the PDF and checking videos (up to 30 seconds)...</div>';
+            list.innerHTML = '<div class="pai-note"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the PDF and checking videos (up to 45 seconds)...</div>';
             try {
                 const res = await api('/api/pdf_videos', {
                     method: 'POST',
@@ -2579,7 +2424,7 @@
             } catch (e) {
                 if (pai.ref !== ref) return;
                 list.innerHTML = '<div class="pai-note err">\u26A0\uFE0F ' + esc(e.message || 'Could not load suggestions.') + '</div>'
-                    + '<button type="button" class="pai-retry" onclick="paiTab(\'vid\')">Try again</button>';
+                    + '<button type="button" class="pai-retry" onclick="paiLoadVideos()">Try again</button>';
             } finally {
                 if (pai.ref === ref) pai.vidBusy = false;
             }
@@ -2589,9 +2434,6 @@
             const el = e.target.closest('[data-url]');
             const url = el && el.getAttribute('data-url');
             if (url && /^https:\/\/(www\.youtube\.com|youtu\.be)\//.test(url)) openFileInExternalWindow(url);
-        });
-        pvEl('paiInput').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { e.preventDefault(); window.paiAsk(); }
         });
 
         function pvFail(err) {
