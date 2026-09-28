@@ -2379,10 +2379,7 @@
             }
 
             if (items.length) {
-                if (data.overall === 'likely') {
-                    h += '<div class="pai-note">No exact match found. These are the closest verified lectures to this PDF.</div>';
-                }
-                h += '<div class="pai-sub">' + (data.overall === 'likely' ? 'Closest video' : 'Best video for this PDF') + '</div>' + card(items[0], true, data.reason);
+                h += '<div class="pai-sub">Verified lecture for this PDF</div>' + card(items[0], true, data.reason);
                 if (items.length > 1) {
                     h += '<div class="pai-sub">More to learn from</div>';
                     items.slice(1).forEach(function(v) { h += card(v, false, ''); });
@@ -2391,6 +2388,7 @@
                 const msg = note === 'no_key' ? 'Video finding is not set up yet. The admin needs to add a YouTube API key (or a Google key).'
                     : note === 'quota' ? 'The daily YouTube limit was reached. Please try again tomorrow.'
                     : note === 'key' ? 'The YouTube API key is not working. The admin needs to check it.'
+                    : note === 'strict' ? 'No video scored high enough on the relevancy gate (90%) for this PDF\'s exact topic, so nothing is shown — off-topic and entertainment results are discarded by design.'
                     : 'No matching lecture was found for this PDF. Off-topic results were filtered out.';
                 h += '<div class="pai-note">' + esc(msg) + '</div>';
                 if (searches.length) {
