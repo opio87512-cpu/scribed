@@ -7,6 +7,7 @@ import math
 import base64
 import hmac
 import hashlib
+import unicodedata
 import time
 import threading
 import logging
@@ -3122,7 +3123,7 @@ def _embed_texts(texts):
 #           3) Gemini + Google Search (finds real links, checked one by one)
 #  Every candidate is scored against the PDF's own key terms, then re-ordered by the AI.
 # ==========================================================================
-VIDEO_CACHE_VERSION = 8
+VIDEO_CACHE_VERSION = 9
 VIDEO_BUDGET = int(os.environ.get("VIDEO_BUDGET_SECONDS", "45"))   # max seconds per new PDF
 YT_QUERIES = 3                          # YouTube API searches per PDF (100 quota units each)
 VIDEO_GOOGLE_API_KEY = os.environ.get("VIDEO_GOOGLE_API_KEY") or GOOGLE_API_KEY
@@ -3263,7 +3264,15 @@ def _doc_profile(title, pages):
 
 
 VIDEO_SYSTEM = (
-    "You are a strict academic video retrieval engine for university-level study documents. "
+    "You are a strict academic video retrieval engine AND TEXT SANITIZER for university-level "
+    "Engineering and Mathematics study documents. "
+    "STEP 0 - OCR SANITIZATION: PDF extraction often yields broken math symbols, limits, "
+    "subscripts/superscripts and random Unicode garbage (e.g. '', 'XYXY', 'lim F_XY', "
+    "'thefind conditional correlation lim'). NEVER copy raw math notation, equations, unicode "
+    "symbols or fragmented OCR text into your topics, terms or queries. TRANSLATE every formula "
+    "into its plain-English concept name first (e.g. 'lim F_XY' -> 'Joint Probability Density "
+    "Function'; 'P(A|B)=P(AB)/P(B)' -> 'Bayes theorem'; integral signs -> 'integration'). "
+    "Identify the actual academic concept from the main page headers, not from OCR fragments. "
     "STEP 1 - READ MAIN CONTENT, IGNORE NOISE: use ONLY the actual technical text, chapter "
     "titles, slide headings and formulas inside the document. NEVER use cover-page noise: "
     "university/institution names (e.g. 'University of Gaza'), watermarks, logos, page/slide "
@@ -3273,11 +3282,15 @@ VIDEO_SYSTEM = (
     "(c) CONTEXT: whether it is a university lecture, research paper or textbook ('lecture' | 'paper' | 'textbook'). "
     "Base every topic, term and query ONLY on these - never on generic words like 'towers', 'bells' or 'loading'. "
     "STEP 2 - MANDATORY QUERY FORMULA, every YouTube query = "
-    "[Exact Subject/Topic] + [Core Concept] + [Academic Keyword]. "
-    "Valid academic keywords: lecture, tutorial, course, explained, engineering, university, documentary, theory. "
+    "[Specific Plain English Concept] + [Broad Subject] + [Academic Keyword: lecture/tutorial/course/explained/engineering/university/documentary/theory]. "
+    "Queries MUST be clean natural-language ASCII strings - no math symbols, no subscripts, no garbled word fragments. "
+    "GOOD: 'Joint Probability Density Function statistics lecture'; "
+    "GOOD: 'Multiple Random Variables probability engineering lecture'; "
     "GOOD: 'high voltage transmission lines power systems engineering lecture'; "
     "GOOD: 'electromagnetic field theory lattice tower insulation tutorial'. "
-    "BAD (never emit): 'Tower', 'Lecture', 'Animal Crossing', 'Game'. "
+    "BAD (never emit): 'Tower', 'Lecture', 'lim F_XY', 'thefind conditional correlation', 'Animal Crossing', 'Game'. "
+    "If a highly specific math/engineering topic yields nothing, fall back to the broader chapter topic "
+    "(e.g. search 'Multiple Random Variables probability lecture' instead of failing). "
     "Never invent topics that are not in the document. Never suggest gaming, entertainment, vlog or pop-culture queries. "
     "STEP 1b - FLEXIBLE MATCHING: if the specific topic is too narrow to yield educational videos, also step back "
     "to the underlying theories and broader concepts of the discipline (e.g. a specific proof -> the theorem it applies; "
@@ -3359,23 +3372,71 @@ def _is_off_topic(c):
 
 _MOD_PAT = re.compile(r"\b(?:" + "|".join(EDU_MODIFIERS) + r")\b", re.I)
 
+# Legit short academic abbreviations that survive the >=3-letter junk filter.
+KEEP_SHORT_TOKENS = {"ai", "ml", "dl", "rf", "ic", "ac", "dc", "uv", "px", "cm", "mm",
+                     "kg", "ms", "id", "pc", "ram", "cpu", "gpu", "pdf", "dna", "rna",
+                     "ph", "oh"}
+
+# Common OCR leftovers that carry zero search value on their own.
+STOPWORD_TOKENS = NOISE_WORDS | {"lim", "the", "and", "for", "are", "not", "of", "in",
+                                 "to", "or", "a", "an", "on", "at", "by", "is", "it",
+                                 "as", "be", "we", "so", "if", "xy", "fxy"}
+
+
+def _split_glued(tok):
+    """Un-glue broken-OCR fragments like 'thefind' -> 'the find', 'andor' -> 'and or'.
+
+    Only splits when a tail is a very common English word; real terms
+    ('transmission', 'insulation') are left untouched."""
+    t = tok.lower()
+    for w in ("the", "and", "for", "are", "not", "of", "in", "to"):
+        if t.endswith(w) and len(t) > len(w) + 2:
+            return tok[:len(tok) - len(w)] + " " + w
+    return tok
+
 
 def _edu_query(q, discipline=""):
-    """RULE 2 - enforce [Exact Subject/Topic] + [Core Concept] + [Academic Keyword].
+    """RULE 2 - enforce [Specific Plain English Concept] + [Broad Subject] + [Academic Keyword].
 
-    Strips cover-page noise (university names, 'page', 'loading'...), drops any
-    gaming/pop-culture word, guarantees an academic keyword and >=3 real words."""
-    q = re.sub(r"[^A-Za-z0-9 ,\-]", "", str(q or "")).strip()[:80]
+    OCR sanitizer: strips ALL non-alphanumeric characters (math symbols, subscripts,
+    unicode garbage), glued OCR fragments ('thefind' -> 'the find'), cover-page noise
+    (university names, 'page', 'loading'...), gaming words and meaningless short tokens;
+    guarantees an academic keyword and >=3 real clean words."""
+    # STEP 0 sanitization: keep only ASCII letters/digits/spaces/hyphens - every math
+    # symbol, subscript, superscript or broken-unicode char is removed mechanically.
+    q = str(q or "")
+    q = unicodedata.normalize("NFKD", q)
+    q = q.encode("ascii", "ignore").decode("ascii")
+    q = re.sub(r"[^A-Za-z0-9 ,\-]", " ", q)          # drop all non-alphanumeric chars
+    q = re.sub(r"\s+", " ", q).strip()[:80]
     if not q:
         return ""
+    # Split glued OCR fragments like 'thefind' / 'andor' into separate words so the
+    # dictionary filter below can judge each piece on its own.
+    q = " ".join(_split_glued(t) for t in q.split())
     # RULE 1: never let cover-page / watermark noise into a query. Strip multi-word
-    # noise phrases first, then drop any single noise/gaming token left over.
+    # noise phrases first, then drop any single noise/gaming/fragment token left over.
     for ph in ("all rights reserved", "university of", "faculty of", "department of"):
         q = re.sub(re.escape(ph) + r"\s+\w+", " ", q, flags=re.I)
     toks = [t for t in q.lower().split() if t]
-    toks = [t for t in toks if t not in NOISE_WORDS and not t.isdigit()
-            and not OFF_TOPIC_PAT.search(t)]      # any gaming word kills the query entirely
-    q = " ".join(toks)
+    # RULE 3: a query containing ANY gaming title word is entertainment, not study -
+    # kill the whole query instead of sanitizing it into something searchable.
+    if any(OFF_TOPIC_PAT.search(t) for t in toks):
+        return ""
+    toks = [t for t in toks if t not in STOPWORD_TOKENS and not t.isdigit()]
+    # Drop meaningless fragments: 1-2 letter tokens (leftovers of 'F_XY', 'P(A|B)'...)
+    # and pure consonant gibberish runs (e.g. 'XYXY'). A whole run of them ('pokemon
+    # bells') means the phrase was really about the game -> kill the entire query.
+    def _junk(t):
+        if len(t) <= 2 and t not in KEEP_SHORT_TOKENS:
+            return True
+        if len(t) >= 4 and not re.search(r"[aeiou]", t):
+            return True
+        return False
+    if toks and all(_junk(t) or OFF_TOPIC_PAT.search(t) for t in toks):
+        return ""
+    toks = [t for t in toks if not _junk(t)]
+    q = " ".join(dict.fromkeys(toks))             # collapse duplicate OCR repeats
     if len(q.split()) < 2 or OFF_TOPIC_PAT.search(q):   # only junk/noise survived -> no query at all
         return ""
     if not _MOD_PAT.search(q):
