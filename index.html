@@ -2366,11 +2366,13 @@
                     ? '<img loading="lazy" alt="" src="' + esc(v.thumb) + '">'
                     : '<div class="pai-nothumb"><i class="fa-solid fa-list"></i></div>';
                 const high = v.confidence === 'high';
+                const concept = v.confidence === 'conceptual';
                 const meta = [v.channel, v.duration].filter(Boolean).map(esc).join(' \u00B7 ');
                 return '<div class="pai-vid' + (first ? ' best' : '') + '" data-url="' + esc(v.url) + '">' + thumb
                     + '<div class="pai-vbody"><div class="pai-vt">'
-                    + (first ? '<span class="pai-badge best">' + (high ? 'Best match' : 'Likely match') + '</span>' : '')
+                    + (first ? '<span class="pai-badge best">' + (high ? 'Exact match' : concept ? 'Conceptual match' : 'Likely match') + '</span>' : '')
                     + '<span class="pai-badge">' + (isList ? '<i class="fa-solid fa-list"></i> Playlist' : '<i class="fa-solid fa-play"></i> Video') + '</span>'
+                    + (concept && !first ? '<span class="pai-badge">Conceptual match</span>' : '')
                     + (v.source === 'library' ? '<span class="pai-badge lib">Course library</span>' : '')
                     + esc(v.title) + '</div>'
                     + '<div class="pai-vc">' + meta + (meta ? ' \u00B7 ' : '') + '<span class="pai-pct' + (high ? ' hi' : '') + '">' + esc(v.match) + '% match</span></div>'
@@ -2379,16 +2381,27 @@
             }
 
             if (items.length) {
-                h += '<div class="pai-sub">Verified lecture for this PDF</div>' + card(items[0], true, data.reason);
-                if (items.length > 1) {
-                    h += '<div class="pai-sub">More to learn from</div>';
-                    items.slice(1).forEach(function(v) { h += card(v, false, ''); });
+                const t1 = items.filter(function(v) { return v.confidence !== 'conceptual'; });
+                const t2 = items.filter(function(v) { return v.confidence === 'conceptual'; });
+                if (t1.length) {
+                    h += '<div class="pai-sub">Exact match for this PDF</div>' + card(t1[0], true, data.reason);
+                    if (t1.length > 1) {
+                        h += '<div class="pai-sub">More exact matches</div>';
+                        t1.slice(1).forEach(function(v) { h += card(v, false, ''); });
+                    }
+                } else if (t2.length) {
+                    h += '<div class="pai-sub">Conceptual match — covers the theory behind this PDF</div>' + card(t2[0], true, data.reason);
+                    t2.slice(1).forEach(function(v) { h += card(v, false, ''); });
+                }
+                if (t1.length && t2.length) {
+                    h += '<div class="pai-sub">Related theory & foundations</div>';
+                    t2.forEach(function(v) { h += card(v, false, ''); });
                 }
             } else {
                 const msg = note === 'no_key' ? 'Video finding is not set up yet. The admin needs to add a YouTube API key (or a Google key).'
                     : note === 'quota' ? 'The daily YouTube limit was reached. Please try again tomorrow.'
                     : note === 'key' ? 'The YouTube API key is not working. The admin needs to check it.'
-                    : note === 'strict' ? 'No video scored high enough on the relevancy gate (90%) for this PDF\'s exact topic, so nothing is shown — off-topic and entertainment results are discarded by design.'
+                    : note === 'strict' ? 'No educational video reached even the conceptual-match threshold (70%) for this PDF\'s discipline. Off-topic and entertainment results are always discarded; use the academic searches below.'
                     : 'No matching lecture was found for this PDF. Off-topic results were filtered out.';
                 h += '<div class="pai-note">' + esc(msg) + '</div>';
                 if (searches.length) {
