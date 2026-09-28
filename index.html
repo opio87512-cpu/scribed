@@ -710,23 +710,6 @@
         </div>
     </div>
 
-    <!-- NEW: AI STUDY BUDDY -->
-    <div id="aiSection" class="section card-container" style="display: flex; flex-direction: column; height: calc(100vh - 150px);">
-        <h3 style="margin-top:0; text-align:center;"><i class="fa-solid fa-robot" style="color:var(--btn-color)"></i> AI Study Buddy</h3>
-        <p style="font-size:12px; color:var(--hint-color); text-align:center; margin-top:-6px;">Ask any academic question. Powered by Gemini.</p>
-        
-        <div id="aiChatContainer" style="flex: 1; overflow-y: auto; padding: 10px; margin-bottom: 10px; border-radius: 12px; background: var(--bg-color); border: 1px solid rgba(142, 142, 147, 0.3); display: flex; flex-direction: column; gap: 10px;">
-            <div style="text-align: center; color: var(--hint-color); font-size: 13px; margin-top: auto; margin-bottom: auto;">
-                👋 Hello! I'm your AI study assistant.<br>Ask me anything about your courses.
-            </div>
-        </div>
-        
-        <div style="display: flex; gap: 8px;">
-            <input type="text" id="aiInput" placeholder="Ask a question..." style="flex: 1; border-radius: 20px; padding: 12px 16px;" onkeypress="if(event.key === 'Enter') sendAiMessage()">
-            <button type="button" id="aiSendBtn" class="action-btn" style="width: auto; padding: 0 20px; border-radius: 20px;" onclick="sendAiMessage()"><i class="fa-solid fa-paper-plane"></i></button>
-        </div>
-    </div>
-
     <!-- GAME: GOOGLE-STYLE MINESWEEPER -->
     <div id="gameSection" class="section">
         <div class="ms-app">
