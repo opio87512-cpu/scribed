@@ -3122,7 +3122,7 @@ def _embed_texts(texts):
 #           3) Gemini + Google Search (finds real links, checked one by one)
 #  Every candidate is scored against the PDF's own key terms, then re-ordered by the AI.
 # ==========================================================================
-VIDEO_CACHE_VERSION = 7
+VIDEO_CACHE_VERSION = 8
 VIDEO_BUDGET = int(os.environ.get("VIDEO_BUDGET_SECONDS", "45"))   # max seconds per new PDF
 YT_QUERIES = 3                          # YouTube API searches per PDF (100 quota units each)
 VIDEO_GOOGLE_API_KEY = os.environ.get("VIDEO_GOOGLE_API_KEY") or GOOGLE_API_KEY
@@ -3264,14 +3264,20 @@ def _doc_profile(title, pages):
 
 VIDEO_SYSTEM = (
     "You are a strict academic video retrieval engine for university-level study documents. "
-    "STEP 1 - before searching anything, extract from the document: "
+    "STEP 1 - READ MAIN CONTENT, IGNORE NOISE: use ONLY the actual technical text, chapter "
+    "titles, slide headings and formulas inside the document. NEVER use cover-page noise: "
+    "university/institution names (e.g. 'University of Gaza'), watermarks, logos, page/slide "
+    "numbers or status words ('Loading', 'Page 1'). Before searching anything, extract: "
     "(a) ACADEMIC DISCIPLINE: the broad field of study, e.g. 'electrical engineering', 'computer science', 'history', 'physics'; "
-    "(b) SPECIFIC TOPIC: the exact subject of the document, e.g. 'high voltage power transmission lines'; "
+    "(b) SPECIFIC TOPIC / EXACT SUBJECT: the exact subject of the document, e.g. 'high voltage transmission lines', 'electromagnetic field theory', 'control systems'; "
     "(c) CONTEXT: whether it is a university lecture, research paper or textbook ('lecture' | 'paper' | 'textbook'). "
     "Base every topic, term and query ONLY on these - never on generic words like 'towers', 'bells' or 'loading'. "
-    "STEP 2 - build each YouTube query with the formula [Specific Topic] + [Academic Discipline] + [Educational Modifier]. "
-    "Valid modifiers: lecture, tutorial, course, explained, engineering, university, documentary, theory. "
-    "GOOD: 'high voltage power transmission lines electrical engineering lecture'. BAD: 'Towers'. "
+    "STEP 2 - MANDATORY QUERY FORMULA, every YouTube query = "
+    "[Exact Subject/Topic] + [Core Concept] + [Academic Keyword]. "
+    "Valid academic keywords: lecture, tutorial, course, explained, engineering, university, documentary, theory. "
+    "GOOD: 'high voltage transmission lines power systems engineering lecture'; "
+    "GOOD: 'electromagnetic field theory lattice tower insulation tutorial'. "
+    "BAD (never emit): 'Tower', 'Lecture', 'Animal Crossing', 'Game'. "
     "Never invent topics that are not in the document. Never suggest gaming, entertainment, vlog or pop-culture queries. "
     "STEP 1b - FLEXIBLE MATCHING: if the specific topic is too narrow to yield educational videos, also step back "
     "to the underlying theories and broader concepts of the discipline (e.g. a specific proof -> the theorem it applies; "
@@ -3296,6 +3302,8 @@ PICK_SYSTEM = (
     "discipline and specific topic: does this video's title/description TEACH or EXPLAIN "
     "that exact concept (Tier 1) or the broader theory / foundational principles behind it (Tier 2)? "
     "Lectures, animated explainers, theoretical overviews, documentaries and tutorials are ALL valid formats. "
+    "ALWAYS reject with score 0 any result whose title contains 'Gaming', 'Gameplay', 'Pokemon', "
+    "'Animal Crossing', 'Walkthrough', 'Gamer', 'Vlog' or 'Music' - even if the words overlap with the document. "
     "A video about gaming, Let's Plays, walkthroughs, Pokemon/Minecraft/Fortnite/GTA/Roblox/anime, "
     "pop culture, movies, vlogs, music, memes, reactions, sports, news or clickbait scores 0 "
     "unless the document itself is about game design. "
@@ -3310,8 +3318,17 @@ PICK_SYSTEM = (
 
 # Hard safety net applied to EVERY candidate before it can be shown, no matter which
 # source found it (YouTube API, Gemini search, Jina web search). A single hit drops it.
+# Cover-page / watermark noise that must never leak into queries (RULE 1):
+# university names, slide/page markers, status words, file-type words.
+NOISE_WORDS = {
+    "university", "universitas", "université", "faculty", "department", "college", "institute",
+    "gaza", "islamic", "universityof", "page", "slide", "chapter", "document", "pdf",
+    "loading", "uploading", "please", "wait", "watermark", "copyright", "all rights reserved",
+    "semester", "dr", "prof", "professor", "lecture", "course", "www", "com", "html",
+}
+
 OFF_TOPIC_PAT = re.compile(
-    r"\b(pokemon|poked|let'?s?\s*play|lets\s*play|gameplay|walkthrough|"
+    r"\b(pokemon|poked|let'?s?\s*play|lets\s*play|gameplay|walkthrough|gaming|gamer|"
     r"minecraft|fortnite|gta\s*\d?|roblox|free\s*fire|pubg|brawl\s*stars|"
     r"animal\s*crossing|stardew|terraria|gacha|genshin|hogwarts\s*legacy|marvel\s*snap|"
     r"among\s*us|clash\s*royale|elden\s*ring|zelda|fifa|nba|football\s*highlights|"
@@ -3344,15 +3361,28 @@ _MOD_PAT = re.compile(r"\b(?:" + "|".join(EDU_MODIFIERS) + r")\b", re.I)
 
 
 def _edu_query(q, discipline=""):
-    """STEP 2 - enforce [topic] + [discipline] + [educational modifier] on every query."""
+    """RULE 2 - enforce [Exact Subject/Topic] + [Core Concept] + [Academic Keyword].
+
+    Strips cover-page noise (university names, 'page', 'loading'...), drops any
+    gaming/pop-culture word, guarantees an academic keyword and >=3 real words."""
     q = re.sub(r"[^A-Za-z0-9 ,\-]", "", str(q or "")).strip()[:80]
     if not q:
         return ""
+    # RULE 1: never let cover-page / watermark noise into a query. Strip multi-word
+    # noise phrases first, then drop any single noise/gaming token left over.
+    for ph in ("all rights reserved", "university of", "faculty of", "department of"):
+        q = re.sub(re.escape(ph) + r"\s+\w+", " ", q, flags=re.I)
+    toks = [t for t in q.lower().split() if t]
+    toks = [t for t in toks if t not in NOISE_WORDS and not t.isdigit()
+            and not OFF_TOPIC_PAT.search(t)]      # any gaming word kills the query entirely
+    q = " ".join(toks)
+    if len(q.split()) < 2 or OFF_TOPIC_PAT.search(q):   # only junk/noise survived -> no query at all
+        return ""
     if not _MOD_PAT.search(q):
-        q = f"{q} lecture"
+        q = f"{q} lecture"                    # mandatory academic keyword tail
     low = q.lower()
     if discipline and len(low.split()) <= 3 and discipline.lower() not in low:
-        q = f"{discipline} {q}"                     # too generic: add the discipline
+        q = f"{discipline} {q}"               # too generic: add the discipline
     return q
 
 
@@ -3362,17 +3392,17 @@ def _safe_queries(queries, prof, discipline="", topic=""):
     for q in queries or []:
         s = _edu_query(q, discipline)
         k = s.lower()
-        if s and k not in seen and len(s.split()) >= 2:   # STEP 2: 'Towers' alone is a BAD query
+        if s and k not in seen and len(s.split()) >= 3:   # RULE 2 needs all 3 parts
             seen.add(k)
             out.append(s)
     if topic:
         s = _edu_query(topic, discipline)
-        if s.lower() not in seen:
+        if s and s.lower() not in seen:
             out.insert(0, s)
-    # STEP 1b - broader-concept fallback: when the exact topic is too narrow, searching the
-    # whole discipline still yields educational content (Tier 2 conceptual matches).
+    # RULE 3.3 - guaranteed broader-course fallback: instead of ever showing
+    # "No matching lecture found", also search the whole discipline course topic.
     if discipline:
-        for mod in ("explained", "theory"):
+        for mod in ("course", "explained", "theory"):
             s = _edu_query(f"{discipline} fundamentals {mod}", "")
             if s.lower() not in seen:
                 seen.add(s.lower())
@@ -3762,6 +3792,20 @@ def _find_videos(course, item, pages, deadline):
 
     # STEP 3 first pass: drop gaming/entertainment candidates BEFORE spending quota on them.
     for k in [k for k, c in pool.items() if _is_off_topic(c)]:
+        pool.pop(k, None)
+
+    # RULE 3.2: reject videos under 3 minutes (shorts/memes). Titles are cleaned of noise
+    # here so a known-lecture title is never dropped just because its duration is unknown.
+    def _bad_short(c):
+        d = c.get("duration")
+        if d is not None:
+            return d < 180
+        t = (c["title"] or "").lower()
+        if re.search(r"\b(official|music|lyrics|trailer|teaser|clip)\b", t):
+            return True                                   # music-video / trailer style title
+        return len(t.split()) <= 2                        # 1-2 word title with no length info: likely a short
+    for k in [k for k, c in pool.items()
+              if c.get("kind") == "video" and _bad_short(c)]:
         pool.pop(k, None)
 
     # Semantic check (Voyage embeddings): how close each candidate's own text is to the PDF.
