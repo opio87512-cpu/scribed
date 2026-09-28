@@ -470,6 +470,11 @@
         .pai-nothumb { width: 120px; height: 68px; border-radius: 8px; background: #111; flex: none; display: flex; align-items: center; justify-content: center; color: #b0b0b0; font-size: 22px; }
         .pai-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: #3a3a3a; color: #d0d0d0; margin-right: 6px; vertical-align: middle; }
         .pai-badge.best { background: var(--btn-color); color: #fff; }
+        .pai-vbody { min-width: 0; flex: 1; }
+        .pai-badge.lib { background: #24401f; color: #9be28a; }
+        .pai-pct { font-weight: 700; color: #ffb74d; }
+        .pai-pct.hi { color: #6fdc8c; }
+        .pai-reason { font-size: 12px; color: #c8c8c8; margin-top: 6px; font-style: italic; line-height: 1.4; }
         .pai-search { display: flex; gap: 10px; align-items: center; padding: 12px; margin-bottom: 8px; border-radius: 12px; background: #2a2a2a; font-size: 14px; cursor: pointer; }
         .pai-search i { color: #ff3b30; font-size: 18px; }
         .pai-retry { width: auto; padding: 0 16px; height: 36px; border-radius: 18px; border: none; background: var(--btn-color); color: #fff; font-weight: 600; cursor: pointer; }
@@ -2527,29 +2532,38 @@
             let h = '';
             if (topics.length) h += '<div class="pai-topics"><b>Topics in this PDF:</b> ' + topics.map(esc).join(' \u2022 ') + '</div>';
 
-            function card(v, best) {
+            function card(v, first, reason) {
                 const isList = v.kind === 'playlist';
                 const thumb = v.thumb
                     ? '<img loading="lazy" alt="" src="' + esc(v.thumb) + '">'
                     : '<div class="pai-nothumb"><i class="fa-solid fa-list"></i></div>';
-                return '<div class="pai-vid' + (best ? ' best' : '') + '" data-url="' + esc(v.url) + '">' + thumb
-                    + '<div><div class="pai-vt">'
-                    + (best ? '<span class="pai-badge best">Best match</span>' : '')
+                const high = v.confidence === 'high';
+                const meta = [v.channel, v.duration].filter(Boolean).map(esc).join(' \u00B7 ');
+                return '<div class="pai-vid' + (first ? ' best' : '') + '" data-url="' + esc(v.url) + '">' + thumb
+                    + '<div class="pai-vbody"><div class="pai-vt">'
+                    + (first ? '<span class="pai-badge best">' + (high ? 'Best match' : 'Likely match') + '</span>' : '')
                     + '<span class="pai-badge">' + (isList ? '<i class="fa-solid fa-list"></i> Playlist' : '<i class="fa-solid fa-play"></i> Video') + '</span>'
-                    + esc(v.title) + '</div><div class="pai-vc">' + esc(v.channel) + '</div></div></div>';
+                    + (v.source === 'library' ? '<span class="pai-badge lib">Course library</span>' : '')
+                    + esc(v.title) + '</div>'
+                    + '<div class="pai-vc">' + meta + (meta ? ' \u00B7 ' : '') + '<span class="pai-pct' + (high ? ' hi' : '') + '">' + esc(v.match) + '% match</span></div>'
+                    + (reason ? '<div class="pai-reason">' + esc(reason) + '</div>' : '')
+                    + '</div></div>';
             }
 
             if (items.length) {
-                h += '<div class="pai-sub">Most related to this PDF</div>' + card(items[0], true);
+                if (data.overall === 'likely') {
+                    h += '<div class="pai-note">No exact match found. These are the closest videos to this PDF.</div>';
+                }
+                h += '<div class="pai-sub">' + (data.overall === 'likely' ? 'Closest video' : 'Best video for this PDF') + '</div>' + card(items[0], true, data.reason);
                 if (items.length > 1) {
                     h += '<div class="pai-sub">More to learn from</div>';
-                    items.slice(1).forEach(function(v) { h += card(v, false); });
+                    items.slice(1).forEach(function(v) { h += card(v, false, ''); });
                 }
             } else {
-                const msg = note === 'no_key' ? 'Direct video links are not set up yet. The admin needs to add a YouTube API key.'
+                const msg = note === 'no_key' ? 'Video finding is not set up yet. The admin needs to add a YouTube API key (or a Google key).'
                     : note === 'quota' ? 'The daily YouTube limit was reached. Please try again tomorrow.'
                     : note === 'key' ? 'The YouTube API key is not working. The admin needs to check it.'
-                    : 'Could not find videos right now.';
+                    : 'No matching video was found for this PDF yet.';
                 h += '<div class="pai-note">' + esc(msg) + '</div>';
                 if (searches.length) {
                     h += '<div class="pai-sub">Search YouTube instead</div>';
@@ -2568,7 +2582,7 @@
             if (pai.videosFor === key) return;
             const list = pvEl('paiVidList');
             pai.vidBusy = true;
-            list.innerHTML = '<div class="pai-note"><i class="fa-solid fa-circle-notch fa-spin"></i> Finding videos for this PDF...</div>';
+            list.innerHTML = '<div class="pai-note"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the PDF and checking videos (up to 30 seconds)...</div>';
             try {
                 const res = await api('/api/pdf_videos', {
                     method: 'POST',
