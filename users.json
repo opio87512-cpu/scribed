@@ -207,5 +207,16 @@
         "last_active": "2026-09-25T21:10:17",
         "active": true,
         "source": "webapp"
+    },
+    "6850080752": {
+        "user_id": "6850080752",
+        "username": "Teros33",
+        "first_name": "\u0102\u0121\u20aczy\u00e6\u014b",
+        "last_name": "",
+        "full_name": "\u0102\u0121\u20aczy\u00e6\u014b",
+        "joined_at": "2026-09-28T15:12:14",
+        "last_active": "2026-09-28T15:12:14",
+        "active": true,
+        "source": "bot"
     }
 }
