@@ -1601,23 +1601,49 @@ def admin_delete_video_start(message):
 # ==========================================================================
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    def _edit(text, markup=None):
-        try:
-            bot.edit_message_text(
-                text, chat_id=call.message.chat.id,
-                message_id=call.message.message_id, reply_markup=markup,
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
-
-    # Refresh last_active on every button press
+    # IMPORTANT: acknowledge the callback immediately.
+    # Do not perform GitHub/network work before this, otherwise Telegram can
+    # leave the button spinning and make it look like the button is broken.
     try:
-        touch_user(call.from_user.id, source="callback")
+        bot.answer_callback_query(call.id)
     except Exception:
         pass
 
-    data = call.data
+    def _edit(text, markup=None):
+        try:
+            bot.edit_message_text(
+                text,
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=markup,
+                parse_mode="HTML",
+            )
+            return True
+        except Exception as e:
+            # Never hide callback failures; log them so Render shows the
+            # actual Telegram error instead of making the button appear dead.
+            log.exception(
+                "Callback edit failed (data=%r, chat=%s, message=%s): %s",
+                call.data,
+                call.message.chat.id if call.message else None,
+                call.message.message_id if call.message else None,
+                e,
+            )
+            # If the original message cannot be edited, keep the flow usable
+            # by sending the next screen as a new message.
+            try:
+                bot.send_message(
+                    call.message.chat.id,
+                    text,
+                    reply_markup=markup,
+                    parse_mode="HTML",
+                )
+                return True
+            except Exception:
+                log.exception("Callback fallback send failed (data=%r)", call.data)
+                return False
+
+    data = call.data or ""
 
     if data == "main_find":
         _edit("Select your academic year to FIND materials:", year_keyboard('f'))
@@ -1633,21 +1659,35 @@ def handle_query(call):
         )
 
     elif data.startswith(("fy_", "uy_", "ay_", "dy_", "vy_", "py_")):
-        action = data[0]
-        year = data.split('_')[1]
+        parts = data.split("_", 1)
+        action = parts[0][0]
+        year = parts[1]
+        if year not in CURRICULUM:
+            bot.send_message(call.message.chat.id, "⚠️ Invalid academic year. Please try again.")
+            return
         roman = {"2": "II", "3": "III"}.get(year, year)
-        _edit(f"Year {roman} selected.\nChoose your semester:",
-              semester_keyboard(year, action))
+        _edit(
+            f"Year {roman} selected.\nChoose your semester:",
+            semester_keyboard(year, action),
+        )
 
     elif data.startswith(("fs_", "us_", "as_", "ds_", "vs_", "ps_")):
-        parts = data.split('_')
+        parts = data.split("_")
+        if len(parts) != 3:
+            bot.send_message(call.message.chat.id, "⚠️ Invalid semester selection. Please try again.")
+            return
         action = parts[0][0]
         year, semester = parts[1], parts[2]
-        _edit("Select the subject:",
-              subject_keyboard(year, semester, action))
+        if semester not in (CURRICULUM.get(year, {}) or {}):
+            bot.send_message(call.message.chat.id, "⚠️ Invalid semester selection. Please try again.")
+            return
+        _edit("Select the subject:", subject_keyboard(year, semester, action))
 
     elif data.startswith(("fc_", "uc_", "ac_", "dc_", "vc_", "pc_")):
-        parts = data.split('_')
+        parts = data.split("_", 1)
+        if len(parts) != 2:
+            bot.send_message(call.message.chat.id, "⚠️ Invalid course selection. Please try again.")
+            return
         action = parts[0][0]
         course_code = parts[1]
 
@@ -1729,7 +1769,7 @@ def handle_query(call):
     elif data == "finish_upload":
         chat_id = call.message.chat.id
         if chat_id not in UPLOAD_STATES:
-            bot.answer_callback_query(call.id, "Upload session expired or already finished.")
+            bot.send_message(call.message.chat.id, "⚠️ Upload session expired or already finished. Please start the upload again.")
             try:
                 bot.delete_message(chat_id, call.message.message_id)
             except Exception:
@@ -1740,9 +1780,10 @@ def handle_query(call):
         files = state["files"]
 
         if not files:
-            bot.answer_callback_query(call.id,
-                                      "You haven't sent any files yet! Send them first.",
-                                      show_alert=True)
+            bot.send_message(
+                call.message.chat.id,
+                "⚠️ You haven't sent any files yet. Send the file(s) first, then tap Finish Upload.",
+            )
             return
 
         if state["action"] == "admin":
@@ -1765,9 +1806,9 @@ def handle_query(call):
         course_code, material_type, idx = parts[1], parts[2], int(parts[3])
         deleted_name = delete_material_by_index(course_code, material_type, idx)
         if deleted_name:
-            bot.answer_callback_query(call.id, f"✅ Deleted {deleted_name}")
+            bot.send_message(call.message.chat.id, f"✅ Deleted {deleted_name}")
         else:
-            bot.answer_callback_query(call.id, "⚠️ Could not delete.", show_alert=True)
+            bot.send_message(call.message.chat.id, "⚠️ Could not delete.")
         text, markup = build_delete_list(course_code, material_type)
         _edit(text, markup)
 
@@ -1780,9 +1821,7 @@ def handle_query(call):
         sess_id = data.split('_', 1)[1]
         sess = UPDATE_SESSIONS.get(sess_id)
         if not sess:
-            bot.answer_callback_query(call.id,
-                                      "This update session expired. Run /updatefile again.",
-                                      show_alert=True)
+            bot.send_message(call.message.chat.id, "⚠️ This update session expired. Run /updatefile again.")
             return
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -1809,9 +1848,7 @@ def handle_query(call):
         sess_id, pos = parts[1], int(parts[2])
         sess = UPDATE_SESSIONS.get(sess_id)
         if not sess or pos >= len(sess["indices"]):
-            bot.answer_callback_query(call.id,
-                                      "This update session expired. Run /updatefile again.",
-                                      show_alert=True)
+            bot.send_message(call.message.chat.id, "⚠️ This update session expired. Run /updatefile again.")
             return
         abs_index = sess["indices"][pos]
         try:
@@ -1844,7 +1881,7 @@ def handle_query(call):
 
     elif data.startswith("delnews_"):
         if call.from_user.id not in ADMIN_IDS:
-            bot.answer_callback_query(call.id, "Unauthorized", show_alert=True)
+            bot.send_message(call.message.chat.id, "⚠️ Unauthorized.")
             return
         nid = data.split('_', 1)[1]
 
@@ -1859,7 +1896,7 @@ def handle_query(call):
         req_id = data.split('_', 2)[2]
         v_data = PENDING_VIDEOS.pop(req_id, None)
         if not v_data:
-            bot.answer_callback_query(call.id, "Request expired or already handled.")
+            bot.send_message(call.message.chat.id, "⚠️ This request expired or was already handled.")
             return
         for admin in ADMIN_IDS:
             try:
@@ -1899,7 +1936,7 @@ def handle_query(call):
         req_id = data.split('_', 2)[2]
         up = PENDING_UPLOADS.pop(req_id, None)
         if not up:
-            bot.answer_callback_query(call.id, "Request expired or already handled.")
+            bot.send_message(call.message.chat.id, "⚠️ This request expired or was already handled.")
             return
         for admin in ADMIN_IDS:
             try:
@@ -1950,7 +1987,7 @@ def handle_query(call):
             pass
 
     else:
-        bot.answer_callback_query(call.id)
+        log.warning("Unhandled callback data: %r", data)
 
 
 # ==========================================================================
