@@ -1934,6 +1934,15 @@ def handle_query(call):
 
     elif data.startswith("approve_upload_"):
         req_id = data.split('_', 2)[2]
+        # Remove buttons immediately, before doing any notification work.
+        try:
+            bot.edit_message_reply_markup(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=None,
+            )
+        except Exception as e:
+            log.exception("Could not remove approve/reject buttons: %s", e)
         up = PENDING_UPLOADS.pop(req_id, None)
         if not up:
             bot.send_message(call.message.chat.id, "⚠️ This request expired or was already handled.")
@@ -1964,13 +1973,20 @@ def handle_query(call):
             pass
 
     elif data.startswith("reject_upload_"):
+        # Handle rejection immediately: remove the buttons first so the admin
+        # gets instant visual confirmation even if notification/storage work
+        # fails afterwards.
         req_id = data.split('_', 2)[2]
+        try:
+            bot.edit_message_reply_markup(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=None,
+            )
+        except Exception as e:
+            log.exception("Could not remove reject/approve buttons: %s", e)
+
         up = PENDING_UPLOADS.pop(req_id, None)
-        for admin in ADMIN_IDS:
-            try:
-                bot.send_message(admin, "❌ Upload batch rejected.")
-            except Exception:
-                pass
         if up:
             try:
                 bot.send_message(
@@ -1978,13 +1994,13 @@ def handle_query(call):
                     f"❌ Your submitted batch of {len(up['files'])} file(s) was not approved.",
                 )
             except Exception:
-                pass
-        try:
-            bot.edit_message_reply_markup(chat_id=call.message.chat.id,
-                                          message_id=call.message.message_id,
-                                          reply_markup=None)
-        except Exception:
-            pass
+                log.exception("Could not notify uploader about rejection")
+
+        for admin in ADMIN_IDS:
+            try:
+                bot.send_message(admin, "❌ Upload batch rejected.")
+            except Exception:
+                log.exception("Could not send rejection confirmation to admin %s", admin)
 
     else:
         log.warning("Unhandled callback data: %r", data)
@@ -2223,9 +2239,23 @@ def getMessage():
         if not hmac.compare_digest(incoming, WEBHOOK_SECRET):
             return "forbidden", 403
     json_string = request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
-    return "!", 200
+    try:
+        update = telebot.types.Update.de_json(json_string)
+        # Process callback queries directly. This avoids relying on the
+        # dispatcher queue for inline-button updates and makes every
+        # callback (Year, semester, upload, approve/reject, back, etc.)
+        # reach handle_query immediately.
+        if update and getattr(update, "callback_query", None):
+            log.info("Telegram callback received: %s", update.callback_query.data)
+            handle_query(update.callback_query)
+        else:
+            bot.process_new_updates([update])
+        return "!", 200
+    except Exception:
+        log.exception("Failed to process Telegram webhook update")
+        # Telegram only needs a quick HTTP response; the exception is logged
+        # so the real problem is visible in Render logs.
+        return "!", 200
 
 
 @app.route('/')
@@ -4136,19 +4166,40 @@ def api_save_suggested_video():
 
 
 # ==========================================================================
+#  TELEGRAM WEBHOOK CONFIGURATION
+# ==========================================================================
+def configure_telegram_webhook():
+    """Ensure Telegram delivers BOTH messages and inline-button callbacks."""
+    render_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not render_url:
+        log.warning("RENDER_EXTERNAL_URL is not set; webhook was not configured by the app.")
+        return
+
+    webhook_url = render_url.rstrip("/") + "/" + TOKEN
+    try:
+        # Explicitly replace the webhook configuration. The key point is the
+        # allowed_updates list: if an older webhook was configured with only
+        # 'message', Telegram will not deliver callback_query updates at all.
+        bot.remove_webhook()
+        bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=["message", "callback_query"],
+            **({"secret_token": WEBHOOK_SECRET} if WEBHOOK_SECRET else {}),
+        )
+        log.info("Telegram webhook configured with message + callback_query: %s", webhook_url)
+    except Exception:
+        log.exception("Failed to configure Telegram webhook")
+
+
+# Configure at import time as well as when running with `python main.py`.
+# This matters on Render if the service uses gunicorn (where __main__ is not
+# executed).
+configure_telegram_webhook()
+
+
+# ==========================================================================
 #  ENTRY POINT
 # ==========================================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    render_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if render_url:
-        try:
-            bot.remove_webhook()
-            kwargs = {"url": render_url + '/' + TOKEN}
-            if WEBHOOK_SECRET:
-                kwargs["secret_token"] = WEBHOOK_SECRET
-            bot.set_webhook(**kwargs)
-            log.info("Webhook set: %s", render_url)
-        except Exception as e:
-            log.exception("Failed to set webhook: %s", e)
     app.run(host="0.0.0.0", port=port)
