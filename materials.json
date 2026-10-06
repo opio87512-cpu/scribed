@@ -244,5 +244,47 @@
             "date_added": "Oct 06, 2026 - 15:28",
             "opens": 0
         }
+    ],
+    "EPCE3201_note": [
+        {
+            "file_id": "BQACAgQAAxkBAAIGdWrFFO-npQUey0XCuT9OvIIBYqhXAAKEHwACAyQoUqDRaXZvfRz6PQQ",
+            "name": "Network Analysis : Lecture Note - Chapter 4.pdf",
+            "content_type": "document",
+            "title": "Network Analysis : Lecture Note",
+            "date_added": "Oct 06, 2026 - 15:34",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIGdmrFFO-M9dyYJqy9G0wD_w3qoA7kAAKGHwACAyQoUgjuuCCeFrojPQQ",
+            "name": "Network Analysis : Lecture Note - Chapter 1.pdf",
+            "content_type": "document",
+            "title": "Network Analysis : Lecture Note",
+            "date_added": "Oct 06, 2026 - 15:34",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIGd2rFFO_unFd24EW96lzytLGzSKaEAAKIHwACAyQoUtYuIdzlBLplPQQ",
+            "name": "Network Analysis : Lecture Note - Chapter 2.pdf",
+            "content_type": "document",
+            "title": "Network Analysis : Lecture Note",
+            "date_added": "Oct 06, 2026 - 15:34",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIGeGrFFO_Xw_dU2H-kdzV4cWqE1j0FAAKJHwACAyQoUtpKK49wNrnBPQQ",
+            "name": "Network Analysis : Lecture Note - Chapter 3.pdf",
+            "content_type": "document",
+            "title": "Network Analysis : Lecture Note",
+            "date_added": "Oct 06, 2026 - 15:34",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIGeWrFFO-udAHRo4veof_ZslhxpnXjAAKKHwACAyQoUm7LdHgYiXwOPQQ",
+            "name": "Network Analysis : Lecture Note - Chapter 5.pdf",
+            "content_type": "document",
+            "title": "Network Analysis : Lecture Note",
+            "date_added": "Oct 06, 2026 - 15:34",
+            "opens": 0
+        }
     ]
 }
