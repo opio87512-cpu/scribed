@@ -550,6 +550,11 @@
                 <div class="menu-label">Upload Files</div>
                 <div class="menu-sub">Contribute to community</div>
             </div>
+            <div class="menu-card" onclick="switchSection('schedule')">
+                <i class="fa-solid fa-calendar-days menu-icon"></i>
+                <div class="menu-label">Class Schedule</div>
+                <div class="menu-sub">Year III · Sem I · G1–G6</div>
+            </div>
             <div class="menu-card" onclick="switchSection('video')">
                 <i class="fa-brands fa-youtube menu-icon"></i>
                 <div class="menu-label">Video Tutorials</div>
@@ -595,6 +600,33 @@
                 <div class="menu-label">Suggest a Tutorial Link</div>
                 <div class="menu-sub">Submit helpful YouTube videos for approval</div>
             </div>
+        </div>
+    </div>
+
+    <!-- YEAR III SEMESTER I SCHEDULE -->
+    <div id="scheduleSection" class="section card-container">
+        <div class="schedule-head">
+            <h2 style="margin:0 0 6px;"><i class="fa-solid fa-calendar-days" style="color:var(--btn-color)"></i> Year III · Semester I Schedule</h2>
+            <p style="margin:0;color:var(--hint-color);font-size:13px;">ASTU ECE · 2019 (2026/27) · B518 R4/R5/R6</p>
+        </div>
+        <div class="schedule-group-picker">
+            <label for="scheduleGroup"><b>Your Group</b></label>
+            <select id="scheduleGroup">
+                <option value="">Select your group...</option>
+                <option value="G1">G1 · Section 1 (G1/G2)</option>
+                <option value="G2">G2 · Section 1 (G1/G2)</option>
+                <option value="G3">G3 · Section 2 (G3/G4)</option>
+                <option value="G4">G4 · Section 2 (G3/G4)</option>
+                <option value="G5">G5 · Section 3 (G5/G6)</option>
+                <option value="G6">G6 · Section 3 (G5/G6)</option>
+            </select>
+            <button class="action-btn" type="button" onclick="saveScheduleGroup()"><i class="fa-solid fa-bell"></i> Save & Enable Daily Reminders</button>
+            <p id="schedulePrefStatus" style="font-size:12px;color:var(--hint-color);margin:7px 0 0;"></p>
+        </div>
+        <div id="scheduleTodayCard" style="margin-top:14px;"></div>
+        <div id="scheduleDays" style="margin-top:14px;"></div>
+        <div style="margin-top:14px;padding:12px;border-radius:12px;background:var(--sec-bg);font-size:12px;color:var(--hint-color);">
+            🔔 <b>Daily reminders:</b> Monday–Friday at <b>7:00 AM Ethiopia time</b>. Your reminder clearly tells you when your group has a lab and when the paired group is free.
         </div>
     </div>
 
@@ -1420,6 +1452,7 @@
             'menu': '<i class="fa-solid fa-graduation-cap" style="color:var(--btn-color)"></i> ASTU ECE Portal',
             'find': '<i class="fa-solid fa-book" style="color:var(--btn-color)"></i> Materials',
             'upload': '<i class="fa-solid fa-cloud-arrow-up" style="color:var(--btn-color)"></i> Upload Material',
+            'schedule': '<i class="fa-solid fa-calendar-days" style="color:var(--btn-color)"></i> Class Schedule',
             'video': '<i class="fa-brands fa-youtube" style="color:var(--btn-color)"></i> Video Tutorials',
             'gpa': '<i class="fa-solid fa-calculator" style="color:var(--btn-color)"></i> GPA Calculator',
             'game': '<i class="fa-solid fa-bomb" style="color:var(--btn-color)"></i> Minesweeper',
@@ -1446,6 +1479,7 @@
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
 
             if (sec === 'upload') document.getElementById('uploadSection').classList.add('active');
+            else if (sec === 'schedule') { document.getElementById('scheduleSection').classList.add('active'); await loadSchedule(); }
             else if (sec === 'find') { document.getElementById('findSection').classList.add('active'); if (Object.keys(allMaterials).length === 0) await fetchAllMaterials(); else renderMaterials(); }
             else if (sec === 'video') { document.getElementById('videoSection').classList.add('active'); if (Object.keys(allVideos).length === 0) await fetchAllVideos(); else renderVideos(); }
             else if (sec === 'gpa') document.getElementById('gpaSection').classList.add('active');
@@ -2559,6 +2593,88 @@
             }
         }
 
+        // ----- class schedule -----
+        let scheduleData = null;
+        const scheduleDaysOrder = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+
+        async function loadSchedule() {
+            const daysEl = document.getElementById('scheduleDays');
+            const todayEl = document.getElementById('scheduleTodayCard');
+            try {
+                const res = await api('/api/schedule');
+                scheduleData = await res.json();
+                const picker = document.getElementById('scheduleGroup');
+                if (scheduleData.selected_group && picker) picker.value = scheduleData.selected_group;
+                renderSchedule();
+            } catch (e) {
+                if (todayEl) todayEl.innerHTML = '<div class="error-banner">⚠️ Couldn\'t load the schedule. Please try again.</div>';
+                if (daysEl) daysEl.innerHTML = '';
+            }
+        }
+
+        function scheduleDayCard(day, entries, selectedGroup) {
+            const meta = scheduleData.meta.groups[selectedGroup] || {};
+            const paired = meta.paired_group || '';
+            let html = '<div class="schedule-day-card"><div class="schedule-day-title">' + esc(day) + '</div>';
+            if (!entries || !entries.length) {
+                html += '<div class="schedule-free">No classes listed.</div></div>';
+                return html;
+            }
+            entries.forEach(function (item) {
+                const isMine = item.group === selectedGroup;
+                const isPaired = item.group === paired;
+                const cls = item.kind === 'lab' ? (isMine ? 'schedule-lab mine' : 'schedule-lab') : 'schedule-class';
+                html += '<div class="' + cls + '">' +
+                    '<div class="schedule-time">' + esc(item.time) + '</div>' +
+                    '<div class="schedule-entry-main"><b>' + esc(item.course) + '</b><span>' + esc(item.title) + '</span>' +
+                    (item.group ? '<small>' + esc(item.group) + (isMine ? ' · YOUR LAB' : (isPaired ? ' · PAIRED GROUP' : '')) + '</small>' : '') +
+                    '</div></div>';
+            });
+            const lab = (scheduleData.labs[day] || []).find(x => x.section === meta.section);
+            if (lab && lab.group !== selectedGroup) {
+                html += '<div class="schedule-free"><i class="fa-solid fa-circle-check"></i> <b>' + esc(selectedGroup) + ' is FREE</b> while ' + esc(lab.group) + ' has the lab (' + esc(lab.time) + ').</div>';
+            } else if (lab && lab.group === selectedGroup) {
+                html += '<div class="schedule-free mine-free"><i class="fa-solid fa-flask"></i> <b>Your lab:</b> ' + esc(lab.time) + ' · ' + esc(lab.course) + '</div>';
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function renderSchedule() {
+            if (!scheduleData) return;
+            const picker = document.getElementById('scheduleGroup');
+            const group = picker ? picker.value : '';
+            const todayEl = document.getElementById('scheduleTodayCard');
+            const daysEl = document.getElementById('scheduleDays');
+            if (!group) {
+                todayEl.innerHTML = '<div class="schedule-prompt"><i class="fa-solid fa-user-group"></i><br><b>Select your group</b><br><span>Choose G1–G6 to get your personalized lab/free-group reminders.</span></div>';
+                daysEl.innerHTML = '';
+                return;
+            }
+            const section = scheduleData.meta.groups[group].section;
+            const now = new Date();
+            const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+            const today = dayNames[now.getDay()];
+            const todayEntries = scheduleData.sections[section][today] || [];
+            todayEl.innerHTML = '<div class="schedule-today"><b>Today · ' + esc(today) + '</b><span>' + esc(section) + ' · ' + esc(group) + ' · Paired: ' + esc(scheduleData.meta.groups[group].paired_group) + '</span></div>' + scheduleDayCard(today, todayEntries, group);
+            daysEl.innerHTML = '<div class="schedule-grid">' + scheduleDaysOrder.map(function(day){ return scheduleDayCard(day, scheduleData.sections[section][day] || [], group); }).join('') + '</div>';
+        }
+
+        async function saveScheduleGroup() {
+            const picker = document.getElementById('scheduleGroup');
+            const status = document.getElementById('schedulePrefStatus');
+            const group = picker && picker.value;
+            if (!group) { tg.showAlert('Please select your group first.'); return; }
+            try {
+                await api('/api/schedule/preference', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({group:group}) });
+                status.textContent = '✅ Saved ' + group + '. You will receive Monday–Friday reminders at 7:00 AM Ethiopia time.';
+                renderSchedule();
+                if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            } catch (e) { status.textContent = '⚠️ ' + (e.message || 'Could not save group.'); }
+        }
+        window.saveScheduleGroup = saveScheduleGroup;
+        window.loadSchedule = loadSchedule;
+
         // ----- navigation -----
         function pvGo(n) {
             if (!pv.pages.length) return;
@@ -3145,6 +3261,27 @@
         .portal-search-status { font-size: 13px; margin: 8px 0; }
         .menu-card[hidden] { display: none !important; }
         .portal-connection { border: 1px solid var(--hint-color); background: var(--sec-bg); border-radius: 12px; padding: 12px; margin-bottom: 16px; }
+        .schedule-group-picker { margin-top:14px; padding:14px; border-radius:16px; background:var(--sec-bg); border:1px solid var(--hint-color); }
+        .schedule-group-picker label { display:block; margin-bottom:7px; }
+        .schedule-group-picker select { width:100%; margin-bottom:9px; }
+        .schedule-head { border-bottom:1px solid var(--hint-color); padding-bottom:12px; }
+        .schedule-today { display:flex; justify-content:space-between; gap:10px; padding:12px; border-radius:12px; background:var(--sec-bg); border:1px solid var(--hint-color); margin-bottom:10px; }
+        .schedule-today span { color:var(--hint-color); font-size:12px; text-align:right; }
+        .schedule-grid { display:grid; gap:12px; }
+        .schedule-day-card { border:1px solid var(--hint-color); border-radius:14px; overflow:hidden; background:var(--bg-color); }
+        .schedule-day-title { padding:10px 12px; font-weight:800; background:var(--sec-bg); border-bottom:1px solid var(--hint-color); }
+        .schedule-class, .schedule-lab { display:flex; gap:10px; padding:10px 12px; border-bottom:1px solid rgba(128,128,128,.16); }
+        .schedule-lab { background:rgba(255,193,7,.10); }
+        .schedule-lab.mine { border-left:4px solid var(--btn-color); }
+        .schedule-time { min-width:88px; font-size:12px; font-weight:700; color:var(--hint-color); }
+        .schedule-entry-main { display:flex; flex-direction:column; gap:2px; min-width:0; }
+        .schedule-entry-main span { font-size:12px; color:var(--hint-color); }
+        .schedule-entry-main small { font-size:11px; font-weight:700; }
+        .schedule-free { padding:10px 12px; font-size:12px; background:rgba(46,125,50,.08); color:var(--text-color); }
+        .schedule-prompt { text-align:center; padding:28px 16px; border:1px dashed var(--hint-color); border-radius:14px; color:var(--hint-color); }
+        .schedule-prompt i { font-size:28px; color:var(--btn-color); margin-bottom:8px; }
+        .schedule-prompt b { color:var(--text-color); }
+        @media (min-width:700px) { .schedule-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
         .portal-back-top { display: block; width: auto; margin: 20px auto; cursor: pointer; }
         .nav-menu-btn, .fav-btn, .dl-btn { min-height: 44px; }
         .top-navbar { flex-wrap: wrap; gap: 12px; }
