@@ -115,6 +115,7 @@ FAVS_FILE = "favorites.json"
 STATS_FILE = "stats.json"
 REQUESTS_FILE = "requests.json"
 USERS_FILE = "users.json"
+SCHEDULE_PREFS_FILE = "schedule_prefs.json"
 
 
 # ==========================================================================
@@ -799,6 +800,109 @@ CURRICULUM = {
         ],
     },
 }
+
+
+# ==========================================================================
+#  YEAR 3 - SEMESTER 1 CLASS & LAB SCHEDULE (2019/2026-27)
+#  Source: revised ASTU ECE timetable supplied by the admin.
+#  One section contains two groups: S1=G1/G2, S2=G3/G4, S3=G5/G6.
+# ==========================================================================
+SCHEDULE_META = {
+    "year": "3",
+    "semester": "1",
+    "academic_year": "2019 (2026/27)",
+    "groups": {
+        "G1": {"section": "S1", "room": "B518 R4", "paired_group": "G2"},
+        "G2": {"section": "S1", "room": "B518 R4", "paired_group": "G1"},
+        "G3": {"section": "S2", "room": "B518 R5", "paired_group": "G4"},
+        "G4": {"section": "S2", "room": "B518 R5", "paired_group": "G3"},
+        "G5": {"section": "S3", "room": "B518 R6", "paired_group": "G6"},
+        "G6": {"section": "S3", "room": "B518 R6", "paired_group": "G5"},
+    },
+}
+
+# The timetable image uses the 2:00-6:00 block for the long afternoon labs.
+# G5/G6 have the morning lab block.
+CLASS_SCHEDULE = {
+    "S1": {
+        "Monday": [
+            {"time":"08:00-08:50","course":"ECEg3201","title":"Digital Logic Design"},
+            {"time":"10:00-10:50","course":"ECEg3201","title":"Digital Logic Design Tutorial"},
+            {"time":"14:00-18:00","course":"ECEg3201","title":"G1 Lab","group":"G1","kind":"lab"},
+        ],
+        "Tuesday": [
+            {"time":"08:00-08:50","course":"Phys2208","title":"Applied Modern Physics"},
+            {"time":"10:00-11:50","course":"EPCE3201","title":"Network Analysis & Synthesis"},
+            {"time":"14:00-18:00","course":"ECEg3201","title":"G2 Lab","group":"G2","kind":"lab"},
+        ],
+        "Wednesday": [
+            {"time":"08:00-08:50","course":"ECEg3103","title":"Probability & Random Processes Tutorial"},
+            {"time":"14:00-15:50","course":"EPCE3201","title":"Network Analysis & Synthesis Tutorial"},
+        ],
+        "Thursday": [
+            {"time":"08:00-08:50","course":"ECEg3205","title":"Digital Signal Processing"},
+            {"time":"10:00-10:50","course":"ECEg3103","title":"Probability & Random Processes"},
+            {"time":"14:00-15:50","course":"Phys2208","title":"Applied Modern Physics Tutorial"},
+        ],
+        "Friday": [
+            {"time":"08:00-08:50","course":"LART2002","title":"General Psychology and Life Skills"},
+            {"time":"14:00-15:50","course":"ECEg3205","title":"Digital Signal Processing Tutorial"},
+        ],
+    },
+    "S2": {
+        "Monday": [
+            {"time":"08:00-08:50","course":"Phys2208","title":"Applied Modern Physics"},
+            {"time":"11:00-11:50","course":"ECEg3201","title":"Digital Logic Design"},
+            {"time":"14:00-18:00","course":"ECEg3201","title":"G4 Lab","group":"G4","kind":"lab"},
+        ],
+        "Tuesday": [
+            {"time":"08:00-08:50","course":"ECEg3103","title":"Probability & Random Processes"},
+            {"time":"10:00-10:50","course":"ECEg3205","title":"Digital Signal Processing"},
+            {"time":"14:00-15:50","course":"EPCE3201","title":"Network Analysis & Synthesis Tutorial"},
+        ],
+        "Wednesday": [
+            {"time":"08:00-08:50","course":"ECEg3205","title":"Digital Signal Processing Tutorial"},
+            {"time":"14:00-15:50","course":"ECEg3103","title":"Probability & Random Processes Tutorial"},
+        ],
+        "Thursday": [
+            {"time":"08:00-08:50","course":"EPCE3201","title":"Network Analysis & Synthesis"},
+            {"time":"10:00-10:50","course":"Phys2208","title":"Applied Modern Physics"},
+            {"time":"14:00-15:50","course":"ECEg3201","title":"Digital Logic Design Tutorial"},
+        ],
+        "Friday": [
+            {"time":"08:00-08:50","course":"LART2002","title":"General Psychology and Life Skills"},
+            {"time":"14:00-18:00","course":"ECEg3201","title":"G3 Lab","group":"G3","kind":"lab"},
+        ],
+    },
+    "S3": {
+        "Monday": [
+            {"time":"08:00-11:00","course":"ECEg3201","title":"G5 Lab","group":"G5","kind":"lab"},
+            {"time":"14:00-15:50","course":"ECEg3103","title":"Probability & Random Processes Tutorial"},
+        ],
+        "Tuesday": [
+            {"time":"08:00-08:50","course":"EPCE3201","title":"Network Analysis & Synthesis"},
+            {"time":"10:00-10:50","course":"Phys2208","title":"Applied Modern Physics"},
+            {"time":"14:00-15:50","course":"ECEg3205","title":"Digital Signal Processing Tutorial"},
+        ],
+        "Wednesday": [
+            {"time":"08:00-11:00","course":"ECEg3201","title":"G6 Lab","group":"G6","kind":"lab"},
+            {"time":"14:00-15:50","course":"ECEg3201","title":"Digital Logic Design Tutorial"},
+        ],
+        "Thursday": [
+            {"time":"08:00-08:50","course":"ECEg3103","title":"Probability & Random Processes"},
+            {"time":"10:00-10:50","course":"ECEg3205","title":"Digital Signal Processing"},
+            {"time":"14:00-15:50","course":"EPCE3201","title":"Network Analysis & Synthesis Tutorial"},
+        ],
+        "Friday": [
+            {"time":"08:00-08:50","course":"Phys2208","title":"Applied Modern Physics"},
+            {"time":"10:00-10:50","course":"ECEg3201","title":"Digital Logic Design"},
+            {"time":"14:00-15:50","course":"LART2002","title":"General Psychology and Life Skills"},
+        ],
+    },
+}
+
+GROUP_TO_SECTION = {g: meta["section"] for g, meta in SCHEDULE_META["groups"].items()}
+
 
 
 def course_display(code):
@@ -2636,6 +2740,57 @@ def get_subs():
     return jsonify([c for c, users in (subs or {}).items() if uid in users]), 200
 
 
+# ==========================================================================
+#  SCHEDULE API + GROUP PREFERENCES
+# ==========================================================================
+def _schedule_labs_for_day(day):
+    labs = []
+    for section, days in CLASS_SCHEDULE.items():
+        for item in days.get(day, []):
+            if item.get("kind") == "lab":
+                group = item.get("group")
+                paired = SCHEDULE_META["groups"].get(group, {}).get("paired_group")
+                labs.append({
+                    "section": section, "group": group, "paired_group": paired,
+                    "time": item["time"], "course": item["course"], "title": item["title"]
+                })
+    return labs
+
+
+@app.route('/api/schedule', methods=['GET'])
+def api_schedule():
+    user = get_auth_user()
+    uid = str(user["id"]) if user else None
+    prefs = load_json(SCHEDULE_PREFS_FILE) if uid else {}
+    group = prefs.get(uid, {}).get("group") if isinstance(prefs, dict) else None
+    return jsonify({
+        "meta": SCHEDULE_META,
+        "sections": CLASS_SCHEDULE,
+        "labs": {day: _schedule_labs_for_day(day) for day in ["Monday","Tuesday","Wednesday","Thursday","Friday"]},
+        "selected_group": group,
+        "timezone": "Africa/Addis_Ababa",
+        "notification_time": "07:00",
+    }), 200
+
+
+@app.route('/api/schedule/preference', methods=['POST'])
+def api_schedule_preference():
+    user = get_auth_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    group = str(body.get("group", "")).upper().strip()
+    if group not in GROUP_TO_SECTION:
+        return jsonify({"error": "Choose a valid group (G1-G6)."}), 400
+    uid = str(user["id"])
+    def mutator(data):
+        data[uid] = {"group": group, "updated_at": _now_iso()}
+        return True
+    if update_json(SCHEDULE_PREFS_FILE, mutator) is None:
+        return jsonify({"error": "Could not save your group."}), 500
+    return jsonify({"status": "success", "group": group, "section": GROUP_TO_SECTION[group]}), 200
+
+
 @app.route('/api/favorites', methods=['GET'])
 def get_favorites():
     user = get_auth_user()
@@ -4163,6 +4318,90 @@ def api_save_suggested_video():
     except Exception:
         log.warning("subscriber notify after save_suggested_video failed")
     return jsonify({"status": "saved", "title": clean_title}), 200
+
+
+# ==========================================================================
+#  WEEKDAY LAB REMINDERS
+#  Sends a personalized 07:00 EAT reminder Monday-Friday. Users choose G1-G6
+#  in the Mini App; the paired group is explicitly shown as FREE during the lab.
+# ==========================================================================
+try:
+    from zoneinfo import ZoneInfo
+    EAT = ZoneInfo("Africa/Addis_Ababa")
+except Exception:
+    EAT = None
+
+
+def _weekday_lab_message(group, day):
+    meta = SCHEDULE_META["groups"][group]
+    section = meta["section"]
+    paired = meta["paired_group"]
+    labs = [x for x in _schedule_labs_for_day(day) if x["group"] in (group, paired)]
+    my_lab = next((x for x in labs if x["group"] == group), None)
+    paired_lab = next((x for x in labs if x["group"] == paired), None)
+    if my_lab:
+        text = (
+            f"📅 <b>{day} Lab Reminder</b>\n\n"
+            f"🎓 <b>Year III · Semester I</b>\n"
+            f"🏫 <b>{section}</b> · <b>{group}</b> · {meta['room']}\n\n"
+            f"🧪 <b>YOUR GROUP HAS LAB</b>\n"
+            f"📚 {escape_md(my_lab['course'])} — {escape_md(my_lab['title'])}\n"
+            f"⏰ <b>{my_lab['time']}</b>\n\n"
+            f"🆓 <b>{paired} is FREE during this lab.</b>"
+        )
+    elif paired_lab:
+        text = (
+            f"📅 <b>{day} Lab Reminder</b>\n\n"
+            f"🎓 <b>Year III · Semester I</b>\n"
+            f"🏫 <b>{section}</b> · <b>{group}</b> · {meta['room']}\n\n"
+            f"🆓 <b>YOUR GROUP IS FREE</b> during the paired lab.\n"
+            f"🧪 {paired} has lab: {escape_md(paired_lab['course'])} — {escape_md(paired_lab['title'])}\n"
+            f"⏰ <b>{paired_lab['time']}</b>"
+        )
+    else:
+        text = (
+            f"📅 <b>{day} Schedule</b>\n\n"
+            f"🎓 <b>Year III · Semester I</b>\n"
+            f"🏫 <b>{section}</b> · <b>{group}</b> · {meta['room']}\n\n"
+            f"✅ <b>No group lab today.</b>\n"
+            f"Check the Schedule section in the portal for today's classes."
+        )
+    return text
+
+
+def _send_weekday_schedule_reminders():
+    prefs = load_json(SCHEDULE_PREFS_FILE) or {}
+    if not isinstance(prefs, dict):
+        return
+    now = datetime.now(EAT) if EAT else datetime.now()
+    day = now.strftime("%A")
+    if day not in {"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"}:
+        return
+    recipients = {}
+    for uid, pref in prefs.items():
+        group = str((pref or {}).get("group", "")).upper()
+        if group in GROUP_TO_SECTION:
+            recipients.setdefault(group, []).append(uid)
+    for group, uids in recipients.items():
+        enqueue_notify(uids, _weekday_lab_message(group, day))
+
+
+def _schedule_reminder_worker():
+    last_key = None
+    while True:
+        try:
+            now = datetime.now(EAT) if EAT else datetime.now()
+            key = now.strftime("%Y-%m-%d %H:%M")
+            # 07:00 Africa/Addis_Ababa, Monday-Friday.
+            if now.weekday() < 5 and now.hour == 7 and now.minute == 0 and key != last_key:
+                last_key = key
+                _send_weekday_schedule_reminders()
+        except Exception:
+            log.exception("Schedule reminder worker failed")
+        time.sleep(20)
+
+
+threading.Thread(target=_schedule_reminder_worker, daemon=True, name="schedule-reminders").start()
 
 
 # ==========================================================================
