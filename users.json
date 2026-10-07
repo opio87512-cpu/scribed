@@ -251,5 +251,16 @@
         "last_active": "2026-10-03T15:09:43",
         "active": true,
         "source": "webapp"
+    },
+    "6347883292": {
+        "user_id": "6347883292",
+        "username": "milkesa_tesema",
+        "first_name": "MilKii",
+        "last_name": "",
+        "full_name": "MilKii",
+        "joined_at": "2026-10-07T06:09:39",
+        "last_active": "2026-10-07T06:09:39",
+        "active": true,
+        "source": "bot"
     }
 }
