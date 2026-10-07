@@ -262,5 +262,16 @@
         "last_active": "2026-10-07T06:09:50",
         "active": true,
         "source": "webapp"
+    },
+    "8258701380": {
+        "user_id": "8258701380",
+        "username": "Betifrom49",
+        "first_name": "Octal",
+        "last_name": "",
+        "full_name": "Octal",
+        "joined_at": "2026-10-07T06:58:42",
+        "last_active": "2026-10-07T06:58:42",
+        "active": true,
+        "source": "bot"
     }
 }
