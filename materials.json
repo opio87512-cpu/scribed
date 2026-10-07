@@ -306,5 +306,23 @@
             "date_added": "Oct 07, 2026 - 14:50",
             "opens": 0
         }
+    ],
+    "Phys2208_note": [
+        {
+            "file_id": "BQACAgQAAxkBAAIHDGrGXW5Rsn1OO-J9o7dQ27tAnFmjAAKnKQAC8usZUqrPNFMIuN6QPQQ",
+            "name": "Applied physics main book - Concepts_of_Modern_Physics_by_Beiser.pdf",
+            "content_type": "document",
+            "title": "Applied physics main book",
+            "date_added": "Oct 07, 2026 - 14:56",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIHDWrGXW7nWAvYzWKiQ4Z0VXD21RoTAAKpKQAC8usZUr7e6fL88u3iPQQ",
+            "name": "Applied physics main book - solution-manual-of-physics-by-beiser.pdf",
+            "content_type": "document",
+            "title": "Applied physics main book",
+            "date_added": "Oct 07, 2026 - 14:56",
+            "opens": 0
+        }
     ]
 }
