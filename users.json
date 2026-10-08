@@ -273,5 +273,16 @@
         "last_active": "2026-10-07T06:58:42",
         "active": true,
         "source": "bot"
+    },
+    "1886461106": {
+        "user_id": "1886461106",
+        "username": "Nahumm",
+        "first_name": "NAHOM",
+        "last_name": "",
+        "full_name": "NAHOM",
+        "joined_at": "2026-10-08T09:46:16",
+        "last_active": "2026-10-08T09:46:16",
+        "active": true,
+        "source": "bot"
     }
 }
