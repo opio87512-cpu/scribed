@@ -2769,7 +2769,7 @@ def api_schedule():
         "labs": {day: _schedule_labs_for_day(day) for day in ["Monday","Tuesday","Wednesday","Thursday","Friday"]},
         "selected_group": group,
         "timezone": "Africa/Addis_Ababa",
-        "notification_time": "07:00",
+        "notification_time": "07:30",
     }), 200
 
 
@@ -4322,7 +4322,7 @@ def api_save_suggested_video():
 
 # ==========================================================================
 #  WEEKDAY LAB REMINDERS
-#  Sends a personalized 07:00 EAT reminder Monday-Friday. Users choose G1-G6
+#  Sends a personalized 07:30 EAT reminder Monday-Friday. Users choose G1-G6
 #  in the Mini App; the paired group is explicitly shown as FREE during the lab.
 # ==========================================================================
 try:
@@ -4333,40 +4333,56 @@ except Exception:
 
 
 def _weekday_lab_message(group, day):
+    """Build the complete daily class timetable for a student's selected group."""
     meta = SCHEDULE_META["groups"][group]
     section = meta["section"]
     paired = meta["paired_group"]
+    items = CLASS_SCHEDULE.get(section, {}).get(day, [])
     labs = [x for x in _schedule_labs_for_day(day) if x["group"] in (group, paired)]
     my_lab = next((x for x in labs if x["group"] == group), None)
     paired_lab = next((x for x in labs if x["group"] == paired), None)
-    if my_lab:
-        text = (
-            f"📅 <b>{day} Lab Reminder</b>\n\n"
-            f"🎓 <b>Year III · Semester I</b>\n"
-            f"🏫 <b>{section}</b> · <b>{group}</b> · {meta['room']}\n\n"
-            f"🧪 <b>YOUR GROUP HAS LAB</b>\n"
-            f"📚 {escape_md(my_lab['course'])} — {escape_md(my_lab['title'])}\n"
-            f"⏰ <b>{my_lab['time']}</b>\n\n"
-            f"🆓 <b>{paired} is FREE during this lab.</b>"
-        )
-    elif paired_lab:
-        text = (
-            f"📅 <b>{day} Lab Reminder</b>\n\n"
-            f"🎓 <b>Year III · Semester I</b>\n"
-            f"🏫 <b>{section}</b> · <b>{group}</b> · {meta['room']}\n\n"
-            f"🆓 <b>YOUR GROUP IS FREE</b> during the paired lab.\n"
-            f"🧪 {paired} has lab: {escape_md(paired_lab['course'])} — {escape_md(paired_lab['title'])}\n"
-            f"⏰ <b>{paired_lab['time']}</b>"
-        )
+
+    lines = [
+        f"📅 <b>{day.upper()} CLASS SCHEDULE</b>",
+        "",
+        "🎓 <b>Year III · Semester I</b>",
+        f"🏫 <b>{section}</b> · <b>{group}</b> · {meta['room']}",
+        "",
+        "📚 <b>Today's Classes</b>",
+    ]
+    if items:
+        for item in sorted(items, key=lambda x: x.get("time", "")):
+            is_lab = item.get("kind") == "lab"
+            # Lab entries belong only to the named group; the paired group sees the free status below.
+            if is_lab and item.get("group") != group:
+                continue
+            label = "🧪" if is_lab else "📖"
+            lines.append(
+                f"{label} <b>{item['time']}</b> — "
+                f"{escape_md(item.get('course', ''))}: {escape_md(item.get('title', ''))}"
+            )
     else:
-        text = (
-            f"📅 <b>{day} Schedule</b>\n\n"
-            f"🎓 <b>Year III · Semester I</b>\n"
-            f"🏫 <b>{section}</b> · <b>{group}</b> · {meta['room']}\n\n"
-            f"✅ <b>No group lab today.</b>\n"
-            f"Check the Schedule section in the portal for today's classes."
-        )
-    return text
+        lines.append("No classes are listed for today.")
+
+    lines.append("")
+    if my_lab:
+        lines.extend([
+            "🧪 <b>YOUR GROUP HAS LAB</b>",
+            f"📚 {escape_md(my_lab['course'])} — {escape_md(my_lab['title'])}",
+            f"⏰ <b>{my_lab['time']}</b>",
+            f"🆓 <b>{paired} is free during your lab.</b>",
+        ])
+    elif paired_lab:
+        lines.extend([
+            f"🆓 <b>{group} is free during {paired}'s lab.</b>",
+            f"🧪 {paired}: {escape_md(paired_lab['course'])} — {escape_md(paired_lab['title'])}",
+            f"⏰ <b>{paired_lab['time']}</b>",
+        ])
+    else:
+        lines.append("ℹ️ No group lab is scheduled for your group or its paired group today.")
+
+    lines.extend(["", "📲 Open @astuece2026_bot for the full timetable and updates."])
+    return "\n".join(lines)
 
 
 def _send_weekday_schedule_reminders():
@@ -4392,8 +4408,8 @@ def _schedule_reminder_worker():
         try:
             now = datetime.now(EAT) if EAT else datetime.now()
             key = now.strftime("%Y-%m-%d %H:%M")
-            # 07:00 Africa/Addis_Ababa, Monday-Friday.
-            if now.weekday() < 5 and now.hour == 7 and now.minute == 0 and key != last_key:
+            # 07:30 Africa/Addis_Ababa, Monday-Friday.
+            if now.weekday() < 5 and now.hour == 7 and now.minute == 30 and key != last_key:
                 last_key = key
                 _send_weekday_schedule_reminders()
         except Exception:
