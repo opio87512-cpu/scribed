@@ -324,5 +324,55 @@
             "date_added": "Oct 07, 2026 - 14:56",
             "opens": 0
         }
+    ],
+    "LART2002_note": [
+        {
+            "file_id": "BQACAgQAAxkBAAIHP2rIRQABYHrYvfujZzcMUIYUNv13nwACPSQAAmgrQFJuYnITO9eHrD0E",
+            "name": "Psychology lecture note - Chapter 2.pptx",
+            "content_type": "document",
+            "title": "Psychology lecture note",
+            "date_added": "Oct 09, 2026 - 01:38",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIHQGrIRQABGeoHoPIUoNjcK1DmniTmuQACPiQAAmgrQFK7qmCQdqVvHz0E",
+            "name": "Psychology lecture note - Chapter 3.pptx",
+            "content_type": "document",
+            "title": "Psychology lecture note",
+            "date_added": "Oct 09, 2026 - 01:38",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIHQWrIRQABnKWUlJAyJECUMxub20r_-wACPyQAAmgrQFJWFju7A8Me7T0E",
+            "name": "Psychology lecture note - Chapter 4.pptx",
+            "content_type": "document",
+            "title": "Psychology lecture note",
+            "date_added": "Oct 09, 2026 - 01:38",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIHQmrIRQABmgRfuyuqGvLNB-o2ZSW7YAACQCQAAmgrQFKL7t6R7Zw5qD0E",
+            "name": "Psychology lecture note - Chapter 5.pptx",
+            "content_type": "document",
+            "title": "Psychology lecture note",
+            "date_added": "Oct 09, 2026 - 01:38",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIHQ2rIRQABX-y3_AdmOFXAdd8EKY7L-wACQSQAAmgrQFJXMzPzmBd2Zj0E",
+            "name": "Psychology lecture note - Chapter 6.pptx",
+            "content_type": "document",
+            "title": "Psychology lecture note",
+            "date_added": "Oct 09, 2026 - 01:38",
+            "opens": 0
+        },
+        {
+            "file_id": "BQACAgQAAxkBAAIHRGrIRQABz5_6pVoX2wX1Fe8eFQPk2AACRSQAAmgrQFJseCHp3Hb5mT0E",
+            "name": "Psychology lecture note - Chapter 1.pptx",
+            "content_type": "document",
+            "title": "Psychology lecture note",
+            "date_added": "Oct 09, 2026 - 01:38",
+            "opens": 0
+        }
     ]
 }
