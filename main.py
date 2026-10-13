@@ -3345,9 +3345,9 @@ def _embed_texts(texts):
 #           3) Gemini + Google Search (finds real links, checked one by one)
 #  Every candidate is scored against the PDF's own key terms, then re-ordered by the AI.
 # ==========================================================================
-VIDEO_CACHE_VERSION = 9
+VIDEO_CACHE_VERSION = 10
 VIDEO_BUDGET = int(os.environ.get("VIDEO_BUDGET_SECONDS", "45"))   # max seconds per new PDF
-YT_QUERIES = 3                          # YouTube API searches per PDF (100 quota units each)
+YT_QUERIES = 3                          # Keep quota bounded; target the best chapter/topic queries
 VIDEO_GOOGLE_API_KEY = os.environ.get("VIDEO_GOOGLE_API_KEY") or GOOGLE_API_KEY
 VIDEO_SEARCH_MODEL = os.environ.get("VIDEO_SEARCH_MODEL", "gemini-2.5-flash")
 REL_FULL = 3.0                          # matching ~3 key terms in a title = 100% relevance
@@ -4004,8 +4004,9 @@ def _rank_with_ai(title, topics, top, discipline="", topic=""):
     return order, reason
 
 
-def _find_videos(course, item, pages, deadline):
+def _find_videos(course, item, pages, deadline, user_query=""):
     title = str(item.get("name") or "Untitled")[:150]
+    user_query = re.sub(r"\s+", " ", str(user_query or "")).strip()[:180]
     try:
         course_name = course_display(course)
     except Exception:
@@ -4014,7 +4015,7 @@ def _find_videos(course, item, pages, deadline):
     prof_text = (f"Document title: {title}\nCourse: {course_name}\n"
                  f"Headings: {' ; '.join(prof['headings']) or '-'}\n"
                  f"Key terms: {', '.join(prof['keywords']) or '-'}\n\n"
-                 "Excerpts:\n" + "\n---\n".join(prof["excerpts"]))
+                 "Excerpts:\n" + "\n---\n".join(prof["excerpts"]) + ("\n\nSTUDENT REQUEST (prioritize this topic/chapter): " + user_query if user_query else ""))
 
     plan = {}
     try:
@@ -4032,7 +4033,21 @@ def _find_videos(course, item, pages, deadline):
     queries = _safe_queries([str(q).strip()[:100] for q in (plan.get("queries") or []) if str(q).strip()],
                             prof, discipline, topic)
     if not topics:
-        topics = [h for h in prof["headings"][:4]] or ([topic] if topic else [])
+        topics = [h for h in prof["headings"][:6]] or ([topic] if topic else [])
+    # A student's explicit request always wins. Otherwise, derive focused searches from
+    # actual PDF headings so multi-chapter documents do not collapse into cover-page noise.
+    if user_query:
+        requested = _edu_query(user_query + " university lecture tutorial", discipline)
+        if requested:
+            queries = [requested] + [q for q in queries if q.lower() != requested.lower()]
+    else:
+        heading_queries = []
+        for heading in prof["headings"][:6]:
+            q = _edu_query(heading + " lecture tutorial", discipline)
+            if q and q.lower() not in {x.lower() for x in heading_queries}:
+                heading_queries.append(q)
+        queries = heading_queries + [q for q in queries if q.lower() not in {x.lower() for x in heading_queries}]
+    queries = list(dict.fromkeys(q for q in queries if q))[:5]
 
     weights = {w: v * 0.7 for w, v in prof["weights"].items()}
     for w in _stems(" ".join(topics + terms)):
@@ -4169,10 +4184,11 @@ def _find_videos(course, item, pages, deadline):
     return {
         "v": VIDEO_CACHE_VERSION, "topics": topics[:5], "items": items, "overall": overall,
         "reason": reason if items else "", "note": note,
-        # last resort only: nothing could be found at all
-        "searches": [] if items else [
+        # Always expose direct chapter/topic searches as a fallback and as extra choices.
+        # These links work even when the API quota is exhausted or no candidate passes ranking.
+        "searches": [
             {"query": q, "url": "https://www.youtube.com/results?search_query=" + quote_plus(q)}
-            for q in queries[:3]],
+            for q in queries[:5]],
     }
 
 
@@ -4202,30 +4218,34 @@ def api_pdf_videos():
     except PdfAIError as e:
         return jsonify({"error": e.message}), e.status
 
+    user_query = re.sub(r"\s+", " ", str(body.get("query") or "")).strip()[:180]
     cache_path = os.path.join(PDF_TEXT_DIR, key + ".videos.json")
-    hit = _read_video_cache(cache_path)
+    # Only cache the automatic PDF-wide search. User questions are specific and must not
+    # accidentally receive another student's chapter/topic results.
+    hit = _read_video_cache(cache_path) if not user_query else None
     if hit:
         return jsonify(hit), 200
 
-    # One search per PDF at a time: a second student waits and then reads the saved result.
+    # One automatic search per PDF at a time; topic-specific chat searches are independent.
     with _vid_lock(key):
-        hit = _read_video_cache(cache_path)
+        hit = _read_video_cache(cache_path) if not user_query else None
         if hit:
             return jsonify(hit), 200
         err = ai_rate_check(user, "video")
         if err:
             return jsonify({"error": err}), 429
         try:
-            data = _find_videos(course, item, pages, time.time() + VIDEO_BUDGET)
+            data = _find_videos(course, item, pages, time.time() + VIDEO_BUDGET, user_query=user_query)
         except Exception:
             log.exception("video finder crashed")
             return jsonify({"error": "Couldn't search for videos right now. Please try again."}), 500
-        ttl = VIDEO_CACHE_TTL if data["items"] else 3600      # retry sooner if nothing was found
-        try:
-            with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump({"ts": time.time(), "ttl": ttl, "data": data}, f)
-        except OSError:
-            pass
+        if not user_query:
+            ttl = VIDEO_CACHE_TTL if data["items"] else 3600  # retry sooner if nothing was found
+            try:
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump({"ts": time.time(), "ttl": ttl, "data": data}, f)
+            except OSError:
+                pass
     return jsonify(data), 200
 
 
