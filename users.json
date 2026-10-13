@@ -317,5 +317,16 @@
         "last_active": "2026-10-13T10:40:41",
         "active": true,
         "source": "webapp"
+    },
+    "8275061796": {
+        "user_id": "8275061796",
+        "username": "beraADMC",
+        "first_name": "Cherenet",
+        "last_name": "Eshetu",
+        "full_name": "Cherenet Eshetu",
+        "joined_at": "2026-10-13T10:54:48",
+        "last_active": "2026-10-13T10:54:48",
+        "active": true,
+        "source": "bot"
     }
 }
