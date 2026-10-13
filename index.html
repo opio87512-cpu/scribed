@@ -953,6 +953,8 @@
                 <button type="button" class="pai-x" onclick="paiToggle(false)" aria-label="Close videos panel"><i class="fa-solid fa-chevron-down"></i></button>
             </div>
             <div id="paiVid" class="pai-pane">
+                <div id="paiChatLog" class="pai-chat" aria-live="polite"><div class="pai-msg bot">I can find the best lecture video or playlist for this PDF. Ask for a chapter or topic, or leave the box empty and I’ll search the document.</div></div>
+                <form id="paiChatForm" class="pai-input"><input id="paiChatInput" type="text" maxlength="180" placeholder="e.g. Chapter 2: Fourier series" autocomplete="off"><button id="paiChatSend" type="submit" aria-label="Find videos"><i class="fa-solid fa-paper-plane"></i></button></form>
                 <div id="paiVidList" class="pai-vids"></div>
             </div>
         </div>
@@ -2375,6 +2377,8 @@
             pvEl('pdf-ai-panel').hidden = true;
             pvEl('pdf-ai-fab').style.display = 'none';
             pvEl('paiVidList').innerHTML = '';
+            if (pvEl('paiChatLog')) pvEl('paiChatLog').innerHTML = '<div class="pai-msg bot">I can find the best lecture video or playlist for this PDF. Ask for a chapter or topic, or leave the box empty and I’ll search the document.</div>';
+            if (pvEl('paiChatInput')) pvEl('paiChatInput').value = '';
         }
 
         window.paiToggle = function(force) {
@@ -2438,42 +2442,64 @@
                     : note === 'strict' ? 'No educational video reached even the conceptual-match threshold (70%) for this PDF\'s discipline. Off-topic and entertainment results are always discarded; use the academic searches below.'
                     : 'No matching lecture was found for this PDF. Off-topic results were filtered out.';
                 h += '<div class="pai-note">' + esc(msg) + '</div>';
-                if (searches.length) {
-                    h += '<div class="pai-sub">Search YouTube instead</div>';
-                    searches.forEach(function(q) {
-                        h += '<div class="pai-search" data-url="' + esc(q.url) + '"><i class="fa-brands fa-youtube"></i><span>' + esc(q.query) + '</span></div>';
-                    });
-                }
+            }
+            if (searches.length) {
+                h += '<div class="pai-sub">' + (items.length ? 'More chapter / topic searches' : 'Search YouTube instead') + '</div>';
+                searches.forEach(function(q) {
+                    h += '<div class="pai-search" data-url="' + esc(q.url) + '"><i class="fa-brands fa-youtube"></i><span>' + esc(q.query) + '</span></div>';
+                });
             }
             list.innerHTML = h;
         }
 
-        async function paiLoadVideos() {
+        function paiChatMessage(message, who) {
+            const log = pvEl('paiChatLog');
+            const el = document.createElement('div');
+            el.className = 'pai-msg ' + (who || 'bot');
+            el.textContent = message;
+            log.appendChild(el);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        async function paiLoadVideos(userQuery) {
             const ref = pai.ref;
             if (!ref || pai.vidBusy) return;
-            const key = ref.course + '/' + ref.type + '/' + ref.idx;
-            if (pai.videosFor === key) return;
             const list = pvEl('paiVidList');
+            const send = pvEl('paiChatSend');
             pai.vidBusy = true;
-            list.innerHTML = '<div class="pai-note"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the PDF and checking videos (up to 45 seconds)...</div>';
+            send.disabled = true;
+            list.innerHTML = '<div class="pai-note"><i class="fa-solid fa-circle-notch fa-spin"></i> Finding relevant lectures and playlists (this may take up to 45 seconds)...</div>';
             try {
                 const res = await api('/api/pdf_videos', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ course: ref.course, type: ref.type, idx: ref.idx })
+                    body: JSON.stringify({ course: ref.course, type: ref.type, idx: ref.idx, query: userQuery || '' })
                 });
                 const data = await res.json();
                 if (pai.ref !== ref) return;
-                pai.videosFor = key;
                 paiRenderVideos(list, data);
+                if (data.error) paiChatMessage(data.error, 'err');
+                else if (data.items && data.items.length) paiChatMessage('Found ' + data.items.length + ' relevant result(s). The best match is shown first. Open a result to watch it on YouTube.', 'bot');
+                else paiChatMessage('I could not verify a strong direct match. Use the chapter-specific YouTube search links below, or ask with a different chapter title.', 'bot');
             } catch (e) {
                 if (pai.ref !== ref) return;
-                list.innerHTML = '<div class="pai-note err">\u26A0\uFE0F ' + esc(e.message || 'Could not load suggestions.') + '</div>'
+                list.innerHTML = '<div class="pai-note err">⚠️ ' + esc(e.message || 'Could not load suggestions.') + '</div>'
                     + '<button type="button" class="pai-retry" onclick="paiLoadVideos()">Try again</button>';
+                paiChatMessage(e.message || 'Could not load suggestions. Please try again.', 'err');
             } finally {
-                if (pai.ref === ref) pai.vidBusy = false;
+                if (pai.ref === ref) { pai.vidBusy = false; send.disabled = false; }
             }
         }
+
+        pvEl('paiChatForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const input = pvEl('paiChatInput');
+            const q = (input.value || '').trim();
+            if (pai.vidBusy) return;
+            if (q) paiChatMessage(q, 'user');
+            input.value = '';
+            paiLoadVideos(q);
+        });
 
         pvEl('paiVidList').addEventListener('click', function(e) {
             const el = e.target.closest('[data-url]');
