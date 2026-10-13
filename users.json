@@ -350,5 +350,16 @@
         "last_active": "2026-10-13T17:56:00",
         "active": true,
         "source": "webapp"
+    },
+    "996190304": {
+        "user_id": "996190304",
+        "username": "yeabtsega_hw",
+        "first_name": "Yeabtsega",
+        "last_name": "",
+        "full_name": "Yeabtsega",
+        "joined_at": "2026-10-13T18:43:37",
+        "last_active": "2026-10-13T18:43:37",
+        "active": true,
+        "source": "bot"
     }
 }
