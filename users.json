@@ -339,5 +339,16 @@
         "last_active": "2026-10-13T10:57:24",
         "active": true,
         "source": "webapp"
+    },
+    "6505123260": {
+        "user_id": "6505123260",
+        "username": "yorsaka",
+        "first_name": "\ud835\udde6\ud835\uddee\ud835\uddf8\ud835\uddee",
+        "last_name": "",
+        "full_name": "\ud835\udde6\ud835\uddee\ud835\uddf8\ud835\uddee",
+        "joined_at": "2026-10-13T17:36:38",
+        "last_active": "2026-10-13T17:36:38",
+        "active": true,
+        "source": "bot"
     }
 }
