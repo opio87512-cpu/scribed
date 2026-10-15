@@ -416,5 +416,16 @@
         "last_active": "2026-10-15T05:03:13",
         "active": true,
         "source": "webapp"
+    },
+    "8442002898": {
+        "user_id": "8442002898",
+        "username": "Take_risk11",
+        "first_name": "@$#",
+        "last_name": "\u00a3%\u20ac\u00a3\u00a9",
+        "full_name": "@$# \u00a3%\u20ac\u00a3\u00a9",
+        "joined_at": "2026-10-15T05:22:46",
+        "last_active": "2026-10-15T05:22:46",
+        "active": true,
+        "source": "bot"
     }
 }
