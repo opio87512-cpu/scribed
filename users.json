@@ -405,5 +405,16 @@
         "last_active": "2026-10-15T04:51:49",
         "active": true,
         "source": "bot"
+    },
+    "917133501": {
+        "user_id": "917133501",
+        "username": "kkktbk",
+        "first_name": "...",
+        "last_name": "",
+        "full_name": "...",
+        "joined_at": "2026-10-15T05:02:51",
+        "last_active": "2026-10-15T05:02:51",
+        "active": true,
+        "source": "bot"
     }
 }
