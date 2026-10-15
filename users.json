@@ -413,8 +413,8 @@
         "last_name": "",
         "full_name": "...",
         "joined_at": "2026-10-15T05:02:51",
-        "last_active": "2026-10-15T05:02:51",
+        "last_active": "2026-10-15T05:03:13",
         "active": true,
-        "source": "bot"
+        "source": "webapp"
     }
 }
