@@ -427,5 +427,16 @@
         "last_active": "2026-10-15T05:23:22",
         "active": true,
         "source": "webapp"
+    },
+    "1953661029": {
+        "user_id": "1953661029",
+        "username": "Yidi127",
+        "first_name": "\u00dd\u00ec\u0111\u00ec",
+        "last_name": "\u0111\u00ec\u00fd\u00e6",
+        "full_name": "\u00dd\u00ec\u0111\u00ec \u0111\u00ec\u00fd\u00e6",
+        "joined_at": "2026-10-15T06:02:23",
+        "last_active": "2026-10-15T06:02:23",
+        "active": true,
+        "source": "bot"
     }
 }
