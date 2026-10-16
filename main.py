@@ -2454,7 +2454,7 @@ def _cache_pdf(file_id):
     return path
 
 
-@app.route('/api/serve_pdf/<course_code>/<mat_type>/<int:idx>', methods=['GET'])
+@app.route('/api/serve_pdf/<course_code>/<mat_type>/<int:idx>', methods=['GET', 'HEAD'])
 def serve_pdf(course_code, mat_type, idx):
     """Authenticated document proxy used by the in-app PDF/DOCX/PPTX viewers."""
     init_data = request.headers.get("X-Telegram-Init-Data") or request.args.get("initData")
@@ -2470,16 +2470,31 @@ def serve_pdf(course_code, mat_type, idx):
     if not file_id:
         return jsonify({"error": "Invalid file record"}), 400
 
-    filename = os.path.basename(item.get("file_name") or item.get("name") or "document.pdf")
-    ext = os.path.splitext(filename)[1].lower()
+    filename = os.path.basename(item.get("file_name") or item.get("name") or "")
     supported = {
         ".pdf": "application/pdf",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         ".ppt": "application/vnd.ms-powerpoint",
     }
+    # Resolve the original Telegram filename too: some older portal records only
+    # store a display title (without .pdf/.docx/.pptx), which caused Office files
+    # to be misidentified as PDFs by the frontend.
+    try:
+        telegram_info = bot.get_file(file_id)
+        telegram_filename = os.path.basename(getattr(telegram_info, "file_path", "") or "")
+    except Exception as e:
+        telegram_filename = ""
+        log.warning("Could not read Telegram filename for %s: %s", file_id, e)
+
+    item_ext = os.path.splitext(filename)[1].lower()
+    telegram_ext = os.path.splitext(telegram_filename)[1].lower()
+    ext = telegram_ext if telegram_ext in supported else item_ext
     if ext not in supported:
-        return jsonify({"error": "Unsupported preview format. Use PDF, DOCX or PPTX."}), 415
+        return jsonify({"error": "Unsupported preview format. Supported formats: PDF, DOCX and PPTX. Legacy .PPT files can be downloaded from the bot chat."}), 415
+    if not filename or os.path.splitext(filename)[1].lower() not in supported:
+        display_base = os.path.splitext(filename)[0] if filename else os.path.splitext(telegram_filename)[0]
+        filename = (display_base or "document") + ext
 
     try:
         path = _cache_pdf(file_id)
@@ -2502,6 +2517,7 @@ def serve_pdf(course_code, mat_type, idx):
     resp = send_file(path, mimetype=supported[ext], conditional=True, download_name=filename)
     resp.headers["Cache-Control"] = "private, max-age=3600"
     resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Document-Extension"] = ext.lstrip(".")
     return resp
 
 
