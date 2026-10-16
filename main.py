@@ -13,6 +13,7 @@ import threading
 import logging
 import html as html_lib
 import tempfile
+import mimetypes
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
@@ -2404,10 +2405,12 @@ def get_materials():
         
         for idx, item in enumerate(items):
             if item.get("content_type") == "document":
-                # Point this to our new proxy endpoint
+                # The same authenticated file proxy serves PDF, DOCX and PPTX previews.
                 item["direct_pdf_url"] = f"/api/serve_pdf/{course_code}/{mat_type}/{idx}"
+                item["file_ext"] = os.path.splitext(item.get("file_name") or item.get("name") or "")[1].lower().lstrip(".")
             else:
                 item["direct_pdf_url"] = ""
+                item["file_ext"] = ""
                 
     return jsonify(data), 200
 
@@ -2453,42 +2456,52 @@ def _cache_pdf(file_id):
 
 @app.route('/api/serve_pdf/<course_code>/<mat_type>/<int:idx>', methods=['GET'])
 def serve_pdf(course_code, mat_type, idx):
-    # 0. Only verified Telegram Mini App users may download files.
-    #    (verify_init_data directly: get_auth_user would re-register the user on every Range request)
+    """Authenticated document proxy used by the in-app PDF/DOCX/PPTX viewers."""
     init_data = request.headers.get("X-Telegram-Init-Data") or request.args.get("initData")
     if not verify_init_data(init_data):
         return jsonify({"error": "Unauthorized"}), 401
 
-    # 1. Find the file record in the database
     materials = load_json(DATA_FILE).get(f"{course_code}_{mat_type}", [])
     if idx < 0 or idx >= len(materials):
         return jsonify({"error": "File not found"}), 404
 
-    file_id = materials[idx].get("file_id")
+    item = materials[idx]
+    file_id = item.get("file_id")
     if not file_id:
         return jsonify({"error": "Invalid file record"}), 400
 
-    # 2. Fetch (or reuse) the file from Telegram
+    filename = os.path.basename(item.get("file_name") or item.get("name") or "document.pdf")
+    ext = os.path.splitext(filename)[1].lower()
+    supported = {
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".ppt": "application/vnd.ms-powerpoint",
+    }
+    if ext not in supported:
+        return jsonify({"error": "Unsupported preview format. Use PDF, DOCX or PPTX."}), 415
+
     try:
         path = _cache_pdf(file_id)
     except Exception as e:
         if "too big" in str(e).lower():
             return jsonify({"error": "File too large for the Telegram Bot API (20 MB limit)"}), 413
-        log.error(f"Failed to fetch file {file_id}: {e}")
+        log.error("Failed to fetch Telegram document %s: %s", file_id, e)
         return jsonify({"error": "Failed to fetch file from Telegram"}), 500
 
-    # 3. Refuse non-PDF documents (docx, pptx, ...) so the viewer can explain why
-    try:
-        with open(path, "rb") as f:
-            if b"%PDF-" not in f.read(1024):
-                return jsonify({"error": "Not a PDF"}), 415
-    except OSError as e:
-        log.error(f"Failed to read cached PDF: {e}")
-        return jsonify({"error": "Internal server error"}), 500
+    # PDF.js needs a genuine PDF. Office formats are parsed in the browser from their bytes.
+    if ext == ".pdf":
+        try:
+            with open(path, "rb") as f:
+                if b"%PDF-" not in f.read(1024):
+                    return jsonify({"error": "File extension says PDF, but the file is not a valid PDF."}), 415
+        except OSError as e:
+            log.error("Failed to read cached document: %s", e)
+            return jsonify({"error": "Internal server error"}), 500
 
-    # 4. conditional=True enables Range / If-Modified-Since handling
-    resp = send_file(path, mimetype="application/pdf", conditional=True)
+    resp = send_file(path, mimetype=supported[ext], conditional=True, download_name=filename)
     resp.headers["Cache-Control"] = "private, max-age=3600"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
 
 
