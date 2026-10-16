@@ -10,9 +10,9 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <!-- PDF.js: PDF documents -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <!-- Browser-based Office document previews (files stay in the user's browser) -->
-    <script src="https://unpkg.com/docx-preview@0.3.6/dist/docx-preview.min.js"></script>
+    <!-- Office previews: JSZip must load before the document renderers. -->
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://unpkg.com/docx-preview@0.3.6/dist/docx-preview.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pptxviewjs/dist/PptxViewJS.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
@@ -2357,14 +2357,28 @@
             }
         }
 
-        function pvOpen(url, fileName) {
+        let pvOpenToken = 0;
+        async function pvOpen(url, fileName) {
             let finalUrl = url, own = false;
             if (url && url.startsWith('/api/')) { finalUrl = RENDER_URL + url; own = true; }
             else if (url && url.startsWith(RENDER_URL)) own = true;
 
             pvFileName = pvFindFilename(url, fileName).split(/[?#]/)[0];
-            pvOfficeExt = ((pvFileName.match(/\.([a-z0-9]+)$/i) || [])[1] || 'pdf').toLowerCase();
-            if (!['pdf', 'docx', 'pptx', 'ppt'].includes(pvOfficeExt)) pvOfficeExt = 'pdf';
+            pvOfficeExt = ((pvFileName.match(/\.([a-z0-9]+)$/i) || [])[1] || '').toLowerCase();
+            const token = ++pvOpenToken;
+            // Ask the authenticated endpoint for the real file type. Some older material records
+            // have a display title without an extension, so guessing from the title breaks DOCX/PPTX.
+            if (own && INIT_DATA) {
+                try {
+                    const meta = await fetch(finalUrl, { method: 'HEAD', headers: { 'X-Telegram-Init-Data': INIT_DATA } });
+                    const serverExt = (meta.headers.get('X-Document-Extension') || '').toLowerCase().replace(/^\./, '');
+                    if (serverExt) pvOfficeExt = serverExt;
+                } catch (e) { console.warn('Could not detect document type from server headers:', e); }
+            }
+            if (token !== pvOpenToken) return;
+            if (!['pdf', 'docx', 'pptx', 'ppt'].includes(pvOfficeExt)) {
+                pvOfficeExt = 'pdf';
+            }
             const viewer = pvEl('pdf-viewer-view');
             viewer.classList.toggle('office-mode', pvOfficeExt !== 'pdf');
             pvEl('office-docx-host').style.display = 'none';
@@ -2375,7 +2389,7 @@
             pvEl('office-pptx-canvas').width = 1;
             pvEl('office-pptx-canvas').height = 1;
             pvEl('office-controls').style.display = 'none';
-            if (pvOfficeViewer) { try { pvOfficeViewer = null; } catch (_) {} }
+            if (pvOfficeViewer) { try { if (pvOfficeViewer.destroy) pvOfficeViewer.destroy(); pvOfficeViewer = null; } catch (_) {} }
 
             const activeSection = document.querySelector('.section.active');
             if (activeSection) activeSection.style.display = 'none';
