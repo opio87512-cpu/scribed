@@ -8,8 +8,12 @@
     <meta http-equiv="Expires" content="0">
     <title>ASTU ECE Portal</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- PDF.js Library added here -->
+    <!-- PDF.js: PDF documents -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Browser-based Office document previews (files stay in the user's browser) -->
+    <script src="https://unpkg.com/docx-preview@0.3.6/dist/docx-preview.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pptxviewjs/dist/PptxViewJS.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
     <!-- NEW: KaTeX for Math rendering -->
@@ -432,6 +436,23 @@
         .pdf-text ::selection { background: rgba(0, 122, 255, 0.35); }
         #pdf-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #b0b0b0; font-size: 14px; pointer-events: none; }
         #pdf-status:empty { display: none; }
+        #office-viewer-stage { display:none; flex:1; min-height:0; overflow:auto; padding:12px; background:#252525; -webkit-overflow-scrolling:touch; }
+        #office-docx-host { display:none; width:100%; max-width:100%; margin:0 auto; color:#111; }
+        #office-docx-host .docx-wrapper { background:#444 !important; padding:10px 0 !important; }
+        #office-docx-host section.docx { margin:0 auto 12px !important; box-shadow:0 3px 14px rgba(0,0,0,.4); }
+        #office-pptx-host { display:none; width:100%; max-width:100%; margin:0 auto; text-align:center; }
+        #office-pptx-canvas { display:block; width:100%; height:auto; max-height:calc(100dvh - 145px); object-fit:contain; background:#fff; margin:0 auto; box-shadow:0 3px 14px rgba(0,0,0,.4); }
+        #office-controls { display:none; align-items:center; justify-content:center; gap:12px; padding:10px; background:#2a2a2a; color:#fff; flex-shrink:0; }
+        #office-controls button { background:var(--btn-color); color:#fff; border:0; border-radius:8px; min-width:42px; height:36px; padding:0 12px; }
+        #office-status { color:#ccc; font-size:13px; min-width:85px; text-align:center; }
+        #office-message { color:#ddd; text-align:center; max-width:520px; margin:35px auto; line-height:1.6; }
+        #pdf-viewer-view.office-mode .pdf-toolbar > :not(:first-child) { display:none; }
+        #pdf-viewer-view.office-mode #pdf-searchbar,
+        #pdf-viewer-view.office-mode #pdf-canvas-wrap,
+        #pdf-viewer-view.office-mode #pdf-ai-fab,
+        #pdf-viewer-view.office-mode #pdf-ai-panel { display:none !important; }
+        #pdf-viewer-view.office-mode #office-viewer-stage { display:block; }
+        #pdf-viewer-view.office-mode #office-controls { display:flex; }
 
         .ai-math[data-display="1"] { display: block; overflow-x: auto; margin: 6px 0; }
         .ai-math .katex-display { margin: 0; }
@@ -943,6 +964,16 @@
         <div class="pdf-canvas-wrap" id="pdf-canvas-wrap">
             <div id="pdf-pages"></div>
             <div id="pdf-status"></div>
+        </div>
+        <div id="office-viewer-stage">
+            <div id="office-message" hidden></div>
+            <div id="office-docx-host"></div>
+            <div id="office-pptx-host"><canvas id="office-pptx-canvas"></canvas></div>
+        </div>
+        <div id="office-controls">
+            <button type="button" id="office-prev" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
+            <span id="office-status">Slide 1 / 1</span>
+            <button type="button" id="office-next" aria-label="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
         </div>
         <button type="button" id="pdf-ai-fab" class="pai-fab" style="display:none" onclick="paiToggle(true)"><i class="fa-brands fa-youtube"></i> Videos</button>
         <div id="pdf-ai-panel" hidden>
@@ -2272,25 +2303,42 @@
         const pvWrap = pvEl('pdf-canvas-wrap');
         const pvStatus = function(t) { pvEl('pdf-status').textContent = t || ''; };
 
-        // Tapping "Open" asks: view inside the app, or send the file to the student's bot chat
-        window.openPdf = function(url) {
+        // Open PDF, DOCX or PPTX inside the Mini App; unsupported legacy PPT can still be sent to chat.
+        let pvFileName = 'document.pdf';
+        let pvOfficeViewer = null;
+        let pvOfficeExt = 'pdf';
+
+        function pvFindFilename(url, hint) {
+            if (hint && /\.(pdf|docx|pptx|ppt)$/i.test(String(hint))) return String(hint);
+            try {
+                for (const items of Object.values(allMaterials || {})) {
+                    if (!Array.isArray(items)) continue;
+                    const found = items.find(item => item && item.direct_pdf_url === url);
+                    if (found) return found.file_name || found.name || hint || 'document.pdf';
+                }
+            } catch (_) {}
+            return hint || 'document.pdf';
+        }
+
+        window.openPdf = function(url, fileName) {
             const m = /^\/api\/serve_pdf\/([^\/]+)\/([^\/]+)\/(\d+)$/.exec(url || '');
             const wa = window.Telegram && window.Telegram.WebApp;
-            if (!m || !wa || typeof wa.showPopup !== 'function' || !wa.isVersionAtLeast('6.2')) { pvOpen(url); return; }
+            const resolvedName = pvFindFilename(url, fileName);
+            if (!m || !wa || typeof wa.showPopup !== 'function' || !wa.isVersionAtLeast('6.2')) { pvOpen(url, resolvedName); return; }
             try {
                 wa.showPopup({
                     title: 'Open file',
-                    message: 'View it here, or send it to your chat with the bot so you can download or share it.',
+                    message: 'Preview it here, or send the original file to your bot chat to download or share.',
                     buttons: [
                         { id: 'view', type: 'default', text: 'View here' },
                         { id: 'bot', type: 'default', text: 'Send to bot chat' },
                         { type: 'cancel' }
                     ]
                 }, function(id) {
-                    if (id === 'view') pvOpen(url);
+                    if (id === 'view') pvOpen(url, resolvedName);
                     else if (id === 'bot') pvSend(m[1], m[2], parseInt(m[3], 10));
                 });
-            } catch (_) { pvOpen(url); }
+            } catch (_) { pvOpen(url, resolvedName); }
         };
 
         async function pvSend(course, type, idx) {
@@ -2299,7 +2347,7 @@
                 await api('/api/send_file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ course: course, type: type, idx: idx }) });
                 wa.showPopup({
                     title: 'Sent',
-                    message: 'The file is in your chat with the bot. Open it there to download or share.',
+                    message: 'The original file is in your chat with the bot. Open it there to download or share.',
                     buttons: [{ id: 'chat', type: 'default', text: 'Go to chat' }, { id: 'stay', type: 'cancel' }]
                 }, function(id) { if (id === 'chat') wa.close(); });
             } catch (e) {
@@ -2309,24 +2357,107 @@
             }
         }
 
-        function pvOpen(url) {
+        function pvOpen(url, fileName) {
             let finalUrl = url, own = false;
             if (url && url.startsWith('/api/')) { finalUrl = RENDER_URL + url; own = true; }
             else if (url && url.startsWith(RENDER_URL)) own = true;
 
+            pvFileName = pvFindFilename(url, fileName).split(/[?#]/)[0];
+            pvOfficeExt = ((pvFileName.match(/\.([a-z0-9]+)$/i) || [])[1] || 'pdf').toLowerCase();
+            if (!['pdf', 'docx', 'pptx', 'ppt'].includes(pvOfficeExt)) pvOfficeExt = 'pdf';
+            const viewer = pvEl('pdf-viewer-view');
+            viewer.classList.toggle('office-mode', pvOfficeExt !== 'pdf');
+            pvEl('office-docx-host').style.display = 'none';
+            pvEl('office-pptx-host').style.display = 'none';
+            pvEl('office-message').hidden = true;
+            pvEl('office-message').innerHTML = '';
+            pvEl('office-docx-host').innerHTML = '';
+            pvEl('office-pptx-canvas').width = 1;
+            pvEl('office-pptx-canvas').height = 1;
+            pvEl('office-controls').style.display = 'none';
+            if (pvOfficeViewer) { try { pvOfficeViewer = null; } catch (_) {} }
+
             const activeSection = document.querySelector('.section.active');
             if (activeSection) activeSection.style.display = 'none';
-            pvEl('pdf-viewer-view').style.display = 'flex';
-
+            viewer.style.display = 'flex';
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.BackButton.offClick(defaultBackButtonAction);
                 window.Telegram.WebApp.BackButton.onClick(closePdf);
                 window.Telegram.WebApp.BackButton.show();
             }
-            pv.key = 'astu_pdfpos:' + url;
-            paiSetRef(url);
-            loadPdf(finalUrl, own);
+            pv.key = 'astu_docpos:' + url;
+            paiSetRef(pvOfficeExt === 'pdf' ? url : '');
+            if (pvOfficeExt === 'pdf') {
+                loadPdf(finalUrl, own);
+            } else {
+                loadOfficeFile(finalUrl, own, pvOfficeExt, pvFileName);
+            }
         }
+
+        async function loadOfficeFile(url, own, ext, fileName) {
+            const stage = pvEl('office-viewer-stage');
+            const message = pvEl('office-message');
+            stage.scrollTop = 0;
+            message.hidden = false;
+            message.textContent = 'Loading ' + (ext === 'docx' ? 'Word document' : 'PowerPoint presentation') + '…';
+            try {
+                const headers = {};
+                if (own && INIT_DATA) headers['X-Telegram-Init-Data'] = INIT_DATA;
+                const response = await fetch(url, { headers: headers });
+                if (!response.ok) {
+                    const err = new Error('Could not load file'); err.status = response.status; throw err;
+                }
+                const buffer = await response.arrayBuffer();
+                if (ext === 'docx') {
+                    if (!window.docx || typeof window.docx.renderAsync !== 'function') throw new Error('Word preview library did not load. Check your internet connection.');
+                    pvEl('office-docx-host').style.display = 'block';
+                    message.hidden = true;
+                    await window.docx.renderAsync(buffer, pvEl('office-docx-host'), null, {
+                        className: 'docx', inWrapper: true, ignoreWidth: false, ignoreHeight: false,
+                        breakPages: true, renderHeaders: true, renderFooters: true, renderFootnotes: true,
+                        renderEndnotes: true
+                    });
+                } else if (ext === 'pptx') {
+                    if (!window.PptxViewJS || !window.PptxViewJS.PPTXViewer) throw new Error('PowerPoint preview library did not load. Check your internet connection.');
+                    const canvas = pvEl('office-pptx-canvas');
+                    pvEl('office-pptx-host').style.display = 'block';
+                    pvOfficeViewer = new window.PptxViewJS.PPTXViewer({ canvas: canvas });
+                    const file = new File([buffer], fileName || 'presentation.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+                    await pvOfficeViewer.loadFile(file);
+                    await pvOfficeViewer.render();
+                    message.hidden = true;
+                    pvEl('office-controls').style.display = 'flex';
+                    pvOfficeUpdateControls();
+                } else {
+                    message.hidden = false;
+                    message.innerHTML = '<b>Legacy PowerPoint (.ppt) preview is not supported yet.</b><br><br>You can still use <b>Send to bot chat</b> to download the original file, or open it with Microsoft PowerPoint / LibreOffice.';
+                }
+            } catch (err) {
+                console.error('Office preview failed:', err);
+                message.hidden = false;
+                const msg = err.status === 401 ? 'Your session expired. Close and reopen the app, then try again.'
+                    : err.status === 413 ? 'This file is over Telegram’s 20 MB bot limit and cannot be previewed here.'
+                    : (err.message || 'Could not preview this file. Try sending it to the bot chat instead.');
+                message.textContent = '⚠️ ' + msg;
+            }
+        }
+
+        function pvOfficeUpdateControls() {
+            if (!pvOfficeViewer) return;
+            let current = 0, total = 1;
+            try { current = pvOfficeViewer.getCurrentSlideIndex(); total = pvOfficeViewer.getSlideCount(); } catch (_) {}
+            pvEl('office-status').textContent = 'Slide ' + (current + 1) + ' / ' + total;
+            pvEl('office-prev').disabled = current <= 0;
+            pvEl('office-next').disabled = current >= total - 1;
+        }
+        pvEl('office-prev').addEventListener('click', async function() {
+            if (!pvOfficeViewer) return;
+            try { await pvOfficeViewer.previousSlide(); pvOfficeUpdateControls(); } catch (e) { console.error(e); }
+        });
+        pvEl('office-next').addEventListener('click', async function() {
+            if (!pvOfficeViewer) return;
+            try { await pvOfficeViewer.nextSlide(); pvOfficeUpdateControls(); } catch (e) { console.error(e); }
+        });
 
         window.closePdf = function() {
             pv.searchId++;
@@ -2344,6 +2475,13 @@
             pvEl('page-count').textContent = '--';
             pvStatus('');
             pvEl('pdf-viewer-view').style.display = 'none';
+            pvEl('pdf-viewer-view').classList.remove('office-mode');
+            pvEl('office-docx-host').innerHTML = '';
+            pvEl('office-pptx-host').style.display = 'none';
+            pvEl('office-docx-host').style.display = 'none';
+            pvEl('office-controls').style.display = 'none';
+            pvEl('office-message').hidden = true;
+            pvOfficeViewer = null;
 
             const activeSection = document.querySelector('.section.active');
             if (activeSection) activeSection.style.display = 'block';
