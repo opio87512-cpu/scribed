@@ -436,8 +436,9 @@
         .pdf-text ::selection { background: rgba(0, 122, 255, 0.35); }
         #pdf-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #b0b0b0; font-size: 14px; pointer-events: none; }
         #pdf-status:empty { display: none; }
-        #office-viewer-stage { display:none; flex:1; min-height:0; overflow:auto; padding:12px; background:#252525; -webkit-overflow-scrolling:touch; }
-        #office-docx-host { display:none; width:100%; max-width:100%; margin:0 auto; color:#111; overflow-x:hidden; }
+        #office-viewer-stage { display:none; flex:1; min-height:0; overflow:auto; touch-action:pan-x pan-y; overscroll-behavior:contain; padding:12px; background:#252525; -webkit-overflow-scrolling:touch; }
+        #office-docx-host { display:none; width:100%; margin:0 auto; color:#111; overflow:hidden; }
+        #office-docx-inner { transform-origin:0 0; }
         #office-docx-host .docx-wrapper { background:#444 !important; padding:10px 0 !important; align-items:center; }
         #office-docx-host section.docx { margin:0 auto 12px !important; box-shadow:0 3px 14px rgba(0,0,0,.4); }
         #office-pptx-host { display:none; width:100%; max-width:100%; margin:0 auto; text-align:center; }
@@ -445,12 +446,18 @@
         #office-controls { display:none; align-items:center; justify-content:center; gap:12px; padding:10px; background:#2a2a2a; color:#fff; flex-shrink:0; }
         #office-controls button { background:var(--btn-color); color:#fff; border:0; border-radius:8px; min-width:42px; height:36px; padding:0 12px; }
         #office-status { color:#ccc; font-size:13px; min-width:85px; text-align:center; }
-        #office-image-host { display:none; width:100%; text-align:center; }
-        #office-image-host img { max-width:100%; height:auto; border-radius:4px; box-shadow:0 3px 14px rgba(0,0,0,.4); background:#fff; touch-action:pinch-zoom; }
+        #office-image-host { display:none; width:100%; margin:0 auto; text-align:center; }
+        #office-image-host img { width:100%; max-width:none; height:auto; display:block; border-radius:4px; box-shadow:0 3px 14px rgba(0,0,0,.4); background:#fff; touch-action:pinch-zoom; }
         #office-image-host.zoomed { overflow:auto; text-align:left; }
         #office-image-host.zoomed img { max-width:none; width:220%; }
         #app-toast { position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%) translateY(20px); background:rgba(30,30,30,.95); color:#fff; padding:11px 18px; border-radius:22px; font-size:14px; max-width:86vw; text-align:center; opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:100000; }
         #app-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+        .pdf-toolbar > .office-only { display:none; }
+        #pdf-viewer-view.office-mode .pdf-toolbar > .office-only { display:inline-flex !important; align-items:center; justify-content:center; }
+        .ov-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; font-weight:600; padding:0 6px; }
+        #pdf-viewer-view.office-mode .pdf-toolbar > .ov-title { display:block !important; }
+        #office-controls { border-top:1px solid #3a3a3a; background:#1f1f1f !important; }
+        #office-controls button:disabled { opacity:.35; }
         #office-message { color:#ddd; text-align:center; max-width:520px; margin:35px auto; line-height:1.6; }
         #pdf-viewer-view.office-mode .pdf-toolbar > :not(:first-child) { display:none; }
         #pdf-viewer-view.office-mode #pdf-searchbar,
@@ -953,6 +960,11 @@
     <div id="pdf-viewer-view">
         <div class="pdf-toolbar">
             <button onclick="closePdf()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+            <span class="office-only ov-title" id="ov-title"></span>
+            <button class="office-only" onclick="ovZoomBy(-0.25)" aria-label="Zoom out"><i class="fa-solid fa-minus"></i></button>
+            <span class="office-only pdf-lbl" id="ov-zoom-label">100%</span>
+            <button class="office-only" onclick="ovZoomBy(0.25)" aria-label="Zoom in"><i class="fa-solid fa-plus"></i></button>
+            <button class="office-only" onclick="ovFit()" aria-label="Fit to screen"><i class="fa-solid fa-expand"></i></button>
             <input id="pdf-page-input" type="number" inputmode="numeric" min="1" value="1" aria-label="Page number">
             <span class="pdf-lbl" style="min-width:0">/ <span id="page-count">--</span></span>
             <span class="pdf-sp"></span>
@@ -979,9 +991,9 @@
             <div id="office-image-host"><img id="office-image" alt=""></div>
         </div>
         <div id="office-controls">
-            <button type="button" id="office-prev" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
+            <button type="button" id="office-prev" aria-label="Previous"><i class="fa-solid fa-chevron-left"></i></button>
             <span id="office-status">Slide 1 / 1</span>
-            <button type="button" id="office-next" aria-label="Next slide"><i class="fa-solid fa-chevron-right"></i></button>
+            <button type="button" id="office-next" aria-label="Next"><i class="fa-solid fa-chevron-right"></i></button>
         </div>
         <button type="button" id="pdf-ai-fab" class="pai-fab" style="display:none" onclick="paiToggle(true)"><i class="fa-brands fa-youtube"></i> Videos</button>
         <div id="pdf-ai-panel" hidden>
@@ -2423,19 +2435,177 @@
             if (!check()) throw new Error(label + ' preview library could not load. Check your connection, or use “Send to bot chat”.');
         }
 
-        function pvFitDocx() {
-            const host = pvEl('office-docx-host');
+        // ===== Office viewer zoom / navigation (WPS-style): buttons, pinch, double-tap, swipe =====
+        const ov = { zoom: 1, fit: 1, natW: 0, pinch: null, pend: null, raf: 0, rerender: 0, page: 0 };
+        const OV_MIN = 0.5, OV_MAX = 5;
+        function ovKind() {
+            if (pvOfficeExt === 'docx') return 'docx';
+            if (pvOfficeExt === 'pptx') return 'pptx';
+            return PV_IMG_EXT.includes(pvOfficeExt) ? 'img' : '';
+        }
+        function ovClamp(z) { return Math.max(OV_MIN, Math.min(OV_MAX, Math.round(z * 100) / 100)); }
+
+        function ovReset() {
+            ov.zoom = 1; ov.fit = 1; ov.natW = 0; ov.pinch = null; ov.page = 0;
+            clearTimeout(ov.rerender);
+            pvEl('ov-zoom-label').textContent = '100%';
+            const dh = pvEl('office-docx-host'); dh.style.width = ''; dh.style.height = '';
+            pvEl('office-pptx-host').style.width = '';
+            pvEl('office-pptx-canvas').style.maxHeight = '';
+            pvEl('office-image-host').style.width = '';
+        }
+
+        function ovApply(cx, cy) {
+            const stage = pvEl('office-viewer-stage'), k = ovKind();
+            if (!k) return;
+            cx = cx || 0; cy = cy || 0;
+            const rx = (stage.scrollLeft + cx) / (stage.scrollWidth || 1);
+            const ry = (stage.scrollTop + cy) / (stage.scrollHeight || 1);
+            if (k === 'docx') {
+                const inner = pvEl('office-docx-inner'), host = pvEl('office-docx-host');
+                if (!inner || !ov.natW) return;
+                const sc = ov.fit * ov.zoom;
+                inner.style.transform = 'scale(' + sc + ')';
+                host.style.width = Math.round(ov.natW * sc) + 'px';
+                host.style.height = Math.round(inner.scrollHeight * sc) + 'px';
+            } else if (k === 'img') {
+                pvEl('office-image-host').style.width = (ov.zoom * 100) + '%';
+            } else if (k === 'pptx') {
+                pvEl('office-pptx-host').style.width = (ov.zoom * 100) + '%';
+                pvEl('office-pptx-canvas').style.maxHeight = ov.zoom > 1.02 ? 'none' : '';
+            }
+            pvEl('ov-zoom-label').textContent = Math.round(ov.zoom * 100) + '%';
+            stage.scrollLeft = rx * stage.scrollWidth - cx;
+            stage.scrollTop = ry * stage.scrollHeight - cy;
+            ovUpdatePage();
+        }
+
+        // Re-draw the slide at a resolution that matches the zoom so it stays sharp.
+        function ovPptxSize() {
+            const canvas = pvEl('office-pptx-canvas'), stage = pvEl('office-viewer-stage');
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            let ar = 16 / 9;
+            try { const d = pvOfficeViewer.getSlideDimensions(); if (d && d.width && d.height) ar = d.width / d.height; } catch (_) {}
+            const w = Math.max(320, Math.min(Math.round((stage.clientWidth - 24) * ov.zoom * dpr), 3200));
+            canvas.width = w; canvas.height = Math.round(w / ar);
+        }
+        function ovSchedulePptx() {
+            if (ovKind() !== 'pptx' || !pvOfficeViewer) return;
+            clearTimeout(ov.rerender);
+            ov.rerender = setTimeout(async function() {
+                try { ovPptxSize(); await pvOfficeViewer.render(); } catch (e) { console.error(e); }
+            }, 350);
+        }
+
+        window.ovZoomBy = function(d) {
             const stage = pvEl('office-viewer-stage');
-            host.style.zoom = '';
-            const secs = host.querySelectorAll('section.docx');
+            ov.zoom = ovClamp(ov.zoom + d);
+            ovApply(stage.clientWidth / 2, stage.clientHeight / 2);
+            ovSchedulePptx();
+        };
+        window.ovFit = function() {
+            const stage = pvEl('office-viewer-stage');
+            ov.zoom = 1;
+            ovApply(stage.clientWidth / 2, stage.clientHeight / 2);
+            stage.scrollLeft = 0;
+            ovSchedulePptx();
+        };
+
+        function pvFitDocx() {
+            const inner = pvEl('office-docx-inner'), stage = pvEl('office-viewer-stage');
+            if (!inner) return;
+            inner.style.transform = 'none'; inner.style.width = '';
             let w = 0;
-            secs.forEach(function(el) { w = Math.max(w, el.scrollWidth, el.offsetWidth); });
+            inner.querySelectorAll('section.docx').forEach(function(el) { w = Math.max(w, el.offsetWidth); });
+            if (!w) w = inner.scrollWidth;
+            ov.natW = w;
+            inner.style.width = w + 'px';
             const avail = stage.clientWidth - 24;
-            if (w > 0 && avail > 0) host.style.zoom = Math.min(1, avail / w);
+            ov.fit = (avail > 0 && w > 0) ? Math.min(1, avail / w) : 1;
+            ovApply(0, 0);
         }
         window.addEventListener('resize', function() {
             if (pvOfficeExt === 'docx' && pvEl('office-docx-host').style.display === 'block') pvFitDocx();
+            else if (pvOfficeExt === 'pptx') ovSchedulePptx();
         });
+
+        // Page indicator for Word documents
+        function ovUpdatePage() {
+            if (ovKind() !== 'docx') return;
+            const secs = pvEl('office-docx-host').querySelectorAll('section.docx');
+            if (!secs.length) return;
+            const sr = pvEl('office-viewer-stage').getBoundingClientRect();
+            const mid = sr.top + sr.height * 0.35;
+            let cur = 0;
+            secs.forEach(function(el, i) { if (el.getBoundingClientRect().top <= mid) cur = i; });
+            ov.page = cur;
+            pvEl('office-status').textContent = 'Page ' + (cur + 1) + ' / ' + secs.length;
+            pvEl('office-prev').disabled = cur <= 0;
+            pvEl('office-next').disabled = cur >= secs.length - 1;
+        }
+        function ovGoPage(delta) {
+            const secs = pvEl('office-docx-host').querySelectorAll('section.docx');
+            const i = Math.max(0, Math.min(secs.length - 1, ov.page + delta));
+            const stage = pvEl('office-viewer-stage');
+            const top = stage.scrollTop + secs[i].getBoundingClientRect().top - stage.getBoundingClientRect().top - 8;
+            stage.scrollTo({ top: top, behavior: 'smooth' });
+        }
+        (function() {
+            const stage = pvEl('office-viewer-stage');
+            let sx = 0, sy = 0, moved = false, lastTap = 0, lastX = 0, lastY = 0, scrollRaf = 0;
+            const dist = function(a, b) { return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); };
+            stage.addEventListener('scroll', function() {
+                if (scrollRaf) return;
+                scrollRaf = requestAnimationFrame(function() { scrollRaf = 0; ovUpdatePage(); });
+            }, { passive: true });
+            stage.addEventListener('touchstart', function(e) {
+                if (!ovKind()) return;
+                if (e.touches.length === 2) {
+                    ov.pinch = { d: dist(e.touches[0], e.touches[1]), z: ov.zoom };
+                } else if (e.touches.length === 1) {
+                    sx = e.touches[0].clientX; sy = e.touches[0].clientY; moved = false;
+                }
+            }, { passive: true });
+            stage.addEventListener('touchmove', function(e) {
+                if (ov.pinch && e.touches.length === 2) {
+                    e.preventDefault();
+                    const r = stage.getBoundingClientRect();
+                    ov.pend = {
+                        z: ovClamp(ov.pinch.z * dist(e.touches[0], e.touches[1]) / ov.pinch.d),
+                        cx: (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left,
+                        cy: (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top
+                    };
+                    if (!ov.raf) ov.raf = requestAnimationFrame(function() {
+                        ov.raf = 0;
+                        if (!ov.pend) return;
+                        ov.zoom = ov.pend.z; ovApply(ov.pend.cx, ov.pend.cy);
+                    });
+                } else if (e.touches.length === 1 && Math.hypot(e.touches[0].clientX - sx, e.touches[0].clientY - sy) > 10) {
+                    moved = true;
+                }
+            }, { passive: false });
+            stage.addEventListener('touchend', function(e) {
+                if (ov.pinch) {
+                    if (e.touches.length < 2) { ov.pinch = null; ovSchedulePptx(); }
+                    return;
+                }
+                if (e.touches.length || e.changedTouches.length !== 1 || !ovKind()) return;
+                const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+                if (ovKind() === 'pptx' && ov.zoom <= 1.05 && Math.abs(dx) > 60 && Math.abs(dy) < 60) {
+                    pvPptxStep(dx < 0 ? 1 : -1);               // swipe between slides
+                    return;
+                }
+                if (moved) return;
+                const now = Date.now();
+                if (now - lastTap < 300 && Math.hypot(t.clientX - lastX, t.clientY - lastY) < 30) {
+                    const r = stage.getBoundingClientRect();    // double-tap: zoom in / back to fit
+                    ov.zoom = ov.zoom > 1.05 ? 1 : 2.5;
+                    ovApply(t.clientX - r.left, t.clientY - r.top);
+                    ovSchedulePptx();
+                    lastTap = 0;
+                } else { lastTap = now; lastX = t.clientX; lastY = t.clientY; }
+            }, { passive: true });
+        })();
 
         function pvResetImage() {
             const host = pvEl('office-image-host');
@@ -2445,7 +2615,6 @@
             img.removeAttribute('src');
             if (pvImageUrl) { try { URL.revokeObjectURL(pvImageUrl); } catch (_) {} pvImageUrl = ''; }
         }
-        pvEl('office-image-host').addEventListener('click', function() { this.classList.toggle('zoomed'); });
 
         let pvOpenToken = 0;
         async function pvOpen(url, fileName) {
@@ -2480,7 +2649,8 @@
             pvEl('office-message').hidden = true;
             pvEl('office-message').innerHTML = '';
             pvEl('office-docx-host').innerHTML = '';
-            pvEl('office-docx-host').style.zoom = '';
+            ovReset();
+            pvEl('ov-title').textContent = pvFileName;
             pvEl('office-pptx-canvas').width = 1;
             pvEl('office-pptx-canvas').height = 1;
             pvEl('office-controls').style.display = 'none';
@@ -2546,12 +2716,19 @@
                          'https://cdnjs.cloudflare.com/ajax/libs/docx-preview/0.3.2/docx-preview.min.js'], 'Word');
                     pvEl('office-docx-host').style.display = 'block';
                     message.hidden = true;
-                    await window.docx.renderAsync(buffer, pvEl('office-docx-host'), null, {
+                    const dHost = pvEl('office-docx-host');
+                    dHost.innerHTML = '';
+                    const dInner = document.createElement('div');
+                    dInner.id = 'office-docx-inner';
+                    dHost.appendChild(dInner);
+                    await window.docx.renderAsync(buffer, dInner, null, {
                         className: 'docx', inWrapper: true, ignoreWidth: false, ignoreHeight: false,
                         breakPages: true, renderHeaders: true, renderFooters: true, renderFootnotes: true,
                         renderEndnotes: true
                     });
                     pvFitDocx();
+                    pvEl('office-controls').style.display = 'flex';
+                    ovUpdatePage();
                 } else if (ext === 'pptx') {
                     await pvEnsureLib(function() { return window.JSZip; },
                         ['https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'], 'PowerPoint');
@@ -2567,6 +2744,7 @@
                     pvOfficeViewer = new window.PptxViewJS.PPTXViewer({ canvas: canvas });
                     const file = new File([buffer], fileName || 'presentation.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
                     await pvOfficeViewer.loadFile(file);
+                    ovPptxSize();
                     await pvOfficeViewer.render();
                     message.hidden = true;
                     pvEl('office-controls').style.display = 'flex';
@@ -2593,13 +2771,19 @@
             pvEl('office-prev').disabled = current <= 0;
             pvEl('office-next').disabled = current >= total - 1;
         }
-        pvEl('office-prev').addEventListener('click', async function() {
+        async function pvPptxStep(dir) {
             if (!pvOfficeViewer) return;
-            try { await pvOfficeViewer.previousSlide(); pvOfficeUpdateControls(); } catch (e) { console.error(e); }
+            try {
+                if (dir > 0) await pvOfficeViewer.nextSlide(); else await pvOfficeViewer.previousSlide();
+                pvEl('office-viewer-stage').scrollTo(0, 0);
+                pvOfficeUpdateControls();
+            } catch (e) { console.error(e); }
+        }
+        pvEl('office-prev').addEventListener('click', function() {
+            if (ovKind() === 'docx') ovGoPage(-1); else pvPptxStep(-1);
         });
-        pvEl('office-next').addEventListener('click', async function() {
-            if (!pvOfficeViewer) return;
-            try { await pvOfficeViewer.nextSlide(); pvOfficeUpdateControls(); } catch (e) { console.error(e); }
+        pvEl('office-next').addEventListener('click', function() {
+            if (ovKind() === 'docx') ovGoPage(1); else pvPptxStep(1);
         });
 
         window.closePdf = function() {
@@ -2625,6 +2809,7 @@
             pvEl('office-controls').style.display = 'none';
             pvEl('office-message').hidden = true;
             pvResetImage();
+            ovReset();
             pvOfficeViewer = null;
 
             const activeSection = document.querySelector('.section.active');
