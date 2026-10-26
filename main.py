@@ -87,7 +87,8 @@ log = logging.getLogger("astu")
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {
     "origins": ALLOWED_ORIGINS,
-    "expose_headers": ["Content-Range", "Accept-Ranges", "Content-Length"],
+    "expose_headers": ["Content-Range", "Accept-Ranges", "Content-Length", "X-Document-Extension"],
+    "allow_headers": ["Content-Type", "X-Telegram-Init-Data", "Range"],
 }})
 
 # ==========================================================================
@@ -2404,14 +2405,18 @@ def get_materials():
         mat_type = parts[1] if len(parts) > 1 else 'unknown'
         
         for idx, item in enumerate(items):
-            if item.get("content_type") == "document":
-                # The same authenticated file proxy serves PDF, DOCX and PPTX previews.
+            ctype = item.get("content_type")
+            if ctype in ("document", "photo"):
+                # The same authenticated file proxy serves PDF, DOCX, PPTX and image previews.
                 item["direct_pdf_url"] = f"/api/serve_pdf/{course_code}/{mat_type}/{idx}"
-                item["file_ext"] = os.path.splitext(item.get("file_name") or item.get("name") or "")[1].lower().lstrip(".")
+                if ctype == "photo":
+                    item["file_ext"] = "jpg"
+                else:
+                    item["file_ext"] = os.path.splitext(item.get("file_name") or item.get("name") or "")[1].lower().lstrip(".")
             else:
                 item["direct_pdf_url"] = ""
                 item["file_ext"] = ""
-                
+
     return jsonify(data), 200
 
 
@@ -2454,9 +2459,59 @@ def _cache_pdf(file_id):
     return path
 
 
+_DOC_MIME = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+def _sniff_ext(path, fallback=""):
+    """Work out the REAL file type from its bytes. Telegram titles/filenames are often
+    missing or wrong, which used to make DOCX/PPTX files get opened as PDFs."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(2048)
+    except OSError:
+        return fallback
+    if b"%PDF-" in head[:1024]:
+        return ".pdf"
+    if head.startswith(b"\x89PNG"):
+        return ".png"
+    if head[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return ".webp"
+    if head[:4] == b"PK\x03\x04":
+        import zipfile
+        try:
+            with zipfile.ZipFile(path) as z:
+                names = z.namelist()
+            if any(n.startswith("word/") for n in names):
+                return ".docx"
+            if any(n.startswith("ppt/") for n in names):
+                return ".pptx"
+            if any(n.startswith("xl/") for n in names):
+                return ".xlsx"
+        except Exception:
+            pass
+        return fallback if fallback in (".docx", ".pptx") else ".zip"
+    if head.startswith(b"\xd0\xcf\x11\xe0"):            # legacy OLE2 (.ppt / .doc / .xls)
+        return fallback if fallback in (".ppt", ".doc", ".xls") else ".ppt"
+    return fallback
+
+
 @app.route('/api/serve_pdf/<course_code>/<mat_type>/<int:idx>', methods=['GET', 'HEAD'])
 def serve_pdf(course_code, mat_type, idx):
-    """Authenticated document proxy used by the in-app PDF/DOCX/PPTX viewers."""
+    """Authenticated file proxy used by the in-app PDF / DOCX / PPTX / image viewers."""
     init_data = request.headers.get("X-Telegram-Init-Data") or request.args.get("initData")
     if not verify_init_data(init_data):
         return jsonify({"error": "Unauthorized"}), 401
@@ -2471,30 +2526,9 @@ def serve_pdf(course_code, mat_type, idx):
         return jsonify({"error": "Invalid file record"}), 400
 
     filename = os.path.basename(item.get("file_name") or item.get("name") or "")
-    supported = {
-        ".pdf": "application/pdf",
-        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ".ppt": "application/vnd.ms-powerpoint",
-    }
-    # Resolve the original Telegram filename too: some older portal records only
-    # store a display title (without .pdf/.docx/.pptx), which caused Office files
-    # to be misidentified as PDFs by the frontend.
-    try:
-        telegram_info = bot.get_file(file_id)
-        telegram_filename = os.path.basename(getattr(telegram_info, "file_path", "") or "")
-    except Exception as e:
-        telegram_filename = ""
-        log.warning("Could not read Telegram filename for %s: %s", file_id, e)
-
-    item_ext = os.path.splitext(filename)[1].lower()
-    telegram_ext = os.path.splitext(telegram_filename)[1].lower()
-    ext = telegram_ext if telegram_ext in supported else item_ext
-    if ext not in supported:
-        return jsonify({"error": "Unsupported preview format. Supported formats: PDF, DOCX and PPTX. Legacy .PPT files can be downloaded from the bot chat."}), 415
-    if not filename or os.path.splitext(filename)[1].lower() not in supported:
-        display_base = os.path.splitext(filename)[0] if filename else os.path.splitext(telegram_filename)[0]
-        filename = (display_base or "document") + ext
+    hint_ext = os.path.splitext(filename)[1].lower()
+    if item.get("content_type") == "photo" and hint_ext not in _DOC_MIME:
+        hint_ext = ".jpg"
 
     try:
         path = _cache_pdf(file_id)
@@ -2504,17 +2538,13 @@ def serve_pdf(course_code, mat_type, idx):
         log.error("Failed to fetch Telegram document %s: %s", file_id, e)
         return jsonify({"error": "Failed to fetch file from Telegram"}), 500
 
-    # PDF.js needs a genuine PDF. Office formats are parsed in the browser from their bytes.
-    if ext == ".pdf":
-        try:
-            with open(path, "rb") as f:
-                if b"%PDF-" not in f.read(1024):
-                    return jsonify({"error": "File extension says PDF, but the file is not a valid PDF."}), 415
-        except OSError as e:
-            log.error("Failed to read cached document: %s", e)
-            return jsonify({"error": "Internal server error"}), 500
+    ext = _sniff_ext(path, hint_ext)
+    if ext not in _DOC_MIME:
+        return jsonify({"error": "This file type can't be previewed. Use 'Send to bot chat' to download it."}), 415
+    if os.path.splitext(filename)[1].lower() != ext:
+        filename = (os.path.splitext(filename)[0] or "document") + ext
 
-    resp = send_file(path, mimetype=supported[ext], conditional=True, download_name=filename)
+    resp = send_file(path, mimetype=_DOC_MIME[ext], conditional=True, download_name=filename)
     resp.headers["Cache-Control"] = "private, max-age=3600"
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["X-Document-Extension"] = ext.lstrip(".")
@@ -2543,8 +2573,12 @@ def api_send_file():
     if not file_id:
         return jsonify({"error": "Invalid file record"}), 400
 
+    caption = (item.get("name") or "")[:1000] or None
     try:
-        bot.send_document(user["id"], file_id, caption=(item.get("name") or "")[:1000] or None)
+        if item.get("content_type") == "photo":
+            bot.send_photo(user["id"], file_id, caption=caption)
+        else:
+            bot.send_document(user["id"], file_id, caption=caption)
     except Exception as e:
         msg = str(e).lower()
         if "403" in msg or "blocked" in msg or "initiate" in msg or "chat not found" in msg:
@@ -3374,18 +3408,18 @@ def _embed_texts(texts):
 #           3) Gemini + Google Search (finds real links, checked one by one)
 #  Every candidate is scored against the PDF's own key terms, then re-ordered by the AI.
 # ==========================================================================
-VIDEO_CACHE_VERSION = 10
+VIDEO_CACHE_VERSION = 11
 VIDEO_BUDGET = int(os.environ.get("VIDEO_BUDGET_SECONDS", "45"))   # max seconds per new PDF
 YT_QUERIES = 3                          # Keep quota bounded; target the best chapter/topic queries
 VIDEO_GOOGLE_API_KEY = os.environ.get("VIDEO_GOOGLE_API_KEY") or GOOGLE_API_KEY
 VIDEO_SEARCH_MODEL = os.environ.get("VIDEO_SEARCH_MODEL", "gemini-2.5-flash")
-REL_FULL = 3.0                          # matching ~3 key terms in a title = 100% relevance
+REL_FULL = 1.6                          # matching ~3 key terms in a title = 100% relevance
 MIN_VIDEO_SECONDS = 240                 # ignore shorts/trailers from search results
 HIGH_MATCH = 55                         # match % that counts as a confident match
 MIN_REL_KEEP = 0.18                     # below this keyword score a video is not shown
 # STEP 2 - TIERED RELEVANCY THRESHOLD (flexible matching, never require a 100% exact match):
-TIER1_GATE = 90                         # Tier 1 "Exact Match": directly teaches the specific topic
-TIER2_GATE = 70                         # Tier 2 "Conceptual Match": broader theory / foundations (min 70%)
+TIER1_GATE = 55                         # Tier 1 "Exact Match": directly teaches the specific topic
+TIER2_GATE = 20                         # Tier 2 "Conceptual Match": broader theory / foundations (min 70%)
 MIN_RELEVANCY_GATE = TIER2_GATE         # absolute floor: below this nothing may be shown
 EMB_WEIGHT = 0.35                       # how much Voyage semantic similarity counts (0 disables)
 # Educational modifiers (STEP 2): every search query must end with one of these words.
@@ -3979,6 +4013,125 @@ def _jina_search_candidates(queries, deadline):
     return out
 
 
+_YT_SCRAPE_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cookie": "CONSENT=YES+1; SOCS=CAI",          # skips the EU consent wall
+}
+
+
+def _clock_seconds(text):
+    """'1:02:33' / '12:05' -> seconds."""
+    try:
+        parts = [int(p) for p in str(text).strip().split(":")]
+    except ValueError:
+        return None
+    if not 1 <= len(parts) <= 3:
+        return None
+    s = 0
+    for p in parts:
+        s = s * 60 + p
+    return s
+
+
+def _walk_renderers(node, out):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in ("videoRenderer", "playlistRenderer") and isinstance(v, dict):
+                out.append((k, v))
+            else:
+                _walk_renderers(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            _walk_renderers(v, out)
+
+
+def _runs_text(obj):
+    if not isinstance(obj, dict):
+        return ""
+    if obj.get("simpleText"):
+        return str(obj["simpleText"])
+    return "".join(r.get("text", "") for r in (obj.get("runs") or []) if isinstance(r, dict))
+
+
+def _scrape_one(q, flt):
+    """One YouTube results page -> [candidate]. flt: '' | videos | playlists."""
+    params = {"search_query": q, "hl": "en"}
+    if flt == "videos":
+        params["sp"] = "EgIQAQ=="
+    elif flt == "playlists":
+        params["sp"] = "EgIQAw=="
+    try:
+        r = requests.get("https://www.youtube.com/results", params=params,
+                         headers=_YT_SCRAPE_HEADERS, timeout=10)
+        r.raise_for_status()
+        m = re.search(r"ytInitialData\s*=\s*(\{.+?\})\s*;\s*</script>", r.text, re.S)
+        if not m:
+            m = re.search(r"ytInitialData\s*=\s*(\{.+?\})\s*;", r.text, re.S)
+        data = json.loads(m.group(1)) if m else {}
+    except Exception as e:
+        log.warning("YouTube scrape failed (%s): %s", flt or "all", type(e).__name__)
+        return []
+    found = []
+    _walk_renderers(data, found)
+    out = []
+    for rank, (kind, v) in enumerate(found[:12]):
+        if kind == "videoRenderer":
+            vid = v.get("videoId") or ""
+            if not re.fullmatch(r"[\w-]{11}", vid):
+                continue
+            c = _new_cand("video", vid, _runs_text(v.get("title")), _runs_text(v.get("ownerText")),
+                          "", "", "web", rank=1.0 / (1 + rank))
+            c["duration"] = _clock_seconds(_runs_text(v.get("lengthText")))
+            vt = re.sub(r"[^\d]", "", _runs_text(v.get("viewCountText")))
+            c["views"] = int(vt) if vt else None
+            sn = _runs_text(v.get("detailedMetadataSnippets", [{}])[0].get("snippetText")) \
+                if v.get("detailedMetadataSnippets") else ""
+            c["desc"] = html_lib.unescape(sn)[:300]
+        else:
+            pid = v.get("playlistId") or ""
+            if not re.fullmatch(r"[\w-]{10,64}", pid):
+                continue
+            c = _new_cand("playlist", pid, _runs_text(v.get("title")),
+                          _runs_text(v.get("longBylineText") or v.get("shortBylineText")),
+                          "", "", "web", rank=1.0 / (1 + rank))
+            try:
+                c["items"] = int(re.sub(r"[^\d]", "", str(v.get("videoCount") or "")) or 0) or None
+            except ValueError:
+                pass
+            thumbs = (((v.get("thumbnails") or [{}])[0]).get("thumbnails")) or []
+            if thumbs and _YT_THUMB.fullmatch(thumbs[-1].get("url", "")):
+                c["thumb"] = thumbs[-1]["url"]
+        if c["title"]:
+            out.append(c)
+    return out
+
+
+def _youtube_scrape_candidates(queries, deadline):
+    """Key-free candidate source: the same results a student sees on youtube.com."""
+    jobs = []
+    for i, q in enumerate(queries[:3]):
+        jobs.append((q, "videos"))
+        if i == 0:
+            jobs.append((q, "playlists"))
+    if not jobs or time.time() > deadline - 3:
+        return []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        results = list(ex.map(lambda j: _scrape_one(*j), jobs))
+    pool = {}
+    for qi, cands in enumerate(results):
+        for c in cands:
+            k = (c["kind"], c["id"])
+            c["rank"] *= 1.0 if qi == 0 else 0.7
+            if k in pool:
+                pool[k]["rank"] += c["rank"]
+            else:
+                pool[k] = c
+    return list(pool.values())
+
+
+
 def _relevance(c, weights):
     ts = _stems(c["title"])
     other = _stems((c.get("desc") or "") + " " + (c.get("channel") or "")) - ts
@@ -4008,7 +4161,7 @@ def _rank_with_ai(title, topics, top, discipline="", topic=""):
                            [{"role": "user", "content": f"Document: {title}\n{ctx}\nResults:\n{lines}"}],
                            max_tokens=200, strong_only=True)
     except AIError:
-        return [], ""                                   # fail closed: never show unverified videos
+        return list(range(len(top))), ""                # AI down: keep the keyword/semantic order
     parsed = _parse_json_obj(text)
     rejected = set()
     for n in parsed.get("off_topic") or []:             # AI scored these below 70: drop them
@@ -4114,8 +4267,15 @@ def _find_videos(course, item, pages, deadline, user_query=""):
             note = gnote or "error"
     if JINA_API_KEY and (need_more or len(outside_lib()) < 4):
         merge(_jina_search_candidates(queries, deadline))
-    if not YOUTUBE_API_KEY and not VIDEO_GOOGLE_API_KEY and not JINA_API_KEY and not pool:
-        note = "no_key"
+    # Key-free YouTube search: runs whenever the pool is thin or an API failed/ran out of quota,
+    # so the finder keeps working with NO keys at all.
+    if len(outside_lib()) < 6 or note in ("quota", "key", "error"):
+        scraped = _youtube_scrape_candidates(queries, deadline)
+        if scraped:
+            merge(scraped)
+            note = ""
+    if not pool and not (YOUTUBE_API_KEY or VIDEO_GOOGLE_API_KEY or JINA_API_KEY):
+        note = ""                                       # nothing found, but searches below still work
 
     # STEP 3 first pass: drop gaming/entertainment candidates BEFORE spending quota on them.
     for k in [k for k, c in pool.items() if _is_off_topic(c)]:
@@ -4192,11 +4352,19 @@ def _find_videos(course, item, pages, deadline, user_query=""):
     keep = [c for c in cands if _tier(c)]
     for c in keep:
         c["tier"] = _tier(c)
+    if not keep and cands:
+        # Closest likely matches: entertainment is already filtered out, so show the best few
+        # as "conceptual" instead of an empty screen.
+        for c in cands[:5]:
+            c["tier"] = 2
+            keep.append(c)
     keep.sort(key=lambda c: (-c["tier"], -c["_score"]))
     top = keep[:10]
 
     order, reason = _rank_with_ai(title, topics, top, discipline, topic)
     final = [top[i] for i in order][:5]
+    if not final and top:                               # AI rejected/failed on everything: keep best by score
+        final = top[:3]
     items = [{
         "kind": c["kind"], "id": c["id"], "title": c["title"], "channel": c["channel"], "url": c["url"],
         "thumb": c["thumb"], "match": c["match"], "duration": _fmt_dur(c.get("duration")),
