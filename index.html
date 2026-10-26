@@ -437,8 +437,8 @@
         #pdf-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #b0b0b0; font-size: 14px; pointer-events: none; }
         #pdf-status:empty { display: none; }
         #office-viewer-stage { display:none; flex:1; min-height:0; overflow:auto; padding:12px; background:#252525; -webkit-overflow-scrolling:touch; }
-        #office-docx-host { display:none; width:100%; max-width:100%; margin:0 auto; color:#111; }
-        #office-docx-host .docx-wrapper { background:#444 !important; padding:10px 0 !important; }
+        #office-docx-host { display:none; width:100%; max-width:100%; margin:0 auto; color:#111; overflow-x:hidden; }
+        #office-docx-host .docx-wrapper { background:#444 !important; padding:10px 0 !important; align-items:center; }
         #office-docx-host section.docx { margin:0 auto 12px !important; box-shadow:0 3px 14px rgba(0,0,0,.4); }
         #office-pptx-host { display:none; width:100%; max-width:100%; margin:0 auto; text-align:center; }
         #office-pptx-canvas { display:block; width:100%; height:auto; max-height:calc(100dvh - 145px); object-fit:contain; background:#fff; margin:0 auto; box-shadow:0 3px 14px rgba(0,0,0,.4); }
@@ -2423,6 +2423,20 @@
             if (!check()) throw new Error(label + ' preview library could not load. Check your connection, or use “Send to bot chat”.');
         }
 
+        function pvFitDocx() {
+            const host = pvEl('office-docx-host');
+            const stage = pvEl('office-viewer-stage');
+            host.style.zoom = '';
+            const secs = host.querySelectorAll('section.docx');
+            let w = 0;
+            secs.forEach(function(el) { w = Math.max(w, el.scrollWidth, el.offsetWidth); });
+            const avail = stage.clientWidth - 24;
+            if (w > 0 && avail > 0) host.style.zoom = Math.min(1, avail / w);
+        }
+        window.addEventListener('resize', function() {
+            if (pvOfficeExt === 'docx' && pvEl('office-docx-host').style.display === 'block') pvFitDocx();
+        });
+
         function pvResetImage() {
             const host = pvEl('office-image-host');
             host.style.display = 'none';
@@ -2466,6 +2480,7 @@
             pvEl('office-message').hidden = true;
             pvEl('office-message').innerHTML = '';
             pvEl('office-docx-host').innerHTML = '';
+            pvEl('office-docx-host').style.zoom = '';
             pvEl('office-pptx-canvas').width = 1;
             pvEl('office-pptx-canvas').height = 1;
             pvEl('office-controls').style.display = 'none';
@@ -2536,9 +2551,14 @@
                         breakPages: true, renderHeaders: true, renderFooters: true, renderFootnotes: true,
                         renderEndnotes: true
                     });
+                    pvFitDocx();
                 } else if (ext === 'pptx') {
                     await pvEnsureLib(function() { return window.JSZip; },
                         ['https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'], 'PowerPoint');
+                    await pvEnsureLib(function() { return window.Chart; },
+                        ['https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
+                         'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
+                         'https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js'], 'PowerPoint');
                     await pvEnsureLib(function() { return window.PptxViewJS && window.PptxViewJS.PPTXViewer; },
                         ['https://cdn.jsdelivr.net/npm/pptxviewjs/dist/PptxViewJS.min.js',
                          'https://unpkg.com/pptxviewjs/dist/PptxViewJS.min.js'], 'PowerPoint');
