@@ -1164,6 +1164,8 @@ def build_update_folder_detail(sess_id):
     materials = data.get(key, [])
 
     markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("➕ Add Files to This Folder",
+                                    callback_data=f"updadd_{sess_id}"))
     markup.row(InlineKeyboardButton("🔁 Replace Entire Folder",
                                     callback_data=f"updwhole_{sess_id}"))
     valid = [i for i in sess["indices"] if i < len(materials)]
@@ -1178,8 +1180,8 @@ def build_update_folder_detail(sess_id):
         f"📁 <b>{escape_md(sess['title'])}</b>\n"
         f"Course: {escape_md(course_display(sess['course_code']))} • "
         f"Type: {escape_md(sess['material_type'].upper())}\n\n"
-        f"Choose to replace the whole folder's files at once, "
-        f"or update a single file inside it."
+        f"➕ <b>Add</b> new files to this folder (keeps the existing ones), "
+        f"🔁 replace the whole folder, or update a single file inside it."
     )
     return text, markup
 
@@ -1215,6 +1217,58 @@ def process_update_whole(chat_id, files, state):
 
     if update_json(DATA_FILE, mutator) is not None:
         bot.send_message(chat_id, f"✅ Folder \"{title}\" replaced with {len(files)} new file(s)!")
+    else:
+        bot.send_message(chat_id, "⚠️ Failed to save the update to GitHub. Please try again.")
+    UPDATE_SESSIONS.pop(sess_id, None)
+
+
+def process_update_add(chat_id, files, state):
+    """Append more files to an existing folder (same title) without touching the old ones."""
+    sess_id = state.get("sess_id")
+    sess = UPDATE_SESSIONS.get(sess_id)
+    if not sess:
+        bot.send_message(chat_id, "⚠️ This update session expired. Please run /updatefile again.")
+        return
+
+    now = datetime.now().strftime("%b %d, %Y - %H:%M")
+    title = sess["title"]
+    result = {"added": 0, "total": 0}
+
+    def mutator(data):
+        key = f"{sess['course_code']}_{sess['material_type']}"
+        materials = data.setdefault(key, [])
+        existing_ids = {m.get("file_id") for m in materials if (m.get("title") or m.get("name")) == title}
+        for f in files:
+            if f["file_id"] in existing_ids:
+                continue                                  # same file sent twice: skip
+            materials.append({
+                "file_id": f["file_id"],
+                "name": f"{title} - {f['file_name']}",
+                "content_type": f["content_type"],
+                "title": title,
+                "date_added": now,
+                "opens": 0,
+            })
+            existing_ids.add(f["file_id"])
+            result["added"] += 1
+        result["total"] = sum(1 for m in materials if (m.get("title") or m.get("name")) == title)
+        return True
+
+    if update_json(DATA_FILE, mutator) is not None:
+        bot.send_message(
+            chat_id,
+            f"✅ Added {result['added']} file(s) to \"{title}\". The folder now has {result['total']} file(s).",
+        )
+        if result["added"]:
+            try:
+                threading.Thread(
+                    target=broadcast_new_upload,
+                    args=({"course_code": sess["course_code"], "material_type": sess["material_type"],
+                           "title": title, "kind": "material"},),
+                    daemon=True,
+                ).start()
+            except Exception:
+                log.exception("Failed to schedule broadcast for folder addition")
     else:
         bot.send_message(chat_id, "⚠️ Failed to save the update to GitHub. Please try again.")
     UPDATE_SESSIONS.pop(sess_id, None)
@@ -1897,6 +1951,12 @@ def handle_query(call):
             _edit(f"✏️ Got {len(files)} file(s). Please type a <b>title</b> for this folder.")
             return
 
+        if state["action"] == "update_add":
+            _edit(f"🔄 Adding {len(files)} file(s) to the folder...")
+            process_update_add(chat_id, files, state)
+            UPLOAD_STATES.pop(chat_id, None)
+            return
+
         if state["action"] == "update_whole":
             _edit(f"🔄 Replacing the folder with {len(files)} new file(s)...")
             process_update_whole(chat_id, files, state)
@@ -1922,6 +1982,32 @@ def handle_query(call):
         sess_id = data.split('_', 1)[1]
         text, markup = build_update_folder_detail(sess_id)
         _edit(text, markup)
+
+    elif data.startswith("updadd_"):
+        sess_id = data.split('_', 1)[1]
+        sess = UPDATE_SESSIONS.get(sess_id)
+        if not sess:
+            bot.send_message(call.message.chat.id, "⚠️ This update session expired. Run /updatefile again.")
+            return
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+        msg = bot.send_message(
+            call.message.chat.id,
+            f"➕ <b>Adding to folder \"{escape_md(sess['title'])}\"</b>\n\n"
+            f"Send the new file(s) now (the old files stay), then click <b>Finish Upload</b>.",
+            parse_mode="HTML",
+            reply_markup=finish_upload_keyboard(),
+        )
+        UPLOAD_STATES[call.message.chat.id] = _stamp({
+            "course_code": sess["course_code"],
+            "material_type": sess["material_type"],
+            "action": "update_add",
+            "sess_id": sess_id,
+            "files": [],
+            "status_msg_id": msg.message_id,
+        })
 
     elif data.startswith("updwhole_"):
         sess_id = data.split('_', 1)[1]
