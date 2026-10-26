@@ -12,7 +12,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <!-- Office previews: JSZip must load before the document renderers. -->
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-    <script src="https://unpkg.com/docx-preview@0.3.6/dist/docx-preview.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.6/dist/docx-preview.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pptxviewjs/dist/PptxViewJS.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
@@ -445,6 +445,12 @@
         #office-controls { display:none; align-items:center; justify-content:center; gap:12px; padding:10px; background:#2a2a2a; color:#fff; flex-shrink:0; }
         #office-controls button { background:var(--btn-color); color:#fff; border:0; border-radius:8px; min-width:42px; height:36px; padding:0 12px; }
         #office-status { color:#ccc; font-size:13px; min-width:85px; text-align:center; }
+        #office-image-host { display:none; width:100%; text-align:center; }
+        #office-image-host img { max-width:100%; height:auto; border-radius:4px; box-shadow:0 3px 14px rgba(0,0,0,.4); background:#fff; touch-action:pinch-zoom; }
+        #office-image-host.zoomed { overflow:auto; text-align:left; }
+        #office-image-host.zoomed img { max-width:none; width:220%; }
+        #app-toast { position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%) translateY(20px); background:rgba(30,30,30,.95); color:#fff; padding:11px 18px; border-radius:22px; font-size:14px; max-width:86vw; text-align:center; opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:100000; }
+        #app-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
         #office-message { color:#ddd; text-align:center; max-width:520px; margin:35px auto; line-height:1.6; }
         #pdf-viewer-view.office-mode .pdf-toolbar > :not(:first-child) { display:none; }
         #pdf-viewer-view.office-mode #pdf-searchbar,
@@ -942,6 +948,7 @@
         </form>
     </div>
 
+    <div id="app-toast" role="status" aria-live="polite"></div>
     <!-- PDF VIEWER VIEW (HIDDEN BY DEFAULT) -->
     <div id="pdf-viewer-view">
         <div class="pdf-toolbar">
@@ -969,6 +976,7 @@
             <div id="office-message" hidden></div>
             <div id="office-docx-host"></div>
             <div id="office-pptx-host"><canvas id="office-pptx-canvas"></canvas></div>
+            <div id="office-image-host"><img id="office-image" alt=""></div>
         </div>
         <div id="office-controls">
             <button type="button" id="office-prev" aria-label="Previous slide"><i class="fa-solid fa-chevron-left"></i></button>
@@ -2303,24 +2311,46 @@
         const pvWrap = pvEl('pdf-canvas-wrap');
         const pvStatus = function(t) { pvEl('pdf-status').textContent = t || ''; };
 
-        // Open PDF, DOCX or PPTX inside the Mini App; unsupported legacy PPT can still be sent to chat.
+        // Open PDF, DOCX, PPTX and images inside the Mini App; legacy .ppt can still be sent to chat.
         let pvFileName = 'document.pdf';
         let pvOfficeViewer = null;
         let pvOfficeExt = 'pdf';
+        let pvImageUrl = '';
+        const PV_IMG_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
-        function pvFindFilename(url, hint) {
-            if (hint && /\.(pdf|docx|pptx|ppt)$/i.test(String(hint))) return String(hint);
+        function appToast(text, ms) {
+            const t = document.getElementById('app-toast');
+            if (!t) return;
+            t.textContent = text;
+            t.classList.add('show');
+            clearTimeout(appToast._t);
+            appToast._t = setTimeout(function() { t.classList.remove('show'); }, ms || 3200);
+        }
+
+        function pvFindItem(url) {
             try {
                 for (const items of Object.values(allMaterials || {})) {
                     if (!Array.isArray(items)) continue;
-                    const found = items.find(item => item && item.direct_pdf_url === url);
-                    if (found) return found.file_name || found.name || hint || 'document.pdf';
+                    const found = items.find(function(item) { return item && item.direct_pdf_url === url; });
+                    if (found) return found;
                 }
             } catch (_) {}
+            return null;
+        }
+
+        function pvFindFilename(url, hint) {
+            if (hint && /\.(pdf|docx|pptx|ppt|png|jpe?g|gif|webp)$/i.test(String(hint))) return String(hint);
+            const found = pvFindItem(url);
+            if (found) {
+                const n = found.file_name || found.name || hint || 'document.pdf';
+                if (!/\.[a-z0-9]{2,4}$/i.test(n) && found.file_ext) return n + '.' + found.file_ext;
+                return n;
+            }
             return hint || 'document.pdf';
         }
 
         window.openPdf = function(url, fileName) {
+            if (!url || url === '#') { appToast('This file can’t be opened.'); return; }
             const m = /^\/api\/serve_pdf\/([^\/]+)\/([^\/]+)\/(\d+)$/.exec(url || '');
             const wa = window.Telegram && window.Telegram.WebApp;
             const resolvedName = pvFindFilename(url, fileName);
@@ -2343,19 +2373,65 @@
 
         async function pvSend(course, type, idx) {
             const wa = window.Telegram.WebApp;
+            appToast('Sending to your bot chat…', 2000);
             try {
                 await api('/api/send_file', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ course: course, type: type, idx: idx }) });
-                wa.showPopup({
-                    title: 'Sent',
-                    message: 'The original file is in your chat with the bot. Open it there to download or share.',
-                    buttons: [{ id: 'chat', type: 'default', text: 'Go to chat' }, { id: 'stay', type: 'cancel' }]
-                }, function(id) { if (id === 'chat') wa.close(); });
+                // No popup with Close/Cancel any more: a quiet confirmation, and the user stays in the app.
+                appToast('✅ Sent! Check your chat with the bot.', 3500);
             } catch (e) {
                 wa.showAlert(e.message === 'bot_blocked'
                     ? "⚠️ The bot can't message you yet. Open the bot chat, press Start, then try again."
                     : "⚠️ Couldn't send the file. Please try again.");
             }
         }
+
+        // Real file type from the first bytes (works even if the server header is unreadable).
+        async function pvSniff(buffer, fallback) {
+            const b = new Uint8Array(buffer.slice(0, 16));
+            const s = function(i, n) { return String.fromCharCode.apply(null, Array.from(b.slice(i, i + n))); };
+            if (s(0, 5) === '%PDF-') return 'pdf';
+            if (b[0] === 0x89 && s(1, 3) === 'PNG') return 'png';
+            if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return 'jpg';
+            if (s(0, 3) === 'GIF') return 'gif';
+            if (s(0, 4) === 'RIFF' && s(8, 4) === 'WEBP') return 'webp';
+            if (b[0] === 0x50 && b[1] === 0x4B) {
+                try {
+                    const zip = await window.JSZip.loadAsync(buffer);
+                    if (zip.file('word/document.xml')) return 'docx';
+                    if (zip.file('ppt/presentation.xml')) return 'pptx';
+                } catch (_) {}
+            }
+            if (b[0] === 0xD0 && b[1] === 0xCF) return 'ppt';
+            return fallback;
+        }
+
+        // Load a script, trying several CDNs in turn (some networks block individual CDNs).
+        function pvLoadScript(urls) {
+            return urls.reduce(function(p, u) {
+                return p.catch(function() {
+                    return new Promise(function(resolve, reject) {
+                        const el = document.createElement('script');
+                        el.src = u; el.onload = resolve; el.onerror = function() { el.remove(); reject(new Error('load failed')); };
+                        document.head.appendChild(el);
+                    });
+                });
+            }, Promise.reject());
+        }
+        async function pvEnsureLib(check, urls, label) {
+            if (check()) return;
+            try { await pvLoadScript(urls); } catch (_) {}
+            if (!check()) throw new Error(label + ' preview library could not load. Check your connection, or use “Send to bot chat”.');
+        }
+
+        function pvResetImage() {
+            const host = pvEl('office-image-host');
+            host.style.display = 'none';
+            host.classList.remove('zoomed');
+            const img = pvEl('office-image');
+            img.removeAttribute('src');
+            if (pvImageUrl) { try { URL.revokeObjectURL(pvImageUrl); } catch (_) {} pvImageUrl = ''; }
+        }
+        pvEl('office-image-host').addEventListener('click', function() { this.classList.toggle('zoomed'); });
 
         let pvOpenToken = 0;
         async function pvOpen(url, fileName) {
@@ -2365,6 +2441,8 @@
 
             pvFileName = pvFindFilename(url, fileName).split(/[?#]/)[0];
             pvOfficeExt = ((pvFileName.match(/\.([a-z0-9]+)$/i) || [])[1] || '').toLowerCase();
+            const knownItem = pvFindItem(url);
+            if (knownItem && knownItem.file_ext) pvOfficeExt = String(knownItem.file_ext).toLowerCase();
             const token = ++pvOpenToken;
             // Ask the authenticated endpoint for the real file type. Some older material records
             // have a display title without an extension, so guessing from the title breaks DOCX/PPTX.
@@ -2376,13 +2454,15 @@
                 } catch (e) { console.warn('Could not detect document type from server headers:', e); }
             }
             if (token !== pvOpenToken) return;
-            if (!['pdf', 'docx', 'pptx', 'ppt'].includes(pvOfficeExt)) {
+            if (pvOfficeExt === 'jpeg') pvOfficeExt = 'jpg';
+            if (!['pdf', 'docx', 'pptx', 'ppt'].concat(PV_IMG_EXT).includes(pvOfficeExt)) {
                 pvOfficeExt = 'pdf';
             }
             const viewer = pvEl('pdf-viewer-view');
             viewer.classList.toggle('office-mode', pvOfficeExt !== 'pdf');
             pvEl('office-docx-host').style.display = 'none';
             pvEl('office-pptx-host').style.display = 'none';
+            pvResetImage();
             pvEl('office-message').hidden = true;
             pvEl('office-message').innerHTML = '';
             pvEl('office-docx-host').innerHTML = '';
@@ -2400,6 +2480,7 @@
                 window.Telegram.WebApp.BackButton.show();
             }
             pv.key = 'astu_docpos:' + url;
+            pvEl('pdf-viewer-view').dataset.ref = url;
             paiSetRef(pvOfficeExt === 'pdf' ? url : '');
             if (pvOfficeExt === 'pdf') {
                 loadPdf(finalUrl, own);
@@ -2413,17 +2494,41 @@
             const message = pvEl('office-message');
             stage.scrollTop = 0;
             message.hidden = false;
-            message.textContent = 'Loading ' + (ext === 'docx' ? 'Word document' : 'PowerPoint presentation') + '…';
+            message.textContent = 'Loading…';
             try {
                 const headers = {};
                 if (own && INIT_DATA) headers['X-Telegram-Init-Data'] = INIT_DATA;
                 const response = await fetch(url, { headers: headers });
                 if (!response.ok) {
-                    const err = new Error('Could not load file'); err.status = response.status; throw err;
+                    let serverMsg = '';
+                    try { serverMsg = (await response.json()).error || ''; } catch (_) {}
+                    const err = new Error(serverMsg || 'Could not load file'); err.status = response.status; throw err;
                 }
                 const buffer = await response.arrayBuffer();
-                if (ext === 'docx') {
-                    if (!window.docx || typeof window.docx.renderAsync !== 'function') throw new Error('Word preview library did not load. Check your internet connection.');
+                ext = await pvSniff(buffer, ext);
+                pvOfficeExt = ext;
+                message.textContent = 'Loading ' + (ext === 'docx' ? 'Word document' : ext === 'pptx' ? 'PowerPoint presentation' : 'file') + '…';
+
+                if (ext === 'pdf') {                       // file was really a PDF: hand over to the PDF viewer
+                    pvEl('pdf-viewer-view').classList.remove('office-mode');
+                    message.hidden = true;
+                    paiSetRef(pvEl('pdf-viewer-view').dataset.ref || '');
+                    loadPdf(url, own);
+                    return;
+                }
+                if (PV_IMG_EXT.includes(ext)) {
+                    const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext];
+                    pvImageUrl = URL.createObjectURL(new Blob([buffer], { type: mime }));
+                    pvEl('office-image').src = pvImageUrl;
+                    pvEl('office-image-host').style.display = 'block';
+                    message.hidden = true;
+                } else if (ext === 'docx') {
+                    await pvEnsureLib(function() { return window.JSZip; },
+                        ['https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'], 'Word');
+                    await pvEnsureLib(function() { return window.docx && typeof window.docx.renderAsync === 'function'; },
+                        ['https://cdn.jsdelivr.net/npm/docx-preview@0.3.6/dist/docx-preview.min.js',
+                         'https://unpkg.com/docx-preview@0.3.6/dist/docx-preview.min.js',
+                         'https://cdnjs.cloudflare.com/ajax/libs/docx-preview/0.3.2/docx-preview.min.js'], 'Word');
                     pvEl('office-docx-host').style.display = 'block';
                     message.hidden = true;
                     await window.docx.renderAsync(buffer, pvEl('office-docx-host'), null, {
@@ -2432,7 +2537,11 @@
                         renderEndnotes: true
                     });
                 } else if (ext === 'pptx') {
-                    if (!window.PptxViewJS || !window.PptxViewJS.PPTXViewer) throw new Error('PowerPoint preview library did not load. Check your internet connection.');
+                    await pvEnsureLib(function() { return window.JSZip; },
+                        ['https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'], 'PowerPoint');
+                    await pvEnsureLib(function() { return window.PptxViewJS && window.PptxViewJS.PPTXViewer; },
+                        ['https://cdn.jsdelivr.net/npm/pptxviewjs/dist/PptxViewJS.min.js',
+                         'https://unpkg.com/pptxviewjs/dist/PptxViewJS.min.js'], 'PowerPoint');
                     const canvas = pvEl('office-pptx-canvas');
                     pvEl('office-pptx-host').style.display = 'block';
                     pvOfficeViewer = new window.PptxViewJS.PPTXViewer({ canvas: canvas });
@@ -2444,7 +2553,7 @@
                     pvOfficeUpdateControls();
                 } else {
                     message.hidden = false;
-                    message.innerHTML = '<b>Legacy PowerPoint (.ppt) preview is not supported yet.</b><br><br>You can still use <b>Send to bot chat</b> to download the original file, or open it with Microsoft PowerPoint / LibreOffice.';
+                    message.innerHTML = '<b>This old format (.ppt / .doc) can’t be previewed here.</b><br><br>Tap <b>Send to bot chat</b> to download the original file, then open it with PowerPoint / Word / LibreOffice.';
                 }
             } catch (err) {
                 console.error('Office preview failed:', err);
@@ -2495,6 +2604,7 @@
             pvEl('office-docx-host').style.display = 'none';
             pvEl('office-controls').style.display = 'none';
             pvEl('office-message').hidden = true;
+            pvResetImage();
             pvOfficeViewer = null;
 
             const activeSection = document.querySelector('.section.active');
@@ -2588,10 +2698,10 @@
                     t2.forEach(function(v) { h += card(v, false, ''); });
                 }
             } else {
-                const msg = note === 'no_key' ? 'Video finding is not set up yet. The admin needs to add a YouTube API key (or a Google key).'
+                const msg = note === 'no_key' ? 'No direct match found. Use the YouTube searches below.'
                     : note === 'quota' ? 'The daily YouTube limit was reached. Please try again tomorrow.'
                     : note === 'key' ? 'The YouTube API key is not working. The admin needs to check it.'
-                    : note === 'strict' ? 'No educational video reached even the conceptual-match threshold (70%) for this PDF\'s discipline. Off-topic and entertainment results are always discarded; use the academic searches below.'
+                    : note === 'strict' ? 'I could not find a close lecture for this PDF. Try asking for a specific chapter or topic above, or use the YouTube searches below.'
                     : 'No matching lecture was found for this PDF. Off-topic results were filtered out.';
                 h += '<div class="pai-note">' + esc(msg) + '</div>';
             }
@@ -2662,7 +2772,7 @@
         function pvFail(err) {
             const s = err && err.status;
             const msg = s === 413 ? "This file is over Telegram's 20 MB limit for bots, so it can't be opened here."
-                : s === 415 ? "This file isn't a PDF, so it can't be previewed."
+                : s === 415 ? "This file type can't be previewed. Use “Send to bot chat” to download it."
                 : s === 401 ? "Your session expired. Close and reopen the app, then try again."
                 : "Failed to load the PDF. The link might be invalid or expired.";
             console.error("Error loading PDF:", err);
@@ -2689,7 +2799,17 @@
                 let saved = 0;
                 try { saved = parseInt(localStorage.getItem(pv.key), 10) || 0; } catch (_) {}
                 if (saved > 1 && saved <= doc.numPages) pvGo(saved);
-            }).catch(function(err) { if (pv.task === task) pvFail(err); });
+            }).catch(function(err) {
+                if (pv.task !== task) return;
+                if (err && /InvalidPDF|MissingPDF|Invalid PDF/i.test((err.name || '') + ' ' + (err.message || ''))) {
+                    // Looked like a PDF but isn't (a Word/PowerPoint/image): detect by content and open correctly.
+                    pvEl('pdf-viewer-view').classList.add('office-mode');
+                    paiSetRef('');
+                    loadOfficeFile(url, own, 'auto', pvFileName);
+                    return;
+                }
+                pvFail(err);
+            });
         }
 
         function pvBuild() {
