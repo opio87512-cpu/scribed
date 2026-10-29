@@ -515,5 +515,16 @@
         "last_active": "2026-10-26T07:30:16",
         "active": true,
         "source": "webapp"
+    },
+    "1744070968": {
+        "user_id": "1744070968",
+        "username": "meklit_le",
+        "first_name": "Meklit",
+        "last_name": "",
+        "full_name": "Meklit",
+        "joined_at": "2026-10-29T15:12:47",
+        "last_active": "2026-10-29T15:12:47",
+        "active": true,
+        "source": "bot"
     }
 }
